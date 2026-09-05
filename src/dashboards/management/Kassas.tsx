@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, Ban, Check, ClipboardCopy, Copy, KeyRound, Loader2, MapPin,
-  Monitor, Plus, Power, Receipt, ShieldCheck, Trash2, Vault, X,
+  AlertTriangle, Ban, Check, ClipboardCopy, Copy, Download, KeyRound,
+  Loader2, MapPin, Monitor, Plus, Power, Receipt, ShieldCheck,
+  Trash2, Vault, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import {
@@ -18,6 +19,7 @@ import {
   type PosSafe, type PosSafeMove,
 } from '../../lib/types'
 import { dateTime, duration, money, nogGeldig, relative } from '../../lib/format'
+import { vergelijkVersies } from '../../lib/apkUpdate'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -91,9 +93,44 @@ function KassaBeheer() {
   const stil = apparaten.filter(
     (a) => a.status === 'actief' && (stilte(a) ?? 0) > 3 * 86_400_000).length
 
+  /*
+   * Wie loopt er achter met bijwerken.
+   *
+   * De nieuwste versie die we kennen is de hoogste die een apparaat gemeld
+   * heeft. Dat is met opzet geen vast nummer in de code: dan zou deze lijst
+   * bij elke uitgave opnieuw aangepast moeten worden, en dat gebeurt precies
+   * één keer niet.
+   *
+   * Een apparaat dat helemaal geen versie meldt telt ook mee. Dat doen ze pas
+   * vanaf 0.16.0, dus "onbekend" betekent hier: ouder dan dat.
+   */
+  const achterstand = useMemo(() => {
+    const inGebruik = apparaten.filter((a) => a.status !== 'ingetrokken')
+    const nieuwste = inGebruik.reduce<string | null>(
+      (hoogste, a) => {
+        if (!a.appVersion) return hoogste
+        if (!hoogste) return a.appVersion
+        return vergelijkVersies(a.appVersion, hoogste) > 0 ? a.appVersion : hoogste
+      },
+      null,
+    )
+    if (!nieuwste) return { nieuwste: null, rijen: [] }
+
+    const rijen = inGebruik
+      .filter((a) => !a.appVersion || vergelijkVersies(a.appVersion, nieuwste) < 0)
+      .map((a) => {
+        const kassa = alle.find((r) => r.id === a.registerId)
+        const locatie = locaties.find((l) => l.id === (kassa?.locationId ?? a.locationId))
+        return { apparaat: a, kassa, locatie }
+      })
+      .sort((x, y) => (x.locatie?.name ?? '').localeCompare(y.locatie?.name ?? ''))
+
+    return { nieuwste, rijen }
+  }, [apparaten, alle, locaties])
+
   return (
     <>
-      <div className="grid cols-3 mb">
+      <div className="grid cols-4 mb">
         <Stat label="Kassa's" value={alle.length} icon={<Monitor size={17} />} />
         <Stat label="Apparaten actief" value={actief} icon={<Check size={17} />} tone="ok" />
         <Stat
@@ -102,7 +139,60 @@ function KassaBeheer() {
           icon={<AlertTriangle size={17} />}
           tone={stil ? 'warn' : undefined}
         />
+        <Stat
+          label="Loopt achter"
+          value={achterstand.rijen.length}
+          icon={<Download size={17} />}
+          tone={achterstand.rijen.length ? 'warn' : 'ok'}
+        />
       </div>
+
+      {achterstand.rijen.length > 0 && (
+        <Card
+          title="Werkt zichzelf nog niet bij"
+          hint={`De nieuwste versie die we hier kennen is v${achterstand.nieuwste}`}
+          className="mb"
+          flush
+        >
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Vestiging</th>
+                  <th>Kassa</th>
+                  <th>Versie</th>
+                  <th>Laatst gezien</th>
+                </tr>
+              </thead>
+              <tbody>
+                {achterstand.rijen.map(({ apparaat, kassa, locatie }) => (
+                  <tr key={apparaat.id}>
+                    <td>{locatie?.name ?? '—'}</td>
+                    <td>
+                      <strong>{kassa?.code ?? apparaat.registerId}</strong>
+                      {kassa?.name ? ` · ${kassa.name}` : ''}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap', color: 'var(--warn)' }}>
+                      {apparaat.appVersion ? `v${apparaat.appVersion}` : 'ouder dan 0.16.0'}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {apparaat.lastSeenAt ? relative(apparaat.lastSeenAt) : 'nooit'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="signup-note">
+            <AlertTriangle size={16} />
+            <span>
+              Een kassa werkt zichzelf bij zodra hij opnieuw start. Staat er hier
+              een die al dagen stil is, dan is dat geen updateprobleem maar een
+              apparaat dat uit staat of geen verbinding heeft.
+            </span>
+          </div>
+        </Card>
+      )}
 
       {metKassas.map(({ locatie, kassas }) => (
         <Card
