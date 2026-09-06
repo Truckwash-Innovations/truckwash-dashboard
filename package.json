@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.48.0",
+  "version": "1.49.0",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -78,9 +78,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/truckwashgroup/truckwash-dashboard.git"
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard.git"
   },
-  "homepage": "https://github.com/truckwashgroup/truckwash-dashboard",
+  "homepage": "https://github.com/Truckwash-Innovations/truckwash-dashboard",
   "optionalDependencies": {
     "@img/sharp-win32-x64": "^0.35.4"
   },

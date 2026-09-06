@@ -22,7 +22,7 @@ import { registerPlugin } from '@capacitor/core'
  * ------------------------------------------------------------------ */
 
 /** Waar de releases staan. Publieke repo, dus geen sleutel nodig. */
-const REPO = 'truckwashgroup/truckwash-dashboard'
+const REPO = 'Truckwash-Innovations/truckwash-dashboard'
 
 export interface ApkUpdaterPlugin {
   /** Mag deze app een installatie starten? */

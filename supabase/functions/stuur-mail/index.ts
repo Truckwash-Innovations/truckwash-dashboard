@@ -267,7 +267,7 @@ const isManagement = (b: Beller | null) => !!b?.rollen.includes('management')
  * ------------------------------------------------------------------ */
 
 const APP_LINK = Deno.env.get('APP_LINK') ??
-  'https://github.com/truckwashgroup/truckwash-dashboard/releases/latest'
+  'https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/latest'
 
 function briefAanmelding(naam: string): Brief {
   return {

@@ -33,7 +33,7 @@ const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
 const AFZENDER = Deno.env.get('MAIL_FROM') ??
   'Truckwash1 Group <dashboard@preview.truckwash.cloud>'
 const APP_LINK = Deno.env.get('APP_LINK') ??
-  'https://github.com/truckwashgroup/truckwash-dashboard/releases/latest'
+  'https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/latest'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
