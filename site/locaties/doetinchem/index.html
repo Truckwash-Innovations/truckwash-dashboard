@@ -15,9 +15,7 @@
 <meta property="og:image" content="https://truckwash1group.nl/assets/img/hero.webp">
 <meta name="theme-color" content="#07132e">
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="/assets/fonts/letters.css">
 <link rel="stylesheet" href="/assets/style.css">
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"AutoWash","@id":"https://truckwash1group.nl/locaties/doetinchem/#business","name":"Truckwash 1 Doetinchem","url":"https://truckwash1group.nl/locaties/doetinchem/","telephone":"088-0600 100","email":"doetinchem@truckwash1group.nl","priceRange":"$$","currenciesAccepted":"EUR","paymentAccepted":"Cash, Credit Card, Pin, CargoCard, DKV","address":{"@type":"PostalAddress","streetAddress":"Braamtseweg 10","postalCode":"7007 CK","addressLocality":"Doetinchem","addressCountry":"NL"},"geo":{"@type":"GeoCoordinates","latitude":51.9463034,"longitude":6.2834481},"openingHoursSpecification":[{"@type":"OpeningHoursSpecification","dayOfWeek":"Monday","opens":"08:00","closes":"18:00"},{"@type":"OpeningHoursSpecification","dayOfWeek":"Tuesday","opens":"08:00","closes":"18:00"},{"@type":"OpeningHoursSpecification","dayOfWeek":"Wednesday","opens":"08:00","closes":"18:00"},{"@type":"OpeningHoursSpecification","dayOfWeek":"Thursday","opens":"08:00","closes":"18:00"},{"@type":"OpeningHoursSpecification","dayOfWeek":"Friday","opens":"08:00","closes":"21:00"},{"@type":"OpeningHoursSpecification","dayOfWeek":"Saturday","opens":"08:00","closes":"13:00"}],"parentOrganization":{"@type":"Organization","name":"Truckwash 1 Group","url":"https://truckwash1group.nl/"}}</script>
 </head>
@@ -100,6 +98,7 @@
         <a class="merk" href="/" style="margin-bottom:14px">Truckwash<span class="een">1</span></a>
         <p style="margin:0 0 6px">De standaard in vrachtwagens wassen.<br>18 vestigingen door heel Nederland.</p>
         <p style="margin:14px 0 0"><b style="color:#fff">Correspondentieadres</b><br>Industriestraat 28<br>4715 RL Rucphen</p>
+        
       </div>
       <div><h4>Wassen</h4>
         <a href="/prijzen/">Prijzen</a><a href="/diensten/">Diensten</a>
@@ -107,7 +106,8 @@
         <a href="https://truckshop.nl/" target="_blank" rel="noopener">Webshop &#8599;</a></div>
       <div><h4>Bedrijf</h4>
         <a href="/over-ons/">Over ons</a><a href="/werken-bij/">Werken bij</a><a href="/contact/">Contact</a>
-        <a href="/medewerkers/">Voor medewerkers</a></div>
+        <a href="/medewerkers/">Voor medewerkers</a>
+        <a href="/privacy/">Privacyverklaring</a><a href="/cookies/">Cookies en opslag</a></div>
       <div><h4>Contact</h4>
         <a href="tel:0880600100">088 &ndash; 0600 100</a>
         <a href="mailto:info@truckwash1group.nl">info@truckwash1group.nl</a>
@@ -120,11 +120,17 @@
     <div class="onder">
       <span>&copy; 2026 Truckwash 1 Group</span>
       <span>Alle prijzen exclusief 21% btw</span>
+      <!-- Intrekken moet net zo makkelijk zijn als toestaan; daarom vanaf elke
+           pagina bereikbaar en niet alleen in de balk die je één keer ziet. -->
+      <button type="button" class="tekstknop" data-toestemming>Cookievoorkeuren</button>
     </div>
   </div>
 </footer>
 <script src="/assets/data.js" defer></script>
 <script src="/assets/app.js" defer></script>
-<script src="/assets/trucky.js" defer></script>
+<!-- trucky.js staat hier met opzet NIET. Toestemming haalt hem op zodra de
+     bezoeker hem aanzet, en niet eerder: wat je vraagt gaat naar onze server
+     en naar Claude, en dat is niet nodig om deze site te lezen. -->
+<script src="/assets/toestemming.js" defer></script>
 </body>
 </html>

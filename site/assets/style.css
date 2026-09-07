@@ -702,3 +702,142 @@ main{display:block}
 .trucky-contact textarea{resize:vertical;min-height:64px}
 .trucky-contact button[type=submit]{width:100%;padding:10px}
 .trucky-fout{margin:8px 0 0;font-size:13px;color:#c02718}
+
+
+/* ================= toestemming =================
+   De balk staat boven de onderbalk van de telefoon (--onderbalk) en boven
+   Trucky, maar onder de sprong-naar-de-inhoud-link: wie met tab binnenkomt
+   hoort eerst bij de inhoud te kunnen komen.
+
+   Hij dekt de pagina NIET af. Dat is geen opmaakkeuze maar de kern: wie de
+   balk negeert leest de site gewoon, en er gebeurt dan niets extra's. Een
+   banner die de inhoud gijzelt tot je op ja drukt is geen keuze. */
+
+.toestemming-balk{
+  position:fixed;left:0;right:0;bottom:var(--onderbalk);z-index:96;
+  background:var(--navy-900);color:#dbe4f5;
+  border-top:3px solid var(--geel);
+  box-shadow:0 -10px 34px rgba(7,19,46,.3);
+  font-family:Barlow,-apple-system,'Segoe UI',sans-serif;
+  animation:toestemming-op .3s ease both;
+}
+@media (prefers-reduced-motion:reduce){.toestemming-balk{animation:none}}
+@keyframes toestemming-op{from{transform:translateY(100%)}to{transform:none}}
+
+.toestemming-binnen{
+  max-width:var(--breed);margin:0 auto;padding:18px 24px;
+  display:flex;align-items:center;gap:24px;flex-wrap:wrap;
+}
+.toestemming-tekst{flex:1 1 380px;font-size:15px;line-height:1.6;min-width:0}
+.toestemming-tekst strong{color:#fff}
+.toestemming-tekst a{color:var(--geel);text-decoration:underline}
+
+/* Even groot, even zwaar, naast elkaar. Weigeren staat vooraan en is geen
+   grijze tekstlink: dat verschil is precies wat een banner onwettig maakt. */
+.toestemming-knoppen{display:flex;gap:12px;flex-wrap:wrap}
+.toestemming-knoppen .knop{flex:1 1 auto;justify-content:center;text-align:center}
+
+.toestemming-laag{
+  position:fixed;inset:0;z-index:110;
+  background:rgba(7,19,46,.62);
+  display:grid;place-items:center;padding:20px;
+  overflow-y:auto;
+}
+.toestemming-venster{
+  background:var(--navy-900);color:#c9d5ec;
+  width:min(560px,100%);border-radius:16px;padding:26px 28px;
+  box-shadow:0 24px 60px rgba(7,19,46,.5);
+  font-family:Barlow,-apple-system,'Segoe UI',sans-serif;
+}
+.toestemming-venster h2{
+  font-family:Archivo,sans-serif;color:#fff;font-size:24px;margin:0 0 10px;
+}
+.toestemming-inleiding{font-size:14.5px;line-height:1.6;margin:0 0 18px}
+.toestemming-inleiding a{color:var(--geel);text-decoration:underline}
+.toestemming-venster .toestemming-knoppen{margin-top:20px}
+
+.toestemming-lijst{display:flex;flex-direction:column;gap:10px}
+.toestemming-regel{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:14px 16px;border-radius:12px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  cursor:pointer;
+}
+.toestemming-regel:has(input:disabled){cursor:default;opacity:.75}
+.toestemming-regel input{
+  width:20px;height:20px;flex:none;margin-top:2px;accent-color:var(--geel);cursor:pointer;
+}
+.toestemming-regel input:disabled{cursor:default}
+.toestemming-regel strong{display:block;color:#fff;font-size:15px;margin-bottom:3px}
+.toestemming-regel span span{display:block;font-size:14px;line-height:1.55}
+.toestemming-nadruk{border-color:var(--geel);background:rgba(255,180,0,.1)}
+
+/* Op de verklaringspagina zelf: daar is de achtergrond licht. */
+#toestemming-keuzes .toestemming-regel{
+  background:var(--wit);border-color:var(--lijn);
+}
+#toestemming-keuzes .toestemming-regel strong{color:var(--inkt)}
+#toestemming-keuzes .toestemming-regel span span{color:var(--inkt-2)}
+.toestemming-stand{margin:12px 0 0;font-size:14px;color:var(--inkt-3)}
+
+/* De knop die er staat zolang Trucky uit is. Bewust grijs en met een
+   spreekwolkje in plaats van de mascotte: dit is de uitnodiging, niet de
+   assistent. Zonder deze knop is Trucky onvindbaar voor wie één keer op
+   "alleen noodzakelijk" heeft gedrukt. */
+.trucky-uit .trucky-knop{
+  background:var(--mist);color:var(--inkt-3);
+  box-shadow:0 4px 16px rgba(7,19,46,.18);
+  width:52px;height:52px;
+}
+.trucky-uit .trucky-knop:hover{background:var(--wit);color:var(--navy-700)}
+.trucky-uit .trucky-knop svg{width:26px;height:26px}
+
+@media (max-width:700px){
+  .toestemming-binnen{padding:16px;gap:14px}
+  .toestemming-knoppen{width:100%}
+  .toestemming-knoppen .knop{flex:1 1 0;padding-left:12px;padding-right:12px}
+  .toestemming-venster{padding:20px 18px}
+}
+
+/* ================= lopende tekst in een verklaring =================
+   De gewone h2 op deze site is 46px en in hoofdletters. Dat werkt op een
+   pagina met vier koppen en een foto ertussen; een privacyverklaring heeft er
+   tien en bestaat verder alleen uit zinnen. Dezelfde kop zou de tekst dan
+   wegdrukken in plaats van hem indelen. */
+
+.verklaring h2{
+  font-size:23px;line-height:1.25;text-transform:none;letter-spacing:-.01em;
+  margin:var(--s4) 0 10px;color:var(--inkt);
+}
+.verklaring h2:first-child{margin-top:0}
+.verklaring p{font-size:16.5px;line-height:1.7;color:var(--inkt-2);margin:0 0 14px}
+.verklaring p strong{color:var(--inkt)}
+.verklaring a{color:var(--navy-600);text-decoration:underline}
+.verklaring a:hover{color:var(--navy-500)}
+.verklaring ul{margin:0 0 16px;padding-left:22px;display:flex;flex-direction:column;gap:9px}
+.verklaring li{font-size:16.5px;line-height:1.65;color:var(--inkt-2)}
+.verklaring li strong{color:var(--inkt)}
+.verklaring .tblwrap{margin:0 0 16px}
+.verklaring table{width:100%;border-collapse:collapse;font-size:15px}
+.verklaring th,.verklaring td{
+  text-align:left;padding:10px 14px;border-bottom:1px solid var(--lijn-zacht);
+  vertical-align:top;color:var(--inkt-2);
+}
+.verklaring th{
+  font-family:Archivo,sans-serif;font-size:13px;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--inkt);background:var(--papier);
+}
+.verklaring tr:last-child td{border-bottom:0}
+
+/* Een knop die eruitziet als een link. Voor "Cookievoorkeuren" en voor
+   "je keuze aanpassen" middenin een zin: het is geen navigatie -- er opent
+   iets op de pagina zelf -- dus hoort het geen <a href> te zijn, ook al ziet
+   het er zo uit. */
+.tekstknop{
+  border:0;background:none;padding:0;margin:0;cursor:pointer;
+  font:inherit;color:inherit;text-decoration:underline;
+}
+.voet .onder .tekstknop{color:#a9bbdd}
+.voet .onder .tekstknop:hover{color:var(--geel)}
+.verklaring .tekstknop{color:var(--navy-600)}
+.verklaring .tekstknop:hover{color:var(--navy-500)}
