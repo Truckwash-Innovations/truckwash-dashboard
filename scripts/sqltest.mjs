@@ -191,6 +191,7 @@ await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/
 await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
+await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -253,6 +254,7 @@ await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_k
 await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
+await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 
 
 

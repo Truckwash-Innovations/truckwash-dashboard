@@ -466,6 +466,33 @@ export interface StockMovement {
  */
 export type ExpenseStatus = 'open' | 'eerste_akkoord' | 'goedgekeurd' | 'afgekeurd'
 
+/**
+ * Eén regel uit de historie van een kostenpost (0061).
+ *
+ * Bijna alles hiervan schrijft een trigger in de database. Dat moest wel: er
+ * lopen drie wegen naar een bon -- de app via de wachtrij, de post die een
+ * factuur binnenhaalt, en de lezer die hem invult -- en als ze alle drie
+ * netjes een regel moeten schrijven, doet er op een dag een dat niet.
+ *
+ * Alleen 'notitie' maakt een mens zelf. Dat is ook het enige wat de database
+ * van een mens accepteert, en alleen op eigen naam.
+ */
+export interface ExpenseGebeurtenis {
+  id: string
+  expenseId: string
+  at: number
+  soort: 'aangemaakt' | 'gewijzigd' | 'eerste_akkoord' | 'goedgekeurd'
+       | 'afgekeurd' | 'heropend' | 'notitie' | 'naar_exact'
+  tekst: string
+  /** Bij 'gewijzigd': welk veld, en van wat naar wat. */
+  veld?: string
+  oud?: string
+  nieuw?: string
+  door?: string
+  doorNaam?: string
+  updatedAt: number
+}
+
 export interface Expense {
   id: string
   locationId: string
@@ -564,6 +591,14 @@ export interface Expense {
   indelingBron?: 'geheugen' | 'geraden' | 'handmatig'
 
   updatedAt: number
+
+  /* --- waar hij in Exact terechtkwam (0053) --- */
+
+  /** Het boekingsnummer van Exact. Gevuld = verstuurd, en gaat niet nog eens. */
+  exactId?: string
+  exactAt?: number
+  /** Waarom het niet lukte, als het niet lukte. */
+  exactFout?: string
 
   /* --- de eerste handtekening (0060) --- */
 
@@ -2055,6 +2090,7 @@ export type EntityName =
   | 'hourRequests' | 'trips'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'personnelLoon' | 'documents' | 'mailbox' | 'changeRequests'
+  | 'expenseGebeurtenissen'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'

@@ -3,12 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
-  History, Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
+  History, MessageSquarePlus, Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
 import type {
-  Expense, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
+  Expense, ExpenseGebeurtenis, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
 } from '../../lib/types'
 import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
@@ -64,6 +64,13 @@ export default function Kostenposten() {
   const user = useAuth((s) => s.user)!
   const perms = usePerms()
   const [tab, setTab] = useState<Tab>('open')
+  /*
+   * Zoeken. Eén veld, want dat is hoe mensen zoeken: ze typen wat ze weten.
+   * Een leveranciersnaam, een bedrag, een factuurnummer, een woord uit de
+   * omschrijving. Losse velden per soort zouden nauwkeuriger zijn en trager
+   * in gebruik -- dan moet je eerst kiezen wát je weet.
+   */
+  const [zoek, setZoek] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [afkeuren, setAfkeuren] = useState<Expense | null>(null)
   const [reden, setReden] = useState('')
@@ -74,6 +81,7 @@ export default function Kostenposten() {
   const rijen = useMemo(
     () => alle
       .filter((e) => (tab === 'alles' ? true : e.status === tab))
+      .filter((e) => pastBijZoek(e, zoek))
       .sort((a, b) => b.date - a.date),
     [alle, tab],
   )
@@ -193,6 +201,21 @@ export default function Kostenposten() {
                 <CheckCheck size={14} /> {gekozenRijen.length} goedkeuren
               </button>
             )}
+            <div className="row" style={{ gap: 6 }}>
+              <input
+                className="input"
+                style={{ minWidth: 200 }}
+                value={zoek}
+                onChange={(e) => setZoek(e.target.value)}
+                placeholder="Zoek op leverancier, nummer, bedrag…"
+                aria-label="Zoeken in kostenposten"
+              />
+              {zoek && (
+                <button className="btn ghost sm" onClick={() => setZoek('')} title="Zoekterm wissen">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             {TABS.map((t) => (
               <button
                 key={t.key}
@@ -421,6 +444,7 @@ function BonDetail({
           {fout && <p className="waarschuwing">{fout}</p>}
 
           <Overzicht bon={bon} />
+          <Verloop bon={bon} />
           <Boeking bon={bon} />
           <Historie bon={bon} />
 
@@ -592,6 +616,156 @@ function Historie({ bon }: { bon: Expense }) {
       </div>
     </Card>
   )
+}
+
+/* ---------------------------- Het verloop ------------------------- */
+
+/**
+ * Alles wat er met deze factuur gebeurd is, en een veld om er iets bij te
+ * zetten.
+ *
+ * Het Overzicht hierboven leidt zijn tijdlijn af uit de velden op de bon:
+ * binnengekomen, voorgelezen, goedgekeurd. Dat is de korte versie en die
+ * blijft, want dat is wat je in negen van de tien gevallen wilt zien.
+ *
+ * Dit is de lange. Hij komt uit een tabel die door een trigger wordt
+ * gevuld, en die ziet ook wat het Overzicht niet kan weten: dat iemand het
+ * bedrag heeft gecorrigeerd, dat de rekening is omgezet, wie de eerste
+ * handtekening zette. Precies wat je terug wilt zoeken als een boeking
+ * achteraf niet klopt.
+ */
+function Verloop({ bon }: { bon: Expense }) {
+  const user = useAuth((s) => s.user)!
+  const [tekst, setTekst] = useState('')
+  const [bezig, setBezig] = useState(false)
+
+  const regels = useLiveQuery(
+    () => db.expenseGebeurtenissen.where('expenseId').equals(bon.id).toArray(),
+    [bon.id], [] as ExpenseGebeurtenis[])
+
+  const opVolgorde = useMemo(
+    () => [...regels].sort((a, b) => b.at - a.at), [regels])
+
+  async function schrijf() {
+    const schoon = tekst.trim()
+    if (!schoon) return
+    setBezig(true)
+    try {
+      await expRepo.notitie(bon.id, schoon, { id: user.id, name: user.name })
+      setTekst('')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'De notitie is niet opgeslagen.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Card title="Historie" hint="Alles wat er met deze factuur gebeurd is" className="mb">
+      <Field label="Notitie" help="Voor wat de velden niet vertellen: waarom een bedrag is aangepast, wat er met de leverancier is afgesproken.">
+        <div className="row">
+          <input
+            className="input"
+            style={{ flex: 1 }}
+            value={tekst}
+            onChange={(e) => setTekst(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void schrijf() }}
+            placeholder="Typ een notitie en druk op enter"
+            disabled={bezig}
+          />
+          <button className="btn sm" disabled={bezig || !tekst.trim()} onClick={() => void schrijf()}>
+            <MessageSquarePlus size={14} /> Toevoegen
+          </button>
+        </div>
+      </Field>
+
+      {opVolgorde.length === 0 && (
+        <p className="help" style={{ marginBottom: 0 }}>
+          Nog niets vastgelegd. Vanaf nu wordt elke wijziging aan het bedrag, de rekening,
+          de leverancier en het factuurnummer hier bijgeschreven.
+        </p>
+      )}
+
+      {opVolgorde.length > 0 && (
+        <div className="kosten-loop">
+          {opVolgorde.map((g) => (
+            <div key={g.id} className="kosten-stap">
+              <span className="stip" />
+              <div>
+                <strong>{HISTORIE_KOP[g.soort] ?? g.soort}</strong>{' '}
+                <span className="mono">{dateTime(g.at)}</span>
+                {g.doorNaam
+                  ? <span className="kosten-door"> · {g.doorNaam}</span>
+                  : <span className="kosten-door"> · door het systeem</span>}
+                {g.soort === 'gewijzigd' && (
+                  <div className="ts-sub">
+                    {g.veld}: <span className="mono">{g.oud || '—'}</span>
+                    {' → '}
+                    <span className="mono">{g.nieuw || '—'}</span>
+                  </div>
+                )}
+                {g.soort !== 'gewijzigd' && g.tekst && (
+                  <div className="ts-sub">{g.tekst}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/** Hoe een gebeurtenis heet in het scherm. */
+const HISTORIE_KOP: Record<string, string> = {
+  aangemaakt: 'Aangemaakt',
+  gewijzigd: 'Gewijzigd',
+  eerste_akkoord: 'Eerste akkoord',
+  goedgekeurd: 'Goedgekeurd',
+  afgekeurd: 'Afgekeurd',
+  heropend: 'Heropend',
+  notitie: 'Notitie',
+  naar_exact: 'Naar Exact',
+}
+
+/* ---------------------------- Zoeken ------------------------------ */
+
+/**
+ * Past deze bon bij wat er getypt is?
+ *
+ * Eén veld voor alles, want dat is hoe mensen zoeken: ze typen wat ze weten.
+ * Een naam, een nummer, een bedrag. Losse velden per soort zouden
+ * nauwkeuriger zijn en trager -- dan moet je eerst kiezen wát je weet.
+ *
+ * Meerdere woorden betekent: allemaal moeten voorkomen. Zo werkt "shell
+ * maart" zoals je verwacht, in plaats van alles met "shell" OF "maart".
+ *
+ * Een bedrag zoeken werkt ook: 248,50 en 248.50 vinden allebei dezelfde bon,
+ * want de komma is wat er op een Nederlands toetsenbord uit komt en de punt
+ * is wat er in de database staat.
+ */
+export function pastBijZoek(bon: Expense, term: string): boolean {
+  const t = term.trim().toLowerCase()
+  if (!t) return true
+
+  const hooi = [
+    bon.supplier,
+    bon.description,
+    bon.factuurnummer,
+    bon.grootboekCode,
+    bon.category,
+    bon.attachmentName,
+    bon.submittedByName,
+    bon.approvedByName,
+    bon.eersteDoorNaam,
+    bon.exactId,
+    /* Het bedrag in beide schrijfwijzen, zodat 248,50 en 248.50 allebei
+       werken. */
+    String(bon.amountExcl ?? ''),
+    String(bon.amountExcl ?? '').replace('.', ','),
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  return t.split(/\s+/).every((woord) => hooi.includes(woord))
 }
 
 /* -------------------------- Het overzicht ------------------------- */

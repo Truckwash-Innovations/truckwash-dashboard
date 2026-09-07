@@ -2,7 +2,7 @@ import { db, uid } from './db'
 import { enqueue } from './sync'
 import {
   SERVICES,
-  type AppNotification, type Course, type CourseProgress, type Expense,
+  type AppNotification, type Course, type CourseProgress, type Expense, ExpenseGebeurtenis,
   type ExpenseStatus, type InventoryItem, type NotificationKind, type Permission,
   SHIFT_KINDS,
   type Role, type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
@@ -234,6 +234,30 @@ export const expenses = {
     if (!bestaand) return
     const { gelezen: _weg, ...schoon } = patch
     return put('expenses', db.expenses, { ...bestaand, ...schoon, id })
+  },
+
+  /**
+   * Een notitie bij een factuur.
+   *
+   * De historie zelf schrijft de database; dit is het enige wat een mens er
+   * zelf in zet. Op eigen naam, want de database accepteert het ook alleen
+   * zo -- een regel op naam van een collega maakt de hele historie
+   * waardeloos.
+   */
+  async notitie(expenseId: string, tekst: string, door: Pick<User, 'id' | 'name'>) {
+    const schoon = tekst.trim()
+    if (!schoon) return
+    const rij: ExpenseGebeurtenis = {
+      id: uid('geb'),
+      expenseId,
+      at: Date.now(),
+      soort: 'notitie',
+      tekst: schoon.slice(0, 2000),
+      door: door.id,
+      doorNaam: door.name,
+      updatedAt: Date.now(),
+    }
+    return put('expenseGebeurtenissen', db.expenseGebeurtenissen, rij)
   },
 
   async reopen(id: string) {

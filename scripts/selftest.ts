@@ -5271,5 +5271,53 @@ console.log('\n41. Het dossier valt uiteen')
     (sync.match(/db\.personnelLoon\.clear\(\)/g) ?? []).length === 2)
 }
 
+/* ==================================================================== *
+ *  Zoeken in de kostenposten (0061)
+ *
+ *  Eén veld voor alles, want dat is hoe mensen zoeken: ze typen wat ze
+ *  weten. Wat daarbij makkelijk stukgaat zonder dat je het merkt zijn twee
+ *  dingen -- meerdere woorden, en een bedrag met een komma.
+ * ==================================================================== */
+
+console.log('\n42. Zoeken in de kostenposten')
+
+{
+  const { pastBijZoek } = await import('../src/dashboards/administratie/Kostenposten')
+
+  const bon = {
+    id: 'exp_1',
+    supplier: 'Shell Nederland Verkoopmij B.V.',
+    description: 'Brandstof maart',
+    factuurnummer: '2026-00841',
+    grootboekCode: '4080',
+    amountExcl: 248.5,
+    status: 'open',
+    updatedAt: 0,
+  } as never
+
+  check('leeg zoeken laat alles staan', pastBijZoek(bon, ''))
+  check('op leverancier', pastBijZoek(bon, 'shell'))
+  check('hoofdletters maken niet uit', pastBijZoek(bon, 'SHELL'))
+  check('op factuurnummer', pastBijZoek(bon, '00841'))
+  check('op grootboekcode', pastBijZoek(bon, '4080'))
+
+  /*
+   * Twee woorden betekent: allebei moeten voorkomen. Zou het OF zijn, dan
+   * geeft "shell maart" alles met shell én alles met maart -- en dan is
+   * zoeken op twee woorden erger dan op één.
+   */
+  check('twee woorden moeten allebei voorkomen', pastBijZoek(bon, 'shell maart'))
+  check('en een woord dat er niet is sluit hem uit', !pastBijZoek(bon, 'shell februari'))
+
+  /*
+   * Het bedrag staat als 248.5 in de database en je typt 248,50. Zonder de
+   * tweede schrijfwijze vind je je eigen bon niet.
+   */
+  check('op bedrag met een punt', pastBijZoek(bon, '248.5'))
+  check('en met een komma', pastBijZoek(bon, '248,5'))
+
+  check('wat er niet in staat vindt hij niet', !pastBijZoek(bon, 'enexis'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
