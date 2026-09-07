@@ -2723,10 +2723,25 @@ table.data.matrix th { vertical-align: bottom; }
 /* Het logo blijft staan, maar dan alleen het beeldmerk. */
 .app-shell.smal .logo-vlak { overflow: hidden; }
 
+/*
+ * Op een telefoon verdwijnt de zijbalk helemaal -- daar is de onderbalk voor.
+ *
+ * Hier stond "grid-template-columns: 1fr" en dat is ook wat het weer doet.
+ * Bij het omzetten van 64px naar de variabele is deze regel per ongeluk de
+ * waarde van de brede stand gaan dragen én is de sluitaccolade van de
+ * mediaquery weggevallen. Dat tweede was het ergste: zonder die accolade
+ * loopt de mediaquery door tot het einde van het bestand, en omdat Vite alle
+ * stijlbladen achter elkaar plakt, viel daarmee ook auth.css, rolzoek.css,
+ * trucksupply.css en vestigingen.css erbinnen. Op een scherm breder dan 860
+ * pixels gold dus niets daarvan meer -- het welkomstscherm kwam kaal in
+ * beeld. Eén ontbrekend teken, en de halve opmaak weg.
+ *
+ * npm run selftest telt sinds die dag de accolades van elk stijlblad.
+ */
 @media (max-width: 860px) {
-.app-shell.smal {
-  grid-template-columns: var(--sidebar-width-collapsed) 1fr;
+  .app-shell.smal { grid-template-columns: 1fr; }
 }
+
 /* ------------------------------------------------------------------
    Het logo op een licht vlak
 

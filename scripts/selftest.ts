@@ -5075,5 +5075,54 @@ console.log('\n38. Het personeel van Exact')
     scherm.includes('function leesbaar') && scherm.includes('OData v2 schrijft datums'))
 }
 
+/* ==================================================================== *
+ *  De stijlbladen sluiten zichzelf
+ *
+ *  Eén vergeten accolade, en de halve app staat er kaal bij.
+ *
+ *  Zo ging het in september 2026. Bij het omzetten van 64px naar een
+ *  variabele viel de sluitaccolade van een @media weg. CSS is vergevend: de
+ *  browser klaagt niet, hij sluit het blok bij het einde van het bestand.
+ *  Alles wat erachter stond viel daarmee binnen "max-width: 860px" -- en
+ *  omdat Vite alle stijlbladen achter elkaar plakt, gold dat ook voor
+ *  auth.css, rolzoek.css, trucksupply.css en vestigingen.css. Op een gewoon
+ *  scherm was er dus opeens geen opmaak meer, zonder één foutmelding.
+ *
+ *  De typecontrole ziet dat niet, de zelftest zag het niet, en de bouw
+ *  slaagde gewoon. Vandaar deze telling.
+ *
+ *  Commentaar telt apart mee: een /* dat nooit sluit slikt de rest van het
+ *  bestand op dezelfde stille manier.
+ * ==================================================================== */
+
+console.log('\n39. De stijlbladen sluiten zichzelf')
+
+{
+  const { readFileSync, readdirSync } = await import('node:fs')
+
+  const map = 'src/styles'
+  const bladen = readdirSync(map).filter((n) => n.endsWith('.css')).sort()
+  check('er zijn stijlbladen om na te kijken', bladen.length >= 4, String(bladen.length))
+
+  for (const naam of bladen) {
+    const ruw = readFileSync(`${map}/${naam}`, 'utf8')
+
+    /* Eerst het commentaar zelf: ongelijk aantal openers en sluiters betekent
+       dat er een blok openstaat, en dan klopt de telling hieronder ook niet. */
+    const open = (ruw.match(/\/\*/g) ?? []).length
+    const dicht = (ruw.match(/\*\//g) ?? []).length
+    check(`${naam}: elk commentaar wordt gesloten`, open === dicht,
+      `${open} keer /* tegen ${dicht} keer */`)
+
+    /* En dan de accolades, met het commentaar eruit -- daar staan er ook
+       tussen, en die tellen niet mee. */
+    const zonder = ruw.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    const na = (zonder.match(/\{/g) ?? []).length
+    const uit = (zonder.match(/\}/g) ?? []).length
+    check(`${naam}: elke accolade wordt gesloten`, na === uit,
+      `${na} keer { tegen ${uit} keer }`)
+  }
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
