@@ -190,6 +190,7 @@ await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migra
 await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
+await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -251,6 +252,7 @@ await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_val
 await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
+await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 
 
 
@@ -1784,9 +1786,20 @@ check('en dat bedrag staat er dan ook',
   Number((await bedragVan('exp_uitmail')).amount_excl) === 248.50,
   JSON.stringify(await bedragVan('exp_uitmail')))
 
-check('en hij kan hem goedkeuren',
+/*
+ * Sinds 0060 gaat goedkeuren in twee stappen. Deze twee regels keurden hem in
+ * één keer goed, en dat is nu precies wat de trigger tegenhoudt -- terecht.
+ * De vraag die ze stelden blijft dezelfde: mag het management een bon uit de
+ * mail afhandelen? Alleen doet hij dat nu met twee handtekeningen.
+ */
+check('en hij kan de eerste handtekening zetten',
   await magSchrijven(baas,
-    `update public.expenses set status = 'goedgekeurd' where id = 'exp_uitmail';`))
+    `update public.expenses set status = 'eerste_akkoord', eerste_door = 'baas_een'
+      where id = 'exp_uitmail';`))
+check('en iemand anders tekent hem af',
+  await magSchrijven(baas,
+    `update public.expenses set status = 'goedgekeurd', approved_by = 'baas_twee'
+      where id = 'exp_uitmail';`))
 check('wat er ook echt gebeurt',
   (await bedragVan('exp_uitmail')).status === 'goedgekeurd')
 
@@ -1815,7 +1828,14 @@ check('en een klant komt er helemaal niet in',
 
 /* --- een goedgekeurde bon is niet meer van de indiener --- */
 
-await db.exec(`update public.expenses set status = 'goedgekeurd' where id = 'exp_tom';`)
+/* Twee stappen sinds 0060; deze test gaat over wat er ná goedkeuring niet
+   meer mag veranderen, dus hij moet er wel echt doorheen. */
+await db.exec(`update public.expenses
+                  set status = 'eerste_akkoord', eerste_door = 'u_een'
+                where id = 'exp_tom';`)
+await db.exec(`update public.expenses
+                  set status = 'goedgekeurd', approved_by = 'u_twee'
+                where id = 'exp_tom';`)
 await magSchrijven(wasser,
   `update public.expenses set amount_excl = 500 where id = 'exp_tom';`)
 check('een goedgekeurde bon past de indiener niet meer aan',
@@ -2669,9 +2689,16 @@ check('wie kosten mag goedkeuren ziet ze ook',
 check('en een wasser die hem niet indiende niet',
   (await countAs(wasser, "select count(*)::int as n from public.expenses where id = 'exp_adm'")) === 0)
 
+/* Twee handtekeningen sinds 0060. De vraag blijft: mag de administratie een
+   bon afhandelen? Alleen gaat dat nu in twee stappen. */
+check('de administratie zet de eerste handtekening',
+  await magSchrijven(admin, `update public.expenses
+     set status = 'eerste_akkoord', eerste_door = 'u_ada', eerste_door_naam = 'Ada'
+   where id = 'exp_adm';`))
+
 check('de administratie keurt hem goed',
   await magSchrijven(admin, `update public.expenses
-     set status = 'goedgekeurd', approved_by_name = 'Ada'
+     set status = 'goedgekeurd', approved_by = 'u_bob', approved_by_name = 'Bob'
    where id = 'exp_adm';`))
 
 check('en dat staat er dan ook',
@@ -5306,6 +5333,113 @@ await db.exec(`
   on conflict (id) do nothing;`)
 check('en zonder vestiging valt hij terug op de hoofdadministratie',
   (await db.query(`select public.bon_administratie('exp_bv_2') as a`)).rows[0].a === 'BV1')
+
+/* ==================================================================== *
+ *  Vier ogen (0060)
+ *
+ *  Het scherm kan de knop verbergen voor wie al getekend heeft. Maar de app
+ *  praat rechtstreeks met de database, en een wijziging die via de wachtrij
+ *  binnenkomt heeft geen scherm gezien. De regel hoort dus hier te staan.
+ *
+ *  Twee dingen worden bewaakt: van open recht naar goedgekeurd mag niet, en
+ *  dezelfde persoon mag niet twee keer tekenen. Dat tweede is het hele punt.
+ * ==================================================================== */
+
+console.log('\n44. Vier ogen (0060)')
+
+check('eerste_akkoord is een geldige stand',
+  (await db.query(`
+    select pg_get_constraintdef(oid) as def from pg_constraint
+     where conname = 'expenses_status_check'`)).rows[0]?.def?.includes('eerste_akkoord') === true)
+
+check('en de eerste handtekening wordt bewaard',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'expenses'
+       and column_name in ('eerste_door', 'eerste_door_naam', 'eerste_at')`)).rows[0].n === 3)
+
+check('vier ogen staat standaard aan',
+  (await db.query(`select waarde from public.instellingen where sleutel = 'vier_ogen'`))
+    .rows[0]?.waarde === 'ja')
+
+check('en geldt vanaf nul, dus altijd',
+  (await db.query(`select public.vier_ogen_nodig(0) as n`)).rows[0].n === true)
+
+/* ---- van open recht naar goedgekeurd mag niet ---- */
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_vo_1', public.now_ms(), 'overig', 'Test', 'x', 100, 21, 'open', 'app')
+  on conflict (id) do update set status = 'open', eerste_door = null, approved_by = null;`)
+
+let voDirect = false
+try {
+  await db.exec(`update public.expenses set status = 'goedgekeurd', approved_by = 'u_een'
+                  where id = 'exp_vo_1'`)
+} catch { voDirect = true }
+check('van open recht naar goedgekeurd mag niet', voDirect)
+
+/* ---- eerst een, dan een ander ---- */
+
+await db.exec(`update public.expenses
+                  set status = 'eerste_akkoord', eerste_door = 'u_een', eerste_at = public.now_ms()
+                where id = 'exp_vo_1'`)
+
+let voZelfde = false
+try {
+  await db.exec(`update public.expenses set status = 'goedgekeurd', approved_by = 'u_een'
+                  where id = 'exp_vo_1'`)
+} catch { voZelfde = true }
+check('dezelfde persoon mag niet twee keer tekenen', voZelfde)
+
+let voAnder = true
+try {
+  await db.exec(`update public.expenses set status = 'goedgekeurd', approved_by = 'u_twee'
+                  where id = 'exp_vo_1'`)
+} catch { voAnder = false }
+check('maar iemand anders wel', voAnder)
+
+/* ---- afkeuren blijft één stap ---- */
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_vo_2', public.now_ms(), 'overig', 'Test', 'x', 100, 21, 'open', 'app')
+  on conflict (id) do nothing;`)
+
+let voAf = true
+try {
+  await db.exec(`update public.expenses set status = 'afgekeurd', approved_by = 'u_een'
+                  where id = 'exp_vo_2'`)
+} catch { voAf = false }
+check('afkeuren kan wel in één stap -- tegenhouden kan geen kwaad', voAf)
+
+/* ---- en met vier ogen uit gaat alles zoals vroeger ---- */
+
+await db.exec(`update public.instellingen set waarde = 'nee' where sleutel = 'vier_ogen'`)
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_vo_3', public.now_ms(), 'overig', 'Test', 'x', 100, 21, 'open', 'app')
+  on conflict (id) do nothing;`)
+
+let voUit = true
+try {
+  await db.exec(`update public.expenses set status = 'goedgekeurd', approved_by = 'u_een'
+                  where id = 'exp_vo_3'`)
+} catch { voUit = false }
+check('met vier ogen uit mag het weer in één stap', voUit)
+await db.exec(`update public.instellingen set waarde = 'ja' where sleutel = 'vier_ogen'`)
+
+/* ---- en de drempel ---- */
+
+await db.exec(`update public.instellingen set waarde = '500' where sleutel = 'vier_ogen_vanaf'`)
+check('onder de drempel hoeft het niet',
+  (await db.query(`select public.vier_ogen_nodig(3) as n`)).rows[0].n === false)
+check('en erboven wel',
+  (await db.query(`select public.vier_ogen_nodig(900) as n`)).rows[0].n === true)
+await db.exec(`update public.instellingen set waarde = '0' where sleutel = 'vier_ogen_vanaf'`)
 
 await db.close()
 

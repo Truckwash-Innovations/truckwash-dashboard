@@ -457,7 +457,14 @@ export interface StockMovement {
   at: number
 }
 
-export type ExpenseStatus = 'open' | 'goedgekeurd' | 'afgekeurd'
+/**
+ * De standen van een kostenpost.
+ *
+ * eerste_akkoord kwam er in 0060 bij: één iemand heeft hem nagekeken, en er
+ * moet nog een tweede tekenen. Afkeuren kan in elke stand en door één
+ * iemand -- tegenhouden kan geen kwaad, doorlaten wel.
+ */
+export type ExpenseStatus = 'open' | 'eerste_akkoord' | 'goedgekeurd' | 'afgekeurd'
 
 export interface Expense {
   id: string
@@ -557,6 +564,13 @@ export interface Expense {
   indelingBron?: 'geheugen' | 'geraden' | 'handmatig'
 
   updatedAt: number
+
+  /* --- de eerste handtekening (0060) --- */
+
+  /** Wie hem als eerste nakeek. De tweede moet iemand anders zijn. */
+  eersteDoor?: string
+  eersteDoorNaam?: string
+  eersteAt?: number
 }
 
 /**

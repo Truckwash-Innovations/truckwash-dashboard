@@ -30,6 +30,12 @@ export const SLEUTELS = {
    * APP_LINK op de server: dat is de plek waar je de app OPHAALT.
    */
   appUrl: 'app_url',
+  /*
+   * Vier ogen (0060): moet een factuur langs twee mensen? Staat standaard
+   * aan. Het bedrag eronder is de drempel -- nul betekent altijd.
+   */
+  vierOgen: 'vier_ogen',
+  vierOgenVanaf: 'vier_ogen_vanaf',
   truckyContactAdres: 'trucky_contact_adres',
   inkoopDomein: 'inkoop_domein',
   inkoopVoorvoegsel: 'inkoop_voorvoegsel',

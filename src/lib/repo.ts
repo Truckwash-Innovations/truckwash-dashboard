@@ -135,12 +135,40 @@ export const inventory = {
 
 /* ---------------------------- Kosten ------------------------------ */
 
+/**
+ * Moet deze bon langs twee mensen?
+ *
+ * Dezelfde vraag staat ook in de database (vier_ogen_nodig). Dat is met
+ * opzet dubbel: hier om het scherm te laten kloppen, daar omdat de app
+ * rechtstreeks met de database praat en een wijziging uit de wachtrij geen
+ * scherm heeft gezien. De database is de baas; dit is de beleefdheid.
+ */
+async function vierOgenNodig(bedrag: number): Promise<boolean> {
+  const { SLEUTELS, leesInstelling } = await import('./instellingen')
+  const aan = (await leesInstelling(SLEUTELS.vierOgen, 'ja')).trim().toLowerCase()
+  if (aan !== 'ja') return false
+  const vanaf = Number((await leesInstelling(SLEUTELS.vierOgenVanaf, '0')).replace(',', '.'))
+  return (bedrag ?? 0) >= (Number.isFinite(vanaf) ? vanaf : 0)
+}
+
+
 export const expenses = {
   async create(input: Omit<Expense, 'id' | 'status' | 'updatedAt'>) {
     const exp: Expense = { ...input, id: uid('exp'), status: 'open', updatedAt: Date.now() }
     return put('expenses', db.expenses, exp)
   },
 
+  /**
+   * Goedkeuren of afkeuren.
+   *
+   * Sinds 0060 gaat goedkeuren in twee stappen als vier ogen aanstaat: de
+   * eerste zet hem op eerste_akkoord, een tweede tekent hem af. Wie zelf al
+   * de eerste was, krijgt hier een weigering -- en de database weigert het
+   * ook, want de app praat daar rechtstreeks mee.
+   *
+   * Afkeuren blijft één stap en mag in elke stand. Tegenhouden kan geen
+   * kwaad; doorlaten wel.
+   */
   async decide(
     id: string,
     status: Extract<ExpenseStatus, 'goedgekeurd' | 'afgekeurd'>,
@@ -149,13 +177,47 @@ export const expenses = {
   ) {
     const exp = await db.expenses.get(id)
     if (!exp) return
+
+    if (status === 'afgekeurd') {
+      return put('expenses', db.expenses, {
+        ...exp,
+        status,
+        approvedBy: approver.id,
+        approvedByName: approver.name,
+        approvedAt: Date.now(),
+        rejectReason: reason,
+      })
+    }
+
+    const nodig = await vierOgenNodig(exp.amountExcl)
+
+    /* Nog niemand langs geweest, en vier ogen geldt: dit is de eerste. */
+    if (nodig && exp.status !== 'eerste_akkoord') {
+      return put('expenses', db.expenses, {
+        ...exp,
+        status: 'eerste_akkoord',
+        eersteDoor: approver.id,
+        eersteDoorNaam: approver.name,
+        eersteAt: Date.now(),
+      })
+    }
+
+    /*
+     * De tweede. Dezelfde persoon mag niet twee keer -- dat is het hele punt
+     * van vier ogen, en een nette melding hier is prettiger dan een
+     * databasefout die pas bij het synchroniseren opvalt.
+     */
+    if (nodig && exp.eersteDoor === approver.id) {
+      throw new Error('Je hebt deze factuur zelf al nagekeken. De tweede handtekening moet van iemand anders komen.')
+    }
+
     return put('expenses', db.expenses, {
       ...exp,
-      status,
+      status: 'goedgekeurd',
       approvedBy: approver.id,
       approvedByName: approver.name,
       approvedAt: Date.now(),
-      rejectReason: status === 'afgekeurd' ? reason : undefined,
+      rejectReason: undefined,
     })
   },
 

@@ -317,6 +317,23 @@ export async function vulInVanuitLezing(admin: any, opties: {
   return bij
 }
 
+/**
+ * Staat vier ogen aan voor dit bedrag?
+ *
+ * Dezelfde vraag als vier_ogen_nodig() in de database. Die is de baas -- de
+ * trigger daar houdt het tegen -- maar de functie moet weten wat hij mag
+ * schrijven, anders krijgt hij een afwijzing die niemand ziet.
+ */
+async function vierOgenAan(admin: any, bedrag: number): Promise<boolean> {
+  const { data } = await admin.from('instellingen')
+    .select('sleutel, waarde').in('sleutel', ['vier_ogen', 'vier_ogen_vanaf'])
+  const bij = Object.fromEntries((data ?? []).map((r: { sleutel: string; waarde: string }) =>
+    [r.sleutel, String(r.waarde ?? '').trim()]))
+  if ((bij.vier_ogen ?? 'ja').toLowerCase() !== 'ja') return false
+  const vanaf = Number((bij.vier_ogen_vanaf ?? '0').replace(',', '.'))
+  return (bedrag ?? 0) >= (Number.isFinite(vanaf) ? vanaf : 0)
+}
+
 /* ------------------------------------------------------------------ *
  *  Wat drie keer hetzelfde was
  *
@@ -391,7 +408,16 @@ async function misschienGoedkeuren(admin: any, opties: {
   }
 
   const { error } = await admin.from('expenses').update({
-    status: 'goedgekeurd',
+    /*
+     * Met vier ogen aan (0060) zet een automatische goedkeuring hem op
+     * eerste_akkoord en niet meteen op goedgekeurd. Dat is de eerlijke
+     * vertaling van wat automatisch goedkeuren is: een oordeel op grond van
+     * wat er eerder drie keer gebeurde -- en dat is precies één paar ogen.
+     * Een mens tekent hem af.
+     *
+     * Staat vier ogen uit, dan gaat hij door zoals hij altijd deed.
+     */
+    status: await vierOgenAan(admin, bedrag) ? 'eerste_akkoord' : 'goedgekeurd',
     approved_at: nu(),
     approved_by: null,
     approved_by_name: 'Automatisch',

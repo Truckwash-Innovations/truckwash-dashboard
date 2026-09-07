@@ -45,10 +45,16 @@ import { toast } from '../../store/useToasts'
  *  leeg veld: dat laatste vul je in, het eerste keur je goed.
  * ------------------------------------------------------------------ */
 
-type Tab = 'open' | 'goedgekeurd' | 'afgekeurd' | 'alles'
+type Tab = 'open' | 'eerste_akkoord' | 'goedgekeurd' | 'afgekeurd' | 'alles'
 
+/*
+ * "Wacht op tweede" staat er sinds 0060 tussen. Dat is met opzet een eigen
+ * tabblad en geen randje bij "te valideren": het is werk voor iemand ANDERS
+ * dan wie er al keek, en dat wil je in één oogopslag zien.
+ */
 const TABS: { key: Tab; label: string }[] = [
   { key: 'open', label: 'Te valideren' },
+  { key: 'eerste_akkoord', label: 'Wacht op tweede' },
   { key: 'goedgekeurd', label: 'Goedgekeurd' },
   { key: 'afgekeurd', label: 'Afgekeurd' },
   { key: 'alles', label: 'Alles' },
@@ -85,8 +91,28 @@ export default function Kostenposten() {
   }
 
   async function keurGoed(ids: string[]) {
+    let eerste = 0
+    let tweede = 0
+    const geweigerd: string[] = []
+
     for (const id of ids) {
-      await expRepo.decide(id, 'goedgekeurd', { id: user.id, name: user.name })
+      const voor = alle.find((r) => r.id === id)?.status
+      try {
+        await expRepo.decide(id, 'goedgekeurd', { id: user.id, name: user.name })
+      } catch (e) {
+        /*
+         * De enige verwachte weigering: je hebt hem zelf al nagekeken. Dat
+         * hoort geen ramp te zijn -- bij het goedkeuren van tien bonnen
+         * tegelijk zitten er misschien twee van jezelf tussen, en de andere
+         * acht moeten gewoon doorgaan.
+         */
+        geweigerd.push(e instanceof Error ? e.message : 'geweigerd')
+        continue
+      }
+      const na = (await db.expenses.get(id))?.status
+      if (na === 'eerste_akkoord') eerste++
+      else if (na === 'goedgekeurd') tweede++
+      if (voor === undefined) { /* niets */ }
 
       /*
        * En onthouden hoe deze leverancier geboekt is.
@@ -100,10 +126,23 @@ export default function Kostenposten() {
        * laten mislukken.
        */
       const bon = alle.find((r) => r.id === id)
-      if (bon) void onthoudBoeking(bon)
+      if (bon && (await db.expenses.get(id))?.status === 'goedgekeurd') void onthoudBoeking(bon)
     }
     setSelected(new Set())
-    toast.ok(ids.length === 1 ? 'Kostenpost goedgekeurd' : `${ids.length} kostenposten goedgekeurd`)
+
+    if (tweede > 0) {
+      toast.ok(tweede === 1 ? 'Kostenpost goedgekeurd' : `${tweede} kostenposten goedgekeurd`)
+    }
+    if (eerste > 0) {
+      toast.ok(eerste === 1
+        ? 'Eerste akkoord gegeven. Iemand anders moet hem nog aftekenen.'
+        : `${eerste} keer eerste akkoord. Iemand anders moet ze nog aftekenen.`)
+    }
+    if (geweigerd.length > 0) {
+      toast.warn(geweigerd.length === 1
+        ? geweigerd[0]
+        : `${geweigerd.length} bonnen had je zelf al nagekeken; die moet iemand anders aftekenen.`)
+    }
   }
 
   async function keurAf() {
@@ -243,6 +282,11 @@ export default function Kostenposten() {
                       <td className="num">{money(e.amountExcl + btw)}</td>
                       <td>
                         {e.status === 'open' && <Badge tone="warn">Open</Badge>}
+                        {e.status === 'eerste_akkoord' && (
+                          <Badge tone="warn" dot>
+                            1 van 2{e.eersteDoorNaam ? ` · ${e.eersteDoorNaam}` : ''}
+                          </Badge>
+                        )}
                         {e.status === 'goedgekeurd' && (
                           <Badge tone="ok"><Check size={11} /> {e.approvedByName ?? 'Akkoord'}</Badge>
                         )}
@@ -536,6 +580,7 @@ function Historie({ bon }: { bon: Expense }) {
                 <td className="afgekapt">{rekeningNaam(e.grootboekCode, rekeningen) || '—'}</td>
                 <td className="num">{e.amountExcl > 0 ? money(e.amountExcl) : '—'}</td>
                 <td>
+                  {e.status === 'eerste_akkoord' && <Badge tone="warn">1 van 2</Badge>}
                   {e.status === 'goedgekeurd' && <Badge tone="ok">akkoord</Badge>}
                   {e.status === 'afgekeurd' && <Badge tone="danger">afgekeurd</Badge>}
                   {e.status === 'open' && <Badge>open</Badge>}
