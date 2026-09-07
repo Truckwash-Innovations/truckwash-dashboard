@@ -8,8 +8,9 @@
  * één plek waar alleen de server bij kan: exact_koppeling (0048), RLS aan,
  * geen enkele policy, alleen de servicesleutel.
  *
- * Deze functie doet vier dingen en niets meer:
+ * Deze functie doet vijf dingen en niets meer:
  *
+ *   instellen     de sleutels van de Exact-app zetten (alleen ontwikkeling)
  *   verbind-url   een link naar Exact maken, met een state die we onthouden
  *   terug         Exact komt terug met code en state: eerst de state, dan pas iets schrijven
  *   status        is er een koppeling, welke administratie, tot wanneer
@@ -22,22 +23,39 @@
  * NOOIT kaal deployen: de terugkeer van Exact is een gewone GET uit een
  * browser zonder token, en die weigert Supabase zodra verify_jwt aan staat.
  *
+ * Waar de sleutels vandaan komen (sinds 0052)
+ * -------------------------------------------
+ *
+ * Eerst uit exact_koppeling, gezet vanuit het ontwikkelaarsscherm. Staan ze
+ * daar niet, dan uit de omgeving -- dat was de enige weg en blijft werken.
+ *
+ * De reden voor die verhuizing is dat een proefaccount van Exact iets is dat
+ * je uitprobeert. Elke poging via "supabase secrets set" plus opnieuw
+ * uitrollen maakt van vijf minuten zoeken een halve middag.
+ *
+ * Id en geheim worden als PAAR gepakt, nooit half om half. Een nieuw id uit
+ * de database naast een oud geheim uit de omgeving levert een foutmelding
+ * van Exact op die nergens naar wijst.
+ *
  * Nodig op de server:
- *   EXACT_CLIENT_ID / EXACT_CLIENT_SECRET   uit het Exact App Center
- *   EXACT_REDIRECT_URI   optioneel; standaard <SUPABASE_URL>/functions/v1/exact
- *                        Moet letterlijk overeenkomen met wat bij Exact staat.
  *   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY  zet Supabase zelf klaar
+ *   EXACT_CLIENT_ID / EXACT_CLIENT_SECRET     optioneel, als terugval
+ *   EXACT_REDIRECT_URI                        optioneel; standaard
+ *                        <SUPABASE_URL>/functions/v1/exact. Moet letterlijk
+ *                        overeenkomen met wat bij Exact staat.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const CLIENT_ID = Deno.env.get('EXACT_CLIENT_ID') ?? ''
-const CLIENT_SECRET = Deno.env.get('EXACT_CLIENT_SECRET') ?? ''
-const REDIRECT_URI = Deno.env.get('EXACT_REDIRECT_URI') ?? `${SUPABASE_URL}/functions/v1/exact`
+/* De omgeving is sinds 0052 de terugval, niet meer de bron. */
+const ENV_CLIENT_ID = (Deno.env.get('EXACT_CLIENT_ID') ?? '').trim()
+const ENV_CLIENT_SECRET = (Deno.env.get('EXACT_CLIENT_SECRET') ?? '').trim()
+const ENV_REDIRECT_URI = (Deno.env.get('EXACT_REDIRECT_URI') ?? '').trim()
 
-const EXACT = 'https://start.exactonline.nl'
+const STANDAARD_BASIS = 'https://start.exactonline.nl'
+const STANDAARD_REDIRECT = `${SUPABASE_URL}/functions/v1/exact`
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -93,6 +111,15 @@ interface Koppeling {
   laatste_fout: string | null
   state: string | null
   state_at: number | null
+  /* De sleutels van de Exact-app, sinds 0052 hier en niet meer alleen in
+     de omgeving. Leeg = terugvallen op wat er op de server staat. */
+  client_id: string | null
+  client_geheim: string | null
+  basis_url: string | null
+  redirect_uri: string | null
+  omgeving: string | null
+  sleutels_door: string | null
+  sleutels_at: number | null
 }
 
 /* Hoe lang een uitgegeven state geldig blijft. Inloggen bij Exact duurt een
@@ -112,14 +139,117 @@ async function bewaar(velden: Partial<Koppeling>) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Waar praat deze functie mee
+ *
+ *  Naar dit adres gaat straks het clientgeheim toe, samen met de code die
+ *  Exact heeft teruggestuurd. Dat maakt het adres geen instelling maar een
+ *  beveiligingskeuze: wie het mag zetten, mag anders in één handeling de
+ *  sleutels van de boekhouding naar zijn eigen server laten sturen -- en er
+ *  zou geen foutmelding komen, want zijn server antwoordt gewoon.
+ *
+ *  Daarom een lijst met wat Exact zelf is. Draait jullie proefomgeving op
+ *  een adres dat hier niet bij staat, dan hoort dat een bewuste toevoeging
+ *  te zijn en geen veld dat iemand invult.
+ * ------------------------------------------------------------------ */
+
+const EXACT_DOMEINEN = [
+  'exactonline.nl', 'exactonline.be', 'exactonline.de',
+  'exactonline.co.uk', 'exactonline.fr', 'exactonline.es',
+  'exactonline.com',
+]
+
+/** Het adres, of null als het geen Exact is. Pad en querystring vallen weg. */
+function schoonBasis(ruw: string): string | null {
+  let u: URL
+  try {
+    u = new URL(ruw.trim())
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:') return null
+  const host = u.hostname.toLowerCase()
+  const bekend = EXACT_DOMEINEN.some((d) => host === d || host.endsWith('.' + d))
+  return bekend ? `${u.protocol}//${u.host}` : null
+}
+
+/** Het terugkeeradres. Naar onszelf, dus alleen https en zonder anker. */
+function schoonRedirect(ruw: string): string | null {
+  let u: URL
+  try {
+    u = new URL(ruw.trim())
+  } catch {
+    return null
+  }
+  if (u.protocol !== 'https:' || u.hash) return null
+  return u.toString()
+}
+
+interface Sleutels {
+  clientId: string
+  geheim: string
+  basis: string
+  redirect: string
+  omgeving: 'proef' | 'echt'
+  /** Waar het paar id+geheim vandaan komt; alleen om te tonen. */
+  bron: 'database' | 'omgeving' | 'geen'
+}
+
+/*
+ * Het paar id+geheim komt uit één bron, nooit half om half. Een id uit de
+ * database naast een geheim uit de omgeving geeft "invalid_client" terug, en
+ * dat is een foutmelding die naar de verkeerde kant wijst: de sleutels lijken
+ * dan fout terwijl alleen de herkomst niet klopte.
+ *
+ * Adres en terugkeeradres staan daar los van: die mogen wel per stuk uit de
+ * database komen, want ze horen niet bij elkaar en zijn geen geheim.
+ */
+function sleutelsVan(k: Koppeling | null): Sleutels {
+  const dbId = (k?.client_id ?? '').trim()
+  const dbGeheim = (k?.client_geheim ?? '').trim()
+  const uitDb = Boolean(dbId && dbGeheim)
+
+  const clientId = uitDb ? dbId : ENV_CLIENT_ID
+  const geheim = uitDb ? dbGeheim : ENV_CLIENT_SECRET
+
+  return {
+    clientId,
+    geheim,
+    basis: schoonBasis(k?.basis_url ?? '') ?? STANDAARD_BASIS,
+    /* ?? en || door elkaar: schoonRedirect geeft null bij afkeuren, maar een
+       niet-gezet EXACT_REDIRECT_URI is een lege string en die moet ook door
+       naar de standaard. */
+    redirect: schoonRedirect(k?.redirect_uri ?? '') ?? (ENV_REDIRECT_URI || STANDAARD_REDIRECT),
+    omgeving: k?.omgeving === 'echt' ? 'echt' : 'proef',
+    bron: uitDb ? 'database' : (clientId && geheim ? 'omgeving' : 'geen'),
+  }
+}
+
+/* ------------------------------------------------------------------ *
  *  Wie belt hier
  *
  *  Voor de POST-acties. Rollen kent de database niet (permissions.ts), dus
  *  hier het rijtje dat bij supply.settings hoort: trucksupply heeft dat
  *  recht standaard, management altijd, en verder wie het los kreeg.
+ *
+ *  Sinds 0052 twee niveaus, want de sleutels zetten is iets anders dan
+ *  koppelen. Koppelen doet trucksupply zelf. De sleutels van de Exact-app
+ *  zijn de toegang tot de boekhouding en horen bij ontwikkeling en
+ *  management -- ook al staat het scherm ervoor bij ontwikkeling, want
+ *  ontwikkeling heeft supply.settings niet en zou er anders niet in komen.
+ *
+ *  Die tweede controle staat op de rol en niet op een recht uit
+ *  permissions.ts. Dat bestand deelt de kassa-repo mee; er een recht bij
+ *  verzinnen is een wijziging aan twee projecten voor één scherm.
  * ------------------------------------------------------------------ */
 
-async function wieBelt(req: Request): Promise<{ id: string; naam: string } | null> {
+interface Beller {
+  id: string
+  naam: string
+  /** Mag de sleutels van de Exact-app zien en zetten. */
+  magSleutels: boolean
+}
+
+async function wieBelt(req: Request): Promise<Beller | null> {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   if (!token || token === (Deno.env.get('SUPABASE_ANON_KEY') ?? '')) return null
 
@@ -137,11 +267,17 @@ async function wieBelt(req: Request): Promise<{ id: string; naam: string } | nul
   const toegekend = (profiel.grants ?? []) as string[]
   const ingetrokken = (profiel.revokes ?? []) as string[]
 
-  const mag = !ingetrokken.includes('supply.settings')
-    && (rollen.includes('trucksupply') || rollen.includes('management')
-      || toegekend.includes('supply.settings'))
+  const magSleutels = rollen.includes('developer') || rollen.includes('management')
 
-  return mag ? { id: profiel.id as string, naam: (profiel.name ?? '') as string } : null
+  const mag = magSleutels || (!ingetrokken.includes('supply.settings')
+    && (rollen.includes('trucksupply') || toegekend.includes('supply.settings')))
+
+  if (!mag) return null
+  return {
+    id: profiel.id as string,
+    naam: (profiel.name ?? '') as string,
+    magSleutels,
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -190,20 +326,29 @@ async function terug(url: URL): Promise<Response> {
       'Exact heeft de koppeling niet toegestaan. Je kunt dit venster sluiten en het in het dashboard opnieuw proberen.')
   }
 
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    await bewaar({ state: null, state_at: null, laatste_fout: 'EXACT_CLIENT_ID of EXACT_CLIENT_SECRET ontbreekt op de server' })
-    return pagina('Niet gekoppeld', 'De server mist de Exact-sleutels. Zet EXACT_CLIENT_ID en EXACT_CLIENT_SECRET.', 500)
+  /*
+   * Dezelfde sleutels als waarmee de link is gemaakt. Ze komen uit dezelfde
+   * rij die hierboven al gelezen is, dus wie halverwege een koppelpoging de
+   * sleutels omzet, krijgt hier een nette afwijzing van Exact in plaats van
+   * een koppeling met een half stel.
+   */
+  const sleutels = sleutelsVan(huidig)
+
+  if (!sleutels.clientId || !sleutels.geheim) {
+    await bewaar({ state: null, state_at: null, laatste_fout: 'Client-id of clientgeheim van Exact ontbreekt' })
+    return pagina('Niet gekoppeld',
+      'De sleutels van de Exact-app ontbreken. Zet ze in het dashboard bij Ontwikkeling, Exact.', 500)
   }
 
-  const res = await fetch(`${EXACT}/api/oauth2/token`, {
+  const res = await fetch(`${sleutels.basis}/api/oauth2/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({
       code,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: sleutels.redirect,
       grant_type: 'authorization_code',
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: sleutels.clientId,
+      client_secret: sleutels.geheim,
     }),
   })
 
@@ -229,7 +374,7 @@ async function terug(url: URL): Promise<Response> {
     const { data } = await admin.from('instellingen').select('waarde').eq('sleutel', 'exact_division').maybeSingle()
     division = String(data?.waarde ?? '').trim() || null
     if (!division) {
-      const me = await fetch(`${EXACT}/api/v1/current/Me?$select=CurrentDivision`, {
+      const me = await fetch(`${sleutels.basis}/api/v1/current/Me?$select=CurrentDivision`, {
         headers: { Authorization: `Bearer ${antwoord.access_token}`, Accept: 'application/json' },
       })
       if (me.ok) {
@@ -257,6 +402,177 @@ async function terug(url: URL): Promise<Response> {
   })
 
   return pagina('Gekoppeld', 'Exact Online is gekoppeld. Je kunt dit venster sluiten.')
+}
+
+/* ------------------------------------------------------------------ *
+ *  De stand
+ *
+ *  Wat het scherm nodig heeft om te tonen wat er staat. Het clientgeheim
+ *  komt er nooit uit -- alleen of het gezet is en de laatste vier tekens,
+ *  genoeg om te zien of het het geheim is dat je dacht te plakken, te weinig
+ *  om er iets mee te doen.
+ *
+ *  Twee lagen, en dat is met opzet
+ *  -------------------------------
+ *
+ *  "opgeslagen" is wat er letterlijk in de rij staat: dat hoort in de velden
+ *  van het formulier, zodat wat je typte terugkomt zoals je het typte. De
+ *  rest is wat hij op dit moment zou GEBRUIKEN, en dat kan iets anders zijn.
+ *
+ *  Dat verschil is precies het geval waar je anders op stukloopt: sla je het
+ *  client-id op en het geheim nog niet, dan pakt sleutelsVan() het paar uit
+ *  de omgeving, want half om half mag niet. Zonder deze twee lagen zou het
+ *  scherm dan het oude id uit de omgeving tonen alsof jouw nieuwe id was
+ *  opgeslagen -- en dat is een half uur zoeken naar niets.
+ * ------------------------------------------------------------------ */
+
+async function stand(beller: Beller) {
+  const k = await koppeling()
+  const sleutels = sleutelsVan(k)
+  const geheim = sleutels.geheim
+
+  const basis = {
+    verbonden: Boolean(k?.refresh_token) && k?.status === 'verbonden',
+    division: k?.division ?? null,
+    verlooptAt: k?.token_verloopt_at ?? null,
+    verbondenAt: k?.verbonden_at ?? null,
+    verbondenDoor: k?.verbonden_door ?? null,
+    laatsteFout: k?.laatste_fout ?? null,
+    ingesteld: Boolean(sleutels.clientId && geheim),
+    omgeving: sleutels.omgeving,
+  }
+
+  /* Wie de sleutels niet mag zetten, hoeft ze ook niet te zien staan. */
+  if (!beller.magSleutels) return basis
+
+  return {
+    ...basis,
+
+    /* Wat er in de rij staat -- voor de velden van het formulier. */
+    opgeslagen: {
+      clientId: (k?.client_id ?? '').trim(),
+      geheimGezet: Boolean((k?.client_geheim ?? '').trim()),
+      basisUrl: (k?.basis_url ?? '').trim(),
+      redirectUri: (k?.redirect_uri ?? '').trim(),
+      omgeving: k?.omgeving === 'echt' ? 'echt' : 'proef',
+    },
+
+    /* Wat hij nu zou gebruiken -- voor het statusblok. */
+    clientId: sleutels.clientId,
+    geheimGezet: Boolean(geheim),
+    geheimStaart: geheim ? geheim.slice(-4) : null,
+    basisUrl: sleutels.basis,
+    redirectUri: sleutels.redirect,
+    bron: sleutels.bron,
+
+    sleutelsDoor: k?.sleutels_door ?? null,
+    sleutelsAt: k?.sleutels_at ?? null,
+    /* Waar de terugkeer standaard heen gaat. Dit moet letterlijk in het
+       Exact App Center staan; het scherm laat het zien om te kopieren. */
+    standaardRedirect: STANDAARD_REDIRECT,
+    domeinen: EXACT_DOMEINEN,
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  De sleutels zetten
+ *
+ *  Een ding waar het op staat: zodra het id, het geheim of het adres
+ *  verandert, gaan de tokens weg. Ze horen bij de app en de administratie
+ *  waarmee ze zijn opgehaald. Blijven ze staan bij een omzetting van proef
+ *  naar echt, dan wijst het scherm "gekoppeld" aan terwijl er straks met een
+ *  token van het proefaccount in de echte boekhouding geboekt zou worden --
+ *  of andersom, wat erger is.
+ * ------------------------------------------------------------------ */
+
+async function instellen(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const huidig = await koppeling()
+  const velden: Partial<Koppeling> = {}
+
+  /* Het id. Leeg mag: dan valt hij terug op de omgeving. */
+  if ('clientId' in body) {
+    const v = String(body.clientId ?? '').trim().slice(0, 200)
+    velden.client_id = v || null
+  }
+
+  /*
+   * Het geheim. Niet meesturen betekent "laat staan" -- anders zou het
+   * scherm het geheim moeten kennen om het adres te kunnen wijzigen, en dan
+   * moest het geheim eerst naar de browser toe.
+   */
+  if (body.geheimWissen === true) {
+    velden.client_geheim = null
+  } else if (typeof body.geheim === 'string' && body.geheim.trim()) {
+    velden.client_geheim = body.geheim.trim().slice(0, 400)
+  }
+
+  if ('basis' in body) {
+    const ruw = String(body.basis ?? '').trim().slice(0, 500)
+    if (!ruw) {
+      velden.basis_url = null
+    } else {
+      const schoon = schoonBasis(ruw)
+      if (!schoon) {
+        return json({
+          ok: false,
+          reden: `Dat adres herkent hij niet als Exact. Het moet https zijn op een van: ${EXACT_DOMEINEN.join(', ')}.`,
+        }, 400)
+      }
+      velden.basis_url = schoon
+    }
+  }
+
+  if ('redirect' in body) {
+    const ruw = String(body.redirect ?? '').trim().slice(0, 500)
+    if (!ruw) {
+      velden.redirect_uri = null
+    } else {
+      const schoon = schoonRedirect(ruw)
+      if (!schoon) {
+        return json({ ok: false, reden: 'Het terugkeeradres moet een https-adres zijn zonder anker.' }, 400)
+      }
+      velden.redirect_uri = schoon
+    }
+  }
+
+  if ('omgeving' in body) {
+    velden.omgeving = body.omgeving === 'echt' ? 'echt' : 'proef'
+  }
+
+  if (Object.keys(velden).length === 0) {
+    return json({ ok: false, reden: 'Er is niets meegestuurd om te wijzigen.' }, 400)
+  }
+
+  /*
+   * Is er iets veranderd waar de tokens aan hangen? De omgeving staat er
+   * bewust bij: die verandert alleen als je van proef naar echt gaat, en dan
+   * is opnieuw koppelen precies wat er moet gebeuren.
+   */
+  const raaktTokens = (['client_id', 'client_geheim', 'basis_url', 'omgeving'] as const)
+    .some((v) => v in velden && (velden[v] ?? null) !== (huidig?.[v] ?? null))
+
+  const wasGekoppeld = Boolean(huidig?.refresh_token)
+
+  if (raaktTokens && wasGekoppeld) {
+    velden.access_token = null
+    velden.refresh_token = null
+    velden.token_verloopt_at = null
+    velden.status = 'los'
+    velden.state = null
+    velden.state_at = null
+    velden.laatste_fout = 'De sleutels zijn gewijzigd; opnieuw koppelen met Exact.'
+  }
+
+  velden.sleutels_door = beller.naam || beller.id
+  velden.sleutels_at = Date.now()
+
+  await bewaar(velden)
+
+  return json({
+    ok: true,
+    losgekoppeld: raaktTokens && wasGekoppeld,
+    ...await stand(beller),
+  })
 }
 
 /* ------------------------------------------------------------------ */
@@ -295,30 +611,28 @@ Deno.serve(async (req) => {
 
   try {
     if (actie === 'status') {
-      const k = await koppeling()
-      return json({
-        ok: true,
-        verbonden: Boolean(k?.refresh_token) && k?.status === 'verbonden',
-        division: k?.division ?? null,
-        verlooptAt: k?.token_verloopt_at ?? null,
-        verbondenAt: k?.verbonden_at ?? null,
-        verbondenDoor: k?.verbonden_door ?? null,
-        laatsteFout: k?.laatste_fout ?? null,
-        ingesteld: Boolean(CLIENT_ID && CLIENT_SECRET),
-      })
+      return json({ ok: true, ...await stand(beller) })
+    }
+
+    if (actie === 'instellen') {
+      if (!beller.magSleutels) {
+        return json({ ok: false, reden: 'Alleen ontwikkeling en management mogen de sleutels zetten.' }, 403)
+      }
+      return await instellen(body, beller)
     }
 
     if (actie === 'verbind-url') {
-      if (!CLIENT_ID) {
-        return json({ ok: false, reden: 'EXACT_CLIENT_ID staat niet op de server.' }, 500)
+      const sleutels = sleutelsVan(await koppeling())
+      if (!sleutels.clientId) {
+        return json({ ok: false, reden: 'Er staat nog geen client-id van Exact. Zet die eerst bij Ontwikkeling, Exact.' }, 400)
       }
       /* Een nieuwe state per poging; de vorige vervalt daarmee. */
       const state = crypto.randomUUID()
       await bewaar({ state, state_at: Date.now(), verbonden_door: beller.naam || beller.id, laatste_fout: null })
 
-      const link = new URL(`${EXACT}/api/oauth2/auth`)
-      link.searchParams.set('client_id', CLIENT_ID)
-      link.searchParams.set('redirect_uri', REDIRECT_URI)
+      const link = new URL(`${sleutels.basis}/api/oauth2/auth`)
+      link.searchParams.set('client_id', sleutels.clientId)
+      link.searchParams.set('redirect_uri', sleutels.redirect)
       link.searchParams.set('response_type', 'code')
       link.searchParams.set('state', state)
       /* Altijd opnieuw inloggen bij Exact: dit is de boekhouding, en de

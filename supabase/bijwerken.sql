@@ -6390,3 +6390,77 @@ comment on table public.ai_opdrachten is
   'functie legt er een opdracht in en wacht op het antwoord; het programma in '
   'lezer/ haalt hem op via de functie lezer. Rijen worden na afhandeling '
   'weggegooid.';
+
+
+-- ===========================================================================
+--  De Exact-sleutels horen niet in de omgeving  (0052)
+--
+--  Het client-id en het clientgeheim van de Exact-app stonden als geheim op
+--  de server. Ze staan nu in exact_koppeling, te zetten in het dashboard bij
+--  Ontwikkeling -> Exact. Die tabel heeft RLS aan zonder policies: alleen de
+--  Edge Function komt erbij, en het geheim gaat nooit mee in de
+--  synchronisatie. Wat op de server staat blijft werken als terugval.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Wat erbij komt
+-- ---------------------------------------------------------------------------
+
+alter table public.exact_koppeling add column if not exists client_id      text;
+alter table public.exact_koppeling add column if not exists client_geheim  text;
+alter table public.exact_koppeling add column if not exists basis_url      text;
+alter table public.exact_koppeling add column if not exists redirect_uri   text;
+alter table public.exact_koppeling add column if not exists omgeving       text;
+
+/* Wie de sleutels heeft gezet, en wanneer. Niet om iemand aan te wijzen maar
+   om te kunnen zien of de sleutels van vandaag zijn of van drie maanden
+   terug -- bij "het werkt ineens niet meer" is dat de eerste vraag. */
+alter table public.exact_koppeling add column if not exists sleutels_door  text;
+alter table public.exact_koppeling add column if not exists sleutels_at    bigint;
+
+do $$
+begin
+  alter table public.exact_koppeling drop constraint if exists exact_koppeling_omgeving_check;
+  alter table public.exact_koppeling add constraint exact_koppeling_omgeving_check
+    check (omgeving is null or omgeving in ('proef', 'echt'));
+exception when others then
+  raise notice 'omgeving-controle niet gezet: %', sqlerrm;
+end $$;
+
+comment on column public.exact_koppeling.client_geheim is
+  'Het clientgeheim van de Exact-app. Staat hier en niet in instellingen: '
+  'instellingen synchroniseert mee naar elk apparaat, deze tabel niet (0052).';
+
+comment on column public.exact_koppeling.omgeving is
+  '"proef" voor een dev-account van Exact, "echt" voor de administratie waar '
+  'de boekhouding in staat. Alleen om het in het dashboard te kunnen tonen; '
+  'de koppeling zelf werkt hetzelfde (0052).';
+
+comment on column public.exact_koppeling.basis_url is
+  'Het adres van Exact, bijvoorbeeld https://start.exactonline.nl. Leeg = '
+  'wat er in de Edge Function als standaard staat. Welke adressen zijn '
+  'toegestaan bepaalt die functie, niet deze tabel: hier langs is niet de '
+  'enige weg naar binnen (0052).';
+
+-- ---------------------------------------------------------------------------
+--  De rij moet bestaan
+--
+--  De functie doet een upsert en redt zich ook zonder, maar een lege rij die
+--  er al staat maakt het scherm eerlijker: "nog niets ingesteld" in plaats
+--  van "geen koppeling gevonden".
+-- ---------------------------------------------------------------------------
+
+insert into public.exact_koppeling (id, status, omgeving)
+values ('exact', 'los', 'proef')
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Geen policy. Met opzet.
+--
+--  RLS staat aan op deze tabel en er hoort er nooit een bij te komen. Wie de
+--  sleutels wil zien of zetten gaat langs de Edge Function, die kijkt wie er
+--  belt. Een policy hier zou betekenen dat het clientgeheim in de gewone
+--  synchronisatie terecht kan komen.
+-- ---------------------------------------------------------------------------

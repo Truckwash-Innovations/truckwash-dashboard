@@ -1,8 +1,8 @@
 import {
-  AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, FolderLock,
-  GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Mail, MessageSquare, Package,
+  AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
+  GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
-  Timer, Truck, Users, Wrench,
+  Timer, Truck, Users, Wallet, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -102,6 +102,8 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   meekijken:    ['developer'],
   systeem:      ['developer'],
   inkoop:       ['developer'],
+  eigenai:      ['developer'],
+  exact:        ['developer'],
   post:         ['developer'],
 }
 
@@ -204,6 +206,11 @@ export const SCHERMEN: Scherm[] = [
   { page: 'meekijken',  label: 'Meekijken',    hint: 'Alles wat er nu gebeurt',         icon: Radio,           recht: 'dev.logs', ook: ['live', 'monitor'] },
   { page: 'post',       label: 'Post',         hint: 'Wat er via Resend is verstuurd',  icon: Mail,            recht: 'dev.logs', ook: ['mail', 'email', 'resend'] },
   { page: 'systeem',    label: 'Systeem',      hint: 'Versies, verbinding en opslag',   icon: Server,          recht: 'dev.logs' },
+  /* De drie schermen bij ontwikkeling die er wel waren maar niet in deze
+     lijst stonden, en dus met geen mogelijkheid te vinden waren. */
+  { page: 'inkoop',     label: 'Inkoop',       hint: 'Waar facturen binnenkomen en hoe ze zichzelf indelen', icon: Wallet, recht: 'dev.logs', ook: ['facturen', 'grootboek', 'boeken', 'kostenplaats', 'tags'] },
+  { page: 'eigenai',    label: 'Eigen AI',     hint: 'Bij Claude of op de eigen machine', icon: Cpu,            recht: 'dev.logs', ook: ['ollama', 'lokaal', 'model', 'claude', 'lezer'] },
+  { page: 'exact',      label: 'Exact-koppeling', hint: 'De sleutels van de Exact-app en de koppeling', icon: Link2, recht: 'dev.logs', ook: ['exact', 'boekhouding', 'oauth', 'sleutels', 'client', 'blue10'] },
   { page: 'beheer',     label: 'Beheer',       hint: 'Vestigingen, klanten, instellingen', icon: Settings,     recht: 'admin.settings', ook: ['locaties', 'instellingen'] },
   { page: 'postbus',    label: 'Postbus',      hint: 'Wat er binnenkomt op het mailadres', icon: Inbox,        recht: 'mail.read', ook: ['post', 'mail', 'email', 'facturen', 'bijlagen'] },
   { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },

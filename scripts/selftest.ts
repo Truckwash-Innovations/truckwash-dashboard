@@ -4783,5 +4783,117 @@ console.log('\n33. Eén bon per bijlage')
 
 /* ==================================================================== */
 
+/* ==================================================================== *
+ *  De sleutels van Exact
+ *
+ *  Casper zet ze nu zelf in het scherm bij Ontwikkeling, omdat hij met een
+ *  dev-account van Exact aan het uitproberen is. Dat maakt drie dingen
+ *  belangrijk genoeg om vast te leggen, want ze zijn alle drie stil kapot te
+ *  maken zonder dat er ooit iets rood wordt.
+ *
+ *  Een: het clientgeheim mag nooit terug naar de browser. Het gaat heen bij
+ *  het opslaan en komt er hoogstens als vier laatste tekens weer uit.
+ *
+ *  Twee: het adres waar dat geheim naartoe gaat mag niet vrij invulbaar
+ *  zijn. Wie het mag zetten zou anders in een handeling de sleutels van de
+ *  boekhouding naar zijn eigen server kunnen laten sturen, en er zou geen
+ *  foutmelding komen -- zijn server antwoordt gewoon.
+ *
+ *  Drie: wijzigen van de sleutels moet de tokens weggooien. Een token dat is
+ *  opgehaald bij het proefaccount hoort niet te blijven staan als het
+ *  client-id naar de echte administratie wijst.
+ * ==================================================================== */
+
+console.log('\n34. De sleutels van Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  /* --- het geheim gaat niet terug --- */
+
+  check('de stand stuurt hoogstens de laatste vier tekens van het geheim',
+    bron.includes('geheimStaart') && bron.includes('geheim.slice(-4)'))
+  check('en nergens het geheim zelf',
+    !/geheim:\s*geheim\b/.test(bron) && !/client_geheim:\s*k\?\./.test(bron))
+
+  /* --- het adres zit op slot --- */
+
+  check('er is een lijst met adressen die van Exact zijn',
+    bron.includes('EXACT_DOMEINEN') && bron.includes('exactonline.nl'))
+  check('en het opgegeven adres wordt eraan getoetst',
+    /function schoonBasis/.test(bron) && bron.includes("u.protocol !== 'https:'"))
+  check('opslaan gaat langs die toets',
+    /velden\.basis_url = schoon/.test(bron))
+
+  /* --- wijzigen koppelt los --- */
+
+  check('een gewijzigde sleutel gooit de tokens weg',
+    bron.includes('raaktTokens')
+    && /raaktTokens && wasGekoppeld/.test(bron)
+    && /velden\.refresh_token = null/.test(bron))
+  check('en de omgeving telt daarin mee',
+    /'client_id', 'client_geheim', 'basis_url', 'omgeving'/.test(bron))
+
+  /* --- wie mag wat --- */
+
+  check('sleutels zetten mag alleen bij ontwikkeling of management',
+    bron.includes("rollen.includes('developer') || rollen.includes('management')"))
+  check('en de actie controleert dat ook echt',
+    /if \(!beller\.magSleutels\)/.test(bron))
+
+  /*
+   * Het paar id+geheim komt uit een bron. Half om half geeft "invalid_client"
+   * terug, en dat is een foutmelding die naar de verkeerde kant wijst.
+   */
+  check('id en geheim worden als paar gepakt',
+    bron.includes('const uitDb = Boolean(dbId && dbGeheim)'))
+
+  /* --- het scherm --- */
+
+  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  check('het veld voor het geheim staat leeg bij het openen',
+    scherm.includes("setGeheim('')"))
+  check('en leeg laten betekent: laat staan',
+    scherm.includes('geheim.trim() ? { geheim: geheim.trim() } : {}'))
+}
+
+/* ==================================================================== *
+ *  Elk scherm bij ontwikkeling is ook te vinden
+ *
+ *  De zoekbalk werkt op SCHERMEN uit schermen.ts. Drie schermen bij
+ *  ontwikkeling stonden daar niet in en waren dus met geen mogelijkheid te
+ *  vinden -- je moest weten dat het tabblad bestond. En een treffer landt
+ *  alleen als het dashboard de pagina in useNavTarget noemt.
+ * ==================================================================== */
+
+console.log('\n35. De ontwikkelschermen zijn te vinden')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const dash = readFileSync('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
+  const { SCHERMEN, DASHBOARDS_MET } = await import('../src/lib/schermen')
+
+  /* De sleutels uit TITLES: dat is de lijst die het dashboard zelf kent. */
+  const titels = dash.slice(dash.indexOf('const TITLES'), dash.indexOf('\n}', dash.indexOf('const TITLES')))
+  const paginas = [...titels.matchAll(/^\s{2}([a-z]+):/gm)].map((m) => m[1])
+  check('het dashboard kent meer dan een handvol schermen', paginas.length >= 10, String(paginas.length))
+
+  /* Overleg en postbus staan elders in de zoeklijst; die horen hier niet
+     bij het rijtje "alleen ontwikkeling". */
+  const eigen = paginas.filter((p) => (DASHBOARDS_MET[p] ?? []).join() === 'developer')
+
+  const nietVindbaar = eigen.filter((p) => !SCHERMEN.some((s) => s.page === p))
+  check('elk eigen ontwikkelscherm staat in de zoeklijst',
+    nietVindbaar.length === 0, nietVindbaar.join(', '))
+
+  const navRegel = dash.slice(dash.indexOf('useNavTarget('), dash.indexOf('(p) => setPage(p))'))
+  const nietBereikbaar = eigen.filter((p) => !navRegel.includes(`'${p}'`))
+  check('en het dashboard springt er ook heen als je erop klikt',
+    nietBereikbaar.length === 0, nietBereikbaar.join(', '))
+
+  check('Exact staat erbij', eigen.includes('exact'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

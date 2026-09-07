@@ -182,6 +182,7 @@ await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/
 await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
+await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -235,6 +236,7 @@ await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_zie
 await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
 await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
+await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 
 
 
@@ -4686,6 +4688,70 @@ check('allebei staan standaard op claude',
 check('en er staat een model en een wachttijd klaar',
   !!aiInst.ai_lokaal_model && Number(aiInst.ai_wachttijd) > 0, JSON.stringify(aiInst))
 
+
+/* ==================================================================== *
+ *  De Exact-sleutels in de database (0052)
+ *
+ *  Waar het hier om gaat is niet dat de kolommen bestaan -- dat is een
+ *  alter table die of lukt of niet. Het gaat om de belofte eromheen: deze
+ *  tabel bevat nu naast de tokens ook het clientgeheim, en er hoort nog
+ *  steeds geen enkele policy op te zitten. Zou er ooit een bij komen, dan
+ *  synchroniseert het geheim mee naar elke tablet, en dat is precies het
+ *  soort fout dat je pas merkt als het te laat is.
+ * ==================================================================== */
+
+console.log('\n36. De Exact-sleutels horen niet in de omgeving (0052)')
+
+const exKolommen = (await db.query(`
+  select column_name from information_schema.columns
+   where table_schema = 'public' and table_name = 'exact_koppeling'`))
+  .rows.map((r) => r.column_name)
+
+check('de sleutelvelden staan op exact_koppeling',
+  ['client_id', 'client_geheim', 'basis_url', 'redirect_uri', 'omgeving',
+   'sleutels_door', 'sleutels_at'].every((k) => exKolommen.includes(k)),
+  exKolommen.join(', '))
+
+check('exact_koppeling heeft RLS aan en nog steeds geen enkele policy',
+  (await db.query(`
+    select c.relrowsecurity as rls from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+     where ns.nspname = 'public' and c.relname = 'exact_koppeling'`)).rows[0].rls === true
+  && (await db.query(`select count(*)::int as n from pg_policies
+       where schemaname = 'public' and tablename = 'exact_koppeling'`)).rows[0].n === 0)
+
+check('de rij bestaat en staat op proef',
+  (await db.query(`select omgeving from public.exact_koppeling where id = 'exact'`))
+    .rows[0]?.omgeving === 'proef')
+
+/* De omgeving mag maar twee dingen zijn. Een typefout ("test") zou anders
+   stilzwijgend blijven staan en het scherm zou hem als proef tonen. */
+let exOmgevingFout = false
+try {
+  await db.exec(`update public.exact_koppeling set omgeving = 'test' where id = 'exact'`)
+} catch {
+  exOmgevingFout = true
+}
+check('een onbekende omgeving wordt geweigerd', exOmgevingFout)
+
+/* De tegenhanger, want zonder deze zou de test hierboven ook slagen als het
+   bijwerken om een heel andere reden altijd stukliep. */
+let exEchtMag = true
+try {
+  await db.exec(`update public.exact_koppeling set omgeving = 'echt' where id = 'exact'`)
+  await db.exec(`update public.exact_koppeling set omgeving = 'proef' where id = 'exact'`)
+} catch {
+  exEchtMag = false
+}
+check('en "echt" mag gewoon', exEchtMag)
+
+/* En het geheim hoort niet in instellingen terecht te komen: dat is de
+   tabel die wél meegaat in de synchronisatie. */
+check('er staat geen exact-geheim tussen de instellingen',
+  (await db.query(`
+    select count(*)::int as n from public.instellingen
+     where sleutel ilike '%exact%geheim%' or sleutel ilike '%exact%secret%'
+        or sleutel ilike '%client_secret%'`)).rows[0].n === 0)
 
 await db.close()
 

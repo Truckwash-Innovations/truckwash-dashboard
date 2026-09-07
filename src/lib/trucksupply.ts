@@ -846,26 +846,104 @@ export async function testMail(): Promise<void> {
 /* ================================================================== *
  *  Exact
  *
- *  Alleen de koppeling zelf: verbinden, kijken of hij er nog is, en
- *  losmaken. De tokens staan in exact_koppeling, waar alleen de server bij
- *  kan; de app ziet hoogstens of er verbinding is en tot wanneer.
+ *  De koppeling zelf: verbinden, kijken of hij er nog is, en losmaken. De
+ *  tokens staan in exact_koppeling, waar alleen de server bij kan; de app
+ *  ziet hoogstens of er verbinding is en tot wanneer.
+ *
+ *  Sinds 0052 komen de sleutels van de Exact-app daar ook vandaan, te zetten
+ *  vanuit Ontwikkeling -> Exact. Het clientgeheim gaat alleen heen en nooit
+ *  terug: de server stuurt hoogstens of het gezet is en de laatste vier
+ *  tekens.
  * ================================================================== */
+
+/** Wat er in de rij staat -- voor de velden van het formulier. */
+export interface ExactOpgeslagen {
+  clientId: string
+  geheimGezet: boolean
+  basisUrl: string
+  redirectUri: string
+  omgeving: 'proef' | 'echt'
+}
 
 export interface ExactStatus {
   verbonden: boolean
   division?: string
   verlooptAt?: number
   laatsteFout?: string
+  /** Staan er sleutels, waar dan ook vandaan. */
+  ingesteld?: boolean
+  omgeving?: 'proef' | 'echt'
+
+  /* Hieronder alleen voor wie de sleutels mag zien (ontwikkeling,
+     management). Bij iedereen anders laat de server ze gewoon weg. */
+  opgeslagen?: ExactOpgeslagen
+  clientId?: string
+  geheimGezet?: boolean
+  geheimStaart?: string
+  basisUrl?: string
+  redirectUri?: string
+  bron?: 'database' | 'omgeving' | 'geen'
+  sleutelsDoor?: string
+  sleutelsAt?: number
+  standaardRedirect?: string
+  domeinen?: string[]
 }
 
-export async function exactStatus(): Promise<ExactStatus> {
-  const uit = await roepFunctie<ExactStatus & { ok?: boolean }>('exact', { actie: 'status' })
+/**
+ * Wat er naar de server gaat bij het opslaan.
+ *
+ * Het geheim is optioneel en dat is het hele punt: laat je het weg, dan
+ * blijft staan wat er staat. Zo kun je het adres wijzigen zonder dat het
+ * geheim eerst naar de browser toe moet om het weer terug te sturen.
+ */
+export interface ExactSleutels {
+  clientId?: string
+  geheim?: string
+  geheimWissen?: boolean
+  basis?: string
+  redirect?: string
+  omgeving?: 'proef' | 'echt'
+}
+
+function alsStatus(uit: ExactStatus & { ok?: boolean }): ExactStatus {
   return {
     verbonden: !!uit.verbonden,
     division: uit.division || undefined,
     verlooptAt: uit.verlooptAt || undefined,
     laatsteFout: uit.laatsteFout || undefined,
+    ingesteld: uit.ingesteld,
+    omgeving: uit.omgeving,
+    opgeslagen: uit.opgeslagen,
+    clientId: uit.clientId || undefined,
+    geheimGezet: uit.geheimGezet,
+    geheimStaart: uit.geheimStaart || undefined,
+    basisUrl: uit.basisUrl || undefined,
+    redirectUri: uit.redirectUri || undefined,
+    bron: uit.bron,
+    sleutelsDoor: uit.sleutelsDoor || undefined,
+    sleutelsAt: uit.sleutelsAt || undefined,
+    standaardRedirect: uit.standaardRedirect || undefined,
+    domeinen: uit.domeinen,
   }
+}
+
+export async function exactStatus(): Promise<ExactStatus> {
+  return alsStatus(await roepFunctie<ExactStatus & { ok?: boolean }>('exact', { actie: 'status' }))
+}
+
+/**
+ * De sleutels opslaan. Geeft de nieuwe stand terug, plus of de koppeling
+ * erdoor is losgegaan -- dat gebeurt zodra het id, het geheim, het adres of
+ * de omgeving verandert, want de tokens horen bij het stel waarmee ze zijn
+ * opgehaald.
+ */
+export async function exactInstellen(
+  velden: ExactSleutels,
+): Promise<{ stand: ExactStatus; losgekoppeld: boolean }> {
+  const uit = await roepFunctie<ExactStatus & { ok?: boolean; losgekoppeld?: boolean }>(
+    'exact', { actie: 'instellen', ...velden },
+  )
+  return { stand: alsStatus(uit), losgekoppeld: !!uit.losgekoppeld }
 }
 
 /** De URL waar de gebruiker Exact toestemming geeft; open hem in een nieuw venster. */

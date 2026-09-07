@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
   MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
-  Cpu, TriangleAlert, Wallet, Wand2,
+  Cpu, Link2, TriangleAlert, Wallet, Wand2,
   ShieldAlert,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
@@ -33,6 +33,7 @@ import Postbus from '../../components/Postbus'
 import Plannen from './Plannen'
 import Inkoop from './Inkoop'
 import EigenAI from './EigenAI'
+import Exact from './Exact'
 import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
@@ -47,6 +48,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   plannen: { title: 'Plannen', subtitle: 'Wat er uit een melding komt, en wat ervan gebouwd wordt' },
   inkoop: { title: 'Inkoop', subtitle: 'Waar facturen binnenkomen, en hoe ze zichzelf indelen' },
   eigenai: { title: 'Eigen AI', subtitle: 'Waar het denkwerk gebeurt: bij Claude of op de eigen machine' },
+  exact: { title: 'Exact', subtitle: 'De sleutels van de Exact-app, en de koppeling zelf' },
 }
 
 export default function DeveloperDashboard() {
@@ -91,6 +93,7 @@ export default function DeveloperDashboard() {
     { key: 'systeem', label: 'Systeem', icon: Server },
     { key: 'inkoop', label: 'Inkoop', icon: Wallet },
     { key: 'eigenai', label: 'Eigen AI', icon: Cpu },
+    { key: 'exact', label: 'Exact', icon: Link2 },
     { key: 'post', label: 'Post', icon: Mail },
     ...(perms.can('mail.read')
       ? [{ key: 'postbus', label: 'Postbus', icon: Inbox }]
@@ -101,7 +104,8 @@ export default function DeveloperDashboard() {
   ]
 
   useNavTarget(
-  ['tickets', 'plannen', 'logboek', 'meekijken', 'systeem', 'inkoop', 'eigenai', 'post', 'postbus', 'overleg'],
+  ['tickets', 'plannen', 'logboek', 'beveiliging', 'meekijken', 'systeem', 'inkoop', 'eigenai',
+   'exact', 'post', 'postbus', 'overleg'],
   (p) => setPage(p))
 
   const meta = TITLES[page] ?? TITLES.tickets
@@ -123,6 +127,7 @@ export default function DeveloperDashboard() {
       {page === 'meekijken' && <Meekijken />}
       {page === 'inkoop' && <Inkoop />}
       {page === 'eigenai' && <EigenAI />}
+      {page === 'exact' && <Exact />}
       {page === 'post' && <Post />}
       {page === 'postbus' && <Postbus />}
       {page === 'overleg' && <Overleg />}
