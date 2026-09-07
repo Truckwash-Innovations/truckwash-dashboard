@@ -50,9 +50,28 @@ terugkeeradres over uit je hoofd en dat is waar het meestal misgaat.
 **"Deze koppelpoging is niet herkend of verlopen."** De poging is ouder dan
 een kwartier, of er is er intussen een nieuwe gestart. Begin opnieuw bij stap 4.
 
-**Exact zegt iets over een invalid redirect.** Het adres in het App Center
-staat niet letterlijk gelijk aan wat het dashboard laat zien. Let op de
-schuine streep aan het eind en op `http` versus `https`.
+**"Callback URI '…' is not valid".** Verreweg de meest voorkomende, en er
+zijn twee oorzaken.
+
+*De eerste:* je hebt het verkeerde adres ingevuld. Er zijn twee velden die op
+elkaar lijken en het tegenovergestelde doen:
+
+| Veld | Wat erin hoort | Waarom |
+|---|---|---|
+| Waar Exact naartoe belt | `https://<project>.supabase.co/functions/v1/exact` | Alleen onze server kan de code inwisselen — daar is het clientgeheim voor nodig |
+| Waar jij terugkomt | `https://truckwash-workspace.com/app/` | Daar stuurt onze server jou daarna heen |
+
+Het eerste is wat in het App Center moet staan. Vul je daar het app-adres in,
+dan weigert Exact het — en de foutmelding zegt niet waarom, want dat adres
+bestaat en werkt gewoon. Het dashboard accepteert sinds 1.55.0 alleen nog een
+adres dat op `/functions/v1/exact` eindigt.
+
+*De tweede:* het adres staat er wel, maar niet volledig. Het Redirect
+URL-veld in het App Center bewaart soms maar een deel van wat je plakt. Sla
+het op, **sluit het scherm en open het opnieuw**, en kijk of er nog steeds het
+hele adres staat — tot en met `/exact`. Zie ook
+[dit draadje op het Invantive-forum](https://forums.invantive.com/t/melding-callback-uri-not-valid-op-exact-online/3175),
+waar precies dat de oorzaak bleek.
 
 **"invalid_client".** Het client-id en het geheim horen niet bij elkaar. Sla
 ze allebei opnieuw op — het geheim komt nooit terug naar het scherm, dus het

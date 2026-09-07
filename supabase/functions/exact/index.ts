@@ -235,7 +235,25 @@ function schoonBasis(ruw: string): string | null {
   return bekend ? `${u.protocol}//${u.host}` : null
 }
 
-/** Het terugkeeradres. Naar onszelf, dus alleen https en zonder anker. */
+/**
+ * Het terugkeeradres dat naar Exact gaat.
+ *
+ * Dit is de plek waar EXACT naartoe belt met de code, en dat is deze functie
+ * -- niet de app. Dat verschil is de val waar dit veld in trapte: er stond
+ * ook een veld "waar kom je terug", en dat is wél de app. Wie het app-adres
+ * hier invult, krijgt van Exact "Callback URI is not valid" en heeft geen
+ * idee waarom, want het adres bestaat en werkt gewoon.
+ *
+ * Vandaar dat het pad wordt afgedwongen. Een ander adres is niet een
+ * ongebruikelijke keuze maar een die altijd stukloopt: de app kan de code
+ * niet inwisselen, want daar is het clientgeheim voor nodig en dat staat
+ * alleen hier.
+ *
+ * Het domein blijft vrij, want er kan ooit een eigen domein vóór de functie
+ * hangen. Het pad niet.
+ */
+const REDIRECT_PAD = '/functions/v1/exact'
+
 function schoonRedirect(ruw: string): string | null {
   let u: URL
   try {
@@ -244,6 +262,7 @@ function schoonRedirect(ruw: string): string | null {
     return null
   }
   if (u.protocol !== 'https:' || u.hash) return null
+  if (!u.pathname.replace(/\/+$/, '').endsWith(REDIRECT_PAD)) return null
   return u.toString()
 }
 
@@ -592,7 +611,13 @@ async function instellen(body: Record<string, unknown>, beller: Beller): Promise
     } else {
       const schoon = schoonRedirect(ruw)
       if (!schoon) {
-        return json({ ok: false, reden: 'Het terugkeeradres moet een https-adres zijn zonder anker.' }, 400)
+        return json({
+          ok: false,
+          reden: 'Het terugkeeradres is de plek waar Exact naartoe belt, en dat is deze '
+            + `serverfunctie -- niet de app. Het moet eindigen op ${REDIRECT_PAD}, `
+            + `bijvoorbeeld ${STANDAARD_REDIRECT}. Waar JIJ terugkomt na het koppelen `
+            + 'staat in het veld eronder.',
+        }, 400)
       }
       velden.redirect_uri = schoon
     }

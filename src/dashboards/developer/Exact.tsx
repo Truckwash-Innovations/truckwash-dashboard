@@ -304,9 +304,16 @@ export default function Exact() {
               </select>
             </Field>
 
+            {/*
+              * Twee velden die op elkaar lijken en het tegenovergestelde
+              * doen. Hier stond alleen "Terugkeeradres", en dat werd
+              * ingevuld met het adres van de app -- waarna Exact "Callback
+              * URI is not valid" gaf en er niets in beeld kwam dat uitlegde
+              * waarom. De koppen zeggen nu wie waar naartoe belt.
+              */}
             <Field
-              label="Terugkeeradres"
-              help="Moet LETTERLIJK hetzelfde zijn als wat in het Exact App Center staat, tot de laatste schuine streep. Leeg laten gebruikt het adres hieronder."
+              label="Waar Exact naartoe belt (redirect URI)"
+              help="Dit is ONZE server, niet de app: alleen die kan de code van Exact inwisselen. Hetzelfde adres moet letterlijk in het Exact App Center staan. Leeg laten is het veiligst — dan pakt hij het adres hieronder."
             >
               <input
                 className="input mono"
@@ -315,11 +322,21 @@ export default function Exact() {
                 placeholder={stand?.standaardRedirect ?? 'https://…/functions/v1/exact'}
                 spellCheck={false}
               />
+              {redirect.trim() !== '' && !redirect.trim().replace(/\/+$/, '').endsWith('/functions/v1/exact') && (
+                <span className="waarschuwing zacht" style={{ marginTop: 6 }}>
+                  <TriangleAlert size={13} />
+                  <span>
+                    Dit wijst niet naar de serverfunctie. Exact zal dit weigeren met
+                    “Callback URI is not valid”. Laat het leeg, of gebruik{' '}
+                    <code>{stand?.standaardRedirect ?? '…/functions/v1/exact'}</code>.
+                  </span>
+                </span>
+              )}
             </Field>
 
             <Field
-              label="Waar kom je terug"
-              help="Nadat je bij Exact op toestaan klikt, stuurt de server je hierheen. Leeg laten geeft een kaal pagina'tje dat je zelf moet sluiten."
+              label="Waar JIJ terugkomt (de app)"
+              help="Nadat Exact onze server heeft gebeld, stuurt die jou hierheen. Dit is dus wél het adres van de app. Leeg laten geeft een kaal pagina'tje dat je zelf moet sluiten."
             >
               <input
                 className="input mono"
@@ -475,6 +492,17 @@ export default function Exact() {
                 spellCheck={false}
               />
             </Field>
+            <div className="waarschuwing zacht mb">
+              <TriangleAlert size={14} />
+              <span>
+                <strong>Krijg je “Callback URI is not valid”?</strong> Dan staat dit adres niet,
+                of niet volledig, bij je app in het App Center. Er is een bekende eigenaardigheid
+                waarbij dat veld maar een deel van de URL bewaart. Sla het op,{' '}
+                <em>sluit het scherm en open het opnieuw</em>, en kijk of er nog steeds het hele
+                adres staat — tot en met <code>/exact</code>.
+              </span>
+            </div>
+
             <p className="help" style={{ marginBottom: 0 }}>
               Een app in het App Center werkt eerst alleen op je eigen administratie; dat is
               genoeg om mee te proberen. Toegestane adressen:{' '}
@@ -572,7 +600,13 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
           : <span className="ts-sub">Nog niet opgehaald.</span>}
       </div>
 
-      {stand && stand.ontbreekt > 0 && (
+      {/*
+        * Pas melden als er ook werkelijk iets is opgehaald. Anders staat er
+        * bij het openen "13 rekeningen bestaan niet in Exact" terwijl er
+        * simpelweg nog nooit iets is opgehaald -- een rode balk over een
+        * probleem dat niet bestaat, en dat is erger dan geen balk.
+        */}
+      {stand && stand.laatstAt && stand.ontbreekt > 0 && (
         <div className="waarschuwing mb">
           <TriangleAlert size={14} />
           <span>
@@ -598,7 +632,7 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
         <Empty text="Haal het schema op bij Exact om de vergelijking te zien." />
       )}
 
-      {tonen.length > 0 && (
+      {stand?.laatstAt && tonen.length > 0 && (
         <div className="table-wrap">
           <table className="data">
             <thead>
