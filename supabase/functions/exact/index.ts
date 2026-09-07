@@ -25,6 +25,10 @@
  *   sync-relaties     de relaties uit Exact: crediteuren en klanten
  *   facturen-stand    wat er klaarstaat om te versturen, en wat mist
  *   stuur-facturen    goedgekeurde facturen als inkoopboeking naar Exact
+ *   verkoop-stand     de verkoopfacturen: concepten, verstuurd, geboekt
+ *   verkoop-opmaken   concepten maken uit de wasbeurten van een maand
+ *   verkoop-versturen een concept een nummer geven en op verstuurd zetten
+ *   stuur-verkoop     verstuurde verkoopfacturen naar Exact
  *   koppel-leverancier  met de hand zeggen welke crediteur het is
  *   dagboeken / btw-codes   lijstjes uit Exact om uit te kiezen
  *
@@ -931,6 +935,190 @@ async function grootboekStand() {
     laatsteFout: sync.data?.laatste_fout ?? null,
     door: sync.data?.door ?? null,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Verkoopfacturen
+ *
+ *  De andere kant van de factuurstroom. Casper: "bij een factuur moet je
+ *  zowel inkomend als uitkomend nadenken."
+ *
+ *  Bij Exact is het het spiegelbeeld van een inkoopboeking:
+ *  salesentry/SalesEntries, met Customer in plaats van Supplier en een eigen
+ *  verkoopdagboek. Nagekeken in hun documentatie, niet aangenomen dat het
+ *  hetzelfde zou zijn.
+ *
+ *  De klant wijst naar de guid uit company_exact (0063) -- dáárom moest dat
+ *  eerst. Per administratie, want dezelfde klant heeft in elke bv een eigen
+ *  relatienummer.
+ * ------------------------------------------------------------------ */
+
+async function verkoopStand() {
+  const [facturen, dagboek, sync] = await Promise.all([
+    admin.from('verkoopfactuur').select('*').order('datum', { ascending: false }).limit(200),
+    admin.from('instellingen').select('waarde').eq('sleutel', 'exact_verkoopdagboek').maybeSingle(),
+    admin.from('exact_sync').select('*').eq('soort', 'verkoopfacturen').maybeSingle(),
+  ])
+
+  const links = await admin.from('company_exact').select('company_id, division, exact_id')
+  const gekoppeld = new Set((links.data ?? []).map((l) => `${l.company_id}|${l.division}`))
+
+  const rijen = (facturen.data ?? []).map((f) => ({
+    id: String(f.id),
+    nummer: (f.nummer as string) ?? null,
+    klant: String(f.company_naam ?? ''),
+    companyId: String(f.company_id),
+    administratie: (f.administratie as string) ?? null,
+    periode: (f.periode as string) ?? null,
+    datum: Number(f.datum) || 0,
+    bedragExcl: Number(f.bedrag_excl) || 0,
+    bedragIncl: Number(f.bedrag_incl) || 0,
+    status: String(f.status),
+    exactId: (f.exact_id as string) ?? null,
+    fout: (f.exact_fout as string) ?? null,
+    /* Zonder gekoppelde relatie kan hij niet naar Exact -- een boeking wijst
+       naar een guid en niet naar een naam. */
+    heeftRelatie: gekoppeld.has(`${f.company_id}|${f.administratie ?? ''}`),
+  }))
+
+  return {
+    facturen: rijen,
+    verkoopdagboek: String(dagboek.data?.waarde ?? '').trim(),
+    concepten: rijen.filter((r) => r.status === 'concept').length,
+    verstuurd: rijen.filter((r) => r.status === 'verstuurd').length,
+    naarExact: rijen.filter((r) => r.status === 'verstuurd' && !r.exactId && r.heeftRelatie).length,
+    laatstAt: sync.data?.laatst_at ?? null,
+    laatsteFout: sync.data?.laatste_fout ?? null,
+  }
+}
+
+async function verkoopOpmaken(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const periode = String(body.periode ?? '').trim()
+  if (!/^\d{4}-\d{2}$/.test(periode)) {
+    return json({ ok: false, reden: 'Geef een maand als 2026-03.' }, 400)
+  }
+
+  const { data, error } = await admin.rpc('verkoopfacturen_opmaken', {
+    periode_in: periode,
+    door_in: beller.naam || beller.id,
+  })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({ ok: true, gemaakt: Number(data ?? 0), ...await verkoopStand() })
+}
+
+async function verkoopVersturen(body: Record<string, unknown>): Promise<Response> {
+  const id = String(body.factuurId ?? '').trim()
+  if (!id) return json({ ok: false, reden: 'Geen factuur meegestuurd.' }, 400)
+
+  const { data, error } = await admin.rpc('verkoopfactuur_versturen', { factuur_in: id })
+  if (error) return json({ ok: false, reden: error.message }, 400)
+
+  return json({ ok: true, nummer: String(data ?? ''), ...await verkoopStand() })
+}
+
+interface VerkoopAntwoord {
+  EntryID?: string
+  EntryNumber?: number
+}
+
+async function stuurVerkoop(beller: Beller): Promise<Response> {
+  const { data: dagboekRij } = await admin.from('instellingen')
+    .select('waarde').eq('sleutel', 'exact_verkoopdagboek').maybeSingle()
+  const dagboek = String(dagboekRij?.waarde ?? '').trim()
+  if (!dagboek) {
+    return json({ ok: false, reden: 'Er staat geen verkoopdagboek ingesteld.' }, 409)
+  }
+
+  const inst = await instellingenVoorFacturen()
+  const lijn = await geldigToken(admin)
+
+  const { data: klaar } = await admin.from('verkoopfactuur')
+    .select('*').eq('status', 'verstuurd').is('exact_id', null).order('datum').limit(25)
+
+  let gelukt = 0
+  const mislukt: { id: string; reden: string }[] = []
+
+  for (const f of (klaar ?? [])) {
+    try {
+      const bv = String(f.administratie ?? '').trim()
+      if (!bv) throw new Error('geen administratie bekend voor deze factuur')
+
+      const { data: link } = await admin.from('company_exact')
+        .select('exact_id').eq('company_id', f.company_id).eq('division', bv).maybeSingle()
+      if (!link?.exact_id) {
+        throw new Error(`${f.company_naam} is nog niet gekoppeld aan een relatie in ${bv}`)
+      }
+
+      const { data: regels } = await admin.from('verkoopregel')
+        .select('omschrijving, aantal, prijs_excl, btw_pct, grootboek_code')
+        .eq('factuur_id', f.id).order('volgorde')
+      if ((regels ?? []).length === 0) throw new Error('deze factuur heeft geen regels')
+
+      const lijnen: Record<string, unknown>[] = []
+      for (const r of (regels ?? [])) {
+        const pct = Number(r.btw_pct)
+        const btwCode = inst.btw[(pct === 9 || pct === 0 ? pct : 21) as 21 | 9 | 0] ?? inst.btw[21]
+        if (!btwCode) throw new Error(`geen btw-code ingesteld voor ${pct}%`)
+
+        /* De opbrengstrekening. Staat er geen op de regel, dan laat Exact hem
+           uit de instellingen van de administratie komen -- dat is daar netter
+           geregeld dan wij het kunnen raden. */
+        const code = String(r.grootboek_code ?? '').trim()
+        let glId: string | null = null
+        if (code) {
+          const { data: rek } = await admin.from('exact_grootboek')
+            .select('exact_id').eq('code', code).eq('division', bv).maybeSingle()
+          if (!rek?.exact_id) throw new Error(`rekening ${code} bestaat niet in administratie ${bv}`)
+          glId = String(rek.exact_id)
+        }
+
+        lijnen.push({
+          AmountFC: Math.round(Number(r.aantal) * Number(r.prijs_excl) * 100) / 100,
+          Quantity: Number(r.aantal) || 1,
+          VATCode: btwCode,
+          Description: String(r.omschrijving ?? '').slice(0, 60),
+          ...(glId ? { GLAccount: glId } : {}),
+        })
+      }
+
+      const uit = await exactPost<VerkoopAntwoord>(lijn, 'salesentry/SalesEntries', {
+        Journal: dagboek,
+        Customer: link.exact_id,
+        EntryDate: exactDatum(Number(f.datum) || Date.now()),
+        Description: `${f.company_naam} ${f.periode ?? ''}`.trim().slice(0, 60),
+        /* Ons eigen factuurnummer in YourRef. InvoiceNumber is bij Exact een
+           geheel getal, en "2026-0001" past daar niet in. */
+        YourRef: String(f.nummer ?? '').slice(0, 50),
+        SalesEntryLines: lijnen,
+      }, bv)
+
+      const id = uit.EntryID ?? (uit.EntryNumber != null ? String(uit.EntryNumber) : null)
+      if (!id) throw new Error('Exact gaf geen boekingsnummer terug')
+
+      await admin.from('verkoopfactuur')
+        .update({ exact_id: id, exact_at: Date.now(), exact_fout: null, updated_at: Date.now() })
+        .eq('id', f.id)
+      gelukt++
+    } catch (e) {
+      const reden = e instanceof Error ? e.message : String(e)
+      await admin.from('verkoopfactuur')
+        .update({ exact_fout: reden.slice(0, 400), updated_at: Date.now() })
+        .eq('id', f.id)
+      mislukt.push({ id: String(f.id), reden })
+    }
+  }
+
+  await admin.from('exact_sync').upsert({
+    soort: 'verkoopfacturen',
+    laatst_at: Date.now(),
+    aantal: gelukt,
+    laatste_fout: mislukt.length > 0 ? `${mislukt.length} mislukt` : null,
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'soort' })
+
+  return json({ ok: true, gelukt, mislukt, ...await verkoopStand() })
 }
 
 /* ------------------------------------------------------------------ *
@@ -1889,6 +2077,19 @@ Deno.serve(async (req) => {
     }
 
     /* ---- facturen ---- */
+
+    /* ---- verkoopfacturen ---- */
+
+    if (actie === 'verkoop-stand' || actie === 'verkoop-opmaken'
+        || actie === 'verkoop-versturen' || actie === 'stuur-verkoop') {
+      if (!beller.magSleutels && !(await magAdministratie(req))) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      if (actie === 'verkoop-opmaken') return await verkoopOpmaken(body, beller)
+      if (actie === 'verkoop-versturen') return await verkoopVersturen(body)
+      if (actie === 'stuur-verkoop') return await stuurVerkoop(beller)
+      return json({ ok: true, ...await verkoopStand() })
+    }
 
     if (actie === 'sync-relaties' || actie === 'facturen-stand'
         || actie === 'stuur-facturen' || actie === 'koppel-leverancier'

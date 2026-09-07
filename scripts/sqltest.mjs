@@ -194,6 +194,7 @@ await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vie
 await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 await run(db, '0062_een_factuur_splitsen.sql draait', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 await run(db, '0063_relaties_uit_exact.sql draait', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
+await run(db, '0064_verkoopfacturen.sql draait', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -259,6 +260,7 @@ await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql')
 await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 await run(db, '0062 nogmaals', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 await run(db, '0063 nogmaals', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
+await run(db, '0064 nogmaals', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
 
 
 
@@ -5648,6 +5650,117 @@ check('en bij één eenduidige naam wel -- ook met een andere schrijfwijze',
 check('en dan staat erbij dat het op naam ging',
   (await db.query(`select bron from public.company_exact
                     where company_id = 'co_vier'`)).rows[0]?.bron === 'naam')
+
+/* ==================================================================== *
+ *  Verkoopfacturen (0064)
+ *
+ *  Drie dingen die stil geld kosten.
+ *
+ *  Dezelfde wasbeurt op twee facturen: dan breng je hem twee keer in
+ *  rekening bij een klant die dat wél opmerkt.
+ *
+ *  Twee facturen met hetzelfde nummer: dan is de boekhouding niet meer te
+ *  controleren. De nummering loopt daarom via een teller en niet via
+ *  max()+1 -- twee mensen tegelijk zouden hetzelfde nummer krijgen.
+ *
+ *  En een verstuurde factuur die nog verandert: de klant heeft papier met
+ *  bedragen erop, en onze regels daarna nog wijzigen betekent dat de twee
+ *  iets anders zeggen.
+ * ==================================================================== */
+
+console.log('\n47. Verkoopfacturen (0064)')
+
+check('de tabellen bestaan',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public'
+       and table_name in ('verkoopfactuur', 'verkoopregel', 'verkoop_nummering')`)).rows[0].n === 3)
+
+/* ---- de nummering ---- */
+
+const vkNr1 = (await db.query(`select public.volgend_verkoopnummer('BV1') as n`)).rows[0].n
+const vkNr2 = (await db.query(`select public.volgend_verkoopnummer('BV1') as n`)).rows[0].n
+check('twee nummers achter elkaar zijn verschillend', vkNr1 !== vkNr2, `${vkNr1} / ${vkNr2}`)
+check('en ze lopen op', vkNr2 > vkNr1, `${vkNr1} -> ${vkNr2}`)
+
+const vkNrB = (await db.query(`select public.volgend_verkoopnummer('BV2') as n`)).rows[0].n
+check('elke bv heeft zijn eigen reeks', vkNrB.endsWith('-0001'), vkNrB)
+
+/* ---- opmaken uit wasbeurten ---- */
+
+await db.exec(`
+  insert into public.companies (id, name) values ('co_vk', 'Testklant B.V.')
+  on conflict (id) do nothing;
+
+  insert into public.wash_jobs
+    (id, ticket, company_id, company_name, plate, service, status, scheduled_at,
+     completed_at, price_excl)
+  values
+    ('wj_1', 'T1', 'co_vk', 'Testklant B.V.', 'AB-12-CD', 'buitenwas', 'gereed',
+     (extract(epoch from '2026-03-05'::date) * 1000)::bigint,
+     (extract(epoch from '2026-03-05'::date) * 1000)::bigint, 100),
+    ('wj_2', 'T2', 'co_vk', 'Testklant B.V.', 'EF-34-GH', 'buitenwas', 'gereed',
+     (extract(epoch from '2026-03-12'::date) * 1000)::bigint,
+     (extract(epoch from '2026-03-12'::date) * 1000)::bigint, 150)
+  on conflict (id) do nothing;`)
+
+const vkGemaakt = (await db.query(`select public.verkoopfacturen_opmaken('2026-03', 'test') as n`)).rows[0].n
+check('er wordt een concept opgemaakt', Number(vkGemaakt) === 1, String(vkGemaakt))
+
+const vkFac = (await db.query(`
+  select * from public.verkoopfactuur where company_id = 'co_vk' and periode = '2026-03'`)).rows[0]
+check('met de twee beurten erop',
+  (await db.query(`select count(*)::int as n from public.verkoopregel
+                    where factuur_id = '${vkFac.id}'`)).rows[0].n === 2)
+check('en het bedrag is uit de regels geteld',
+  Number(vkFac.bedrag_excl) === 250 && Number(vkFac.btw_bedrag) === 52.5,
+  `${vkFac.bedrag_excl} / ${vkFac.btw_bedrag}`)
+check('een concept heeft nog geen nummer', vkFac.nummer === null)
+
+/* ---- nog een keer opmaken maakt niets dubbel ---- */
+
+const vkNog = (await db.query(`select public.verkoopfacturen_opmaken('2026-03', 'test') as n`)).rows[0].n
+check('nog een keer opmaken levert niets nieuws', Number(vkNog) === 0, String(vkNog))
+check('en de regels blijven twee',
+  (await db.query(`select count(*)::int as n from public.verkoopregel
+                    where factuur_id = '${vkFac.id}'`)).rows[0].n === 2)
+
+/* ---- dezelfde wasbeurt kan niet op een tweede factuur ---- */
+
+await db.exec(`
+  insert into public.verkoopfactuur (id, company_id, company_naam, periode)
+  values ('vf_tweede', 'co_vk', 'Testklant B.V.', '2026-04')
+  on conflict (id) do nothing;`)
+
+let vkDubbel = false
+try {
+  await db.exec(`insert into public.verkoopregel (id, factuur_id, omschrijving, prijs_excl, wash_job_id)
+                 values ('vr_dubbel', 'vf_tweede', 'nog een keer', 100, 'wj_1')`)
+} catch { vkDubbel = true }
+check('dezelfde wasbeurt kan niet op een tweede factuur', vkDubbel)
+
+/* ---- versturen ---- */
+
+const vkNummer = (await db.query(`select public.verkoopfactuur_versturen('${vkFac.id}') as n`)).rows[0].n
+check('bij versturen krijgt hij een nummer', Boolean(vkNummer), String(vkNummer))
+check('en de stand staat op verstuurd',
+  (await db.query(`select status from public.verkoopfactuur where id = '${vkFac.id}'`))
+    .rows[0].status === 'verstuurd')
+
+let vkVast = false
+try {
+  await db.exec(`update public.verkoopregel set prijs_excl = 999
+                  where factuur_id = '${vkFac.id}' and wash_job_id = 'wj_1'`)
+} catch { vkVast = true }
+check('daarna liggen de regels vast', vkVast)
+
+/* ---- en een leeg concept versturen heeft geen zin ---- */
+
+let vkLeeg = false
+try {
+  await db.query(`select public.verkoopfactuur_versturen('vf_tweede')`)
+} catch { vkLeeg = true }
+check('een factuur van nul euro gaat niet de deur uit', vkLeeg)
 
 await db.close()
 

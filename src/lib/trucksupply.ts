@@ -1334,3 +1334,86 @@ export async function exactKoppelBedrijf(
   return alsRelaties(await roepFunctie<RelatiesStand>(
     'exact', { actie: 'koppel-bedrijf', companyId, division, exactId }))
 }
+
+
+/* ------------------------------------------------------------------ *
+ *  Verkoopfacturen
+ *
+ *  De andere kant van de factuurstroom (0064). Bij Exact het spiegelbeeld:
+ *  salesentry/SalesEntries, met de klant in plaats van de leverancier en een
+ *  eigen verkoopdagboek.
+ * ------------------------------------------------------------------ */
+
+export interface VerkoopFactuurRegel {
+  id: string
+  nummer: string | null
+  klant: string
+  companyId: string
+  administratie: string | null
+  periode: string | null
+  datum: number
+  bedragExcl: number
+  bedragIncl: number
+  status: 'concept' | 'verstuurd' | 'betaald' | 'vervallen'
+  exactId: string | null
+  fout: string | null
+  /** Zonder gekoppelde relatie kan hij niet naar Exact. */
+  heeftRelatie: boolean
+}
+
+export interface VerkoopStand {
+  facturen: VerkoopFactuurRegel[]
+  verkoopdagboek: string
+  concepten: number
+  verstuurd: number
+  naarExact: number
+  laatstAt: number | null
+  laatsteFout: string | null
+}
+
+function alsVerkoop(uit: Partial<VerkoopStand>): VerkoopStand {
+  return {
+    facturen: uit.facturen ?? [],
+    verkoopdagboek: uit.verkoopdagboek ?? '',
+    concepten: uit.concepten ?? 0,
+    verstuurd: uit.verstuurd ?? 0,
+    naarExact: uit.naarExact ?? 0,
+    laatstAt: uit.laatstAt ?? null,
+    laatsteFout: uit.laatsteFout ?? null,
+  }
+}
+
+export async function exactVerkoopStand(): Promise<VerkoopStand> {
+  return alsVerkoop(await roepFunctie<VerkoopStand>('exact', { actie: 'verkoop-stand' }))
+}
+
+/** Concepten opmaken uit de gereedgemelde wasbeurten van een maand. */
+export async function exactVerkoopOpmaken(
+  periode: string,
+): Promise<VerkoopStand & { gemaakt: number }> {
+  const uit = await roepFunctie<VerkoopStand & { gemaakt?: number }>(
+    'exact', { actie: 'verkoop-opmaken', periode })
+  return { ...alsVerkoop(uit), gemaakt: uit.gemaakt ?? 0 }
+}
+
+/** Een concept een nummer geven en op verstuurd zetten. Daarna liggen de regels vast. */
+export async function exactVerkoopVersturen(
+  factuurId: string,
+): Promise<VerkoopStand & { nummer: string }> {
+  const uit = await roepFunctie<VerkoopStand & { nummer?: string }>(
+    'exact', { actie: 'verkoop-versturen', factuurId })
+  return { ...alsVerkoop(uit), nummer: uit.nummer ?? '' }
+}
+
+export async function exactStuurVerkoop(): Promise<
+  VerkoopStand & { gelukt: number; mislukt2: { id: string; reden: string }[] }
+> {
+  const uit = await roepFunctie<
+    VerkoopStand & { gelukt?: number; mislukt?: { id: string; reden: string }[] }
+  >('exact', { actie: 'stuur-verkoop' })
+  return {
+    ...alsVerkoop(uit),
+    gelukt: uit.gelukt ?? 0,
+    mislukt2: Array.isArray(uit.mislukt) ? uit.mislukt : [],
+  }
+}

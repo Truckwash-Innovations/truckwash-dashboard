@@ -51,10 +51,12 @@ import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
-  exactKoppelBedrijf, exactRelatiesStand, exactSyncAdministraties,
-  exactSyncPersoneel, exactSyncRelaties, exactVerbindUrl, exactZetAdministratie,
+  exactKoppelBedrijf, exactRelatiesStand, exactStuurVerkoop,
+  exactSyncAdministraties, exactSyncPersoneel, exactSyncRelaties,
+  exactVerbindUrl, exactVerkoopOpmaken, exactVerkoopStand,
+  exactVerkoopVersturen, exactZetAdministratie,
   type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
-  type FacturenStand, type RelatiesStand,
+  type FacturenStand, type RelatiesStand, type VerkoopStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
@@ -540,6 +542,10 @@ export default function Exact() {
 
       <div style={{ gridColumn: '1 / -1' }}>
         <Facturen verbonden={stand?.verbonden === true} />
+      </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Verkoop verbonden={stand?.verbonden === true} />
       </div>
     </div>
   )
@@ -2035,6 +2041,212 @@ function Facturen({ verbonden }: { verbonden: boolean }) {
           </div>
         </Modal>
       )}
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Verkoopfacturen
+ *
+ *  Casper: "bij een factuur moet je zowel inkomend als uitkomend nadenken."
+ *
+ *  Het scherm bij de klant rekende zijn facturen tot nu toe elke keer
+ *  opnieuw uit: alle gereedgemelde wasbeurten van een maand bij elkaar. Dat
+ *  is handig om te zien en het is geen factuur -- er is geen nummer, geen
+ *  datum, en geen bedrag dat vastligt. Verandert er na het versturen iets aan
+ *  een wasbeurt, dan verandert de "factuur" mee en klopt hij niet meer met
+ *  het papier dat de klant heeft.
+ *
+ *  Drie stappen, en elke stap is een handeling van een mens:
+ *
+ *    opmaken    concepten uit de wasbeurten van een maand
+ *    versturen  het nummer erop; daarna liggen de regels vast
+ *    naar Exact als verkoopboeking, met de klant als relatie
+ * ------------------------------------------------------------------ */
+
+function Verkoop({ verbonden }: { verbonden: boolean }) {
+  const [stand, setStand] = useState<VerkoopStand | null>(null)
+  const [bezig, setBezig] = useState<string | null>(null)
+  const [fout, setFout] = useState<string | null>(null)
+  /* Standaard de vorige maand: die is af, en de huidige loopt nog. */
+  const [periode, setPeriode] = useState(() => {
+    const d = new Date()
+    d.setDate(1)
+    d.setMonth(d.getMonth() - 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
+
+  async function laad() {
+    try {
+      setStand(await exactVerkoopStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  async function doe(wat: string, werk: () => Promise<void>) {
+    setBezig(wat)
+    try {
+      await werk()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(null)
+    }
+  }
+
+  const facturen = stand?.facturen ?? []
+  const concepten = facturen.filter((f) => f.status === 'concept')
+
+  return (
+    <Card
+      title="Verkoopfacturen"
+      hint="De andere kant: wat wij aan klanten sturen"
+      action={
+        <button className="btn ghost sm" onClick={() => void laad()} title="Opnieuw ophalen">
+          <RefreshCw size={14} />
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      <div className="row mb">
+        {stand && (
+          <span className="ts-sub">
+            {stand.concepten} concept · {stand.verstuurd} verstuurd · {stand.naarExact} klaar voor Exact
+          </span>
+        )}
+      </div>
+
+      {stand && !stand.verkoopdagboek && (
+        <div className="waarschuwing zacht mb">
+          <TriangleAlert size={14} />
+          <span>
+            Er staat geen verkoopdagboek ingesteld. Zonder dat weigert Exact een verkoopboeking.
+          </span>
+        </div>
+      )}
+
+      <div className="grid cols-2 mb">
+        <Field label="Maand opmaken" help="Alle gereedgemelde wasbeurten van die maand die nog niet op een factuur staan.">
+          <div className="row">
+            <input
+              className="input mono" style={{ flex: 1 }}
+              value={periode}
+              onChange={(e) => setPeriode(e.target.value)}
+              placeholder="2026-03"
+            />
+            <button
+              className="btn sm"
+              disabled={bezig !== null}
+              onClick={() => void doe('opmaken', async () => {
+                const uit = await exactVerkoopOpmaken(periode)
+                setStand(uit)
+                toast.ok(uit.gemaakt > 0
+                  ? `${uit.gemaakt} conceptfactuur${uit.gemaakt === 1 ? '' : 'en'} opgemaakt.`
+                  : 'Er was niets nieuws te factureren over die maand.')
+              })}
+            >
+              {bezig === 'opmaken' ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
+              Opmaken
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Verkoopdagboek" help="Het dagboek in Exact waarin een verkoopboeking komt.">
+          <input
+            className="input mono"
+            defaultValue={stand?.verkoopdagboek ?? ''}
+            list="exact-dagboeken"
+            placeholder="50"
+            onBlur={(e) => void zetInstelling('exact_verkoopdagboek', e.currentTarget.value.trim()).then(laad)}
+          />
+        </Field>
+      </div>
+
+      <div className="row mb">
+        <button
+          className="btn primary sm"
+          disabled={bezig !== null || !verbonden || (stand?.naarExact ?? 0) === 0}
+          onClick={() => void doe('exact', async () => {
+            const uit = await exactStuurVerkoop()
+            setStand(uit)
+            toast.ok(uit.mislukt2.length > 0
+              ? `${uit.gelukt} geboekt, ${uit.mislukt2.length} mislukt.`
+              : `${uit.gelukt} factuur${uit.gelukt === 1 ? '' : 'en'} geboekt in Exact.`)
+          })}
+        >
+          {bezig === 'exact' ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+          Naar Exact ({stand?.naarExact ?? 0})
+        </button>
+      </div>
+
+      {facturen.length === 0 && (
+        <Empty text="Nog geen verkoopfacturen. Maak een maand op om te beginnen." />
+      )}
+
+      {facturen.length > 0 && (
+        <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Nummer</th>
+                <th>Klant</th>
+                <th>Periode</th>
+                <th className="num">Excl. btw</th>
+                <th>Staat</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {facturen.map((f) => (
+                <tr key={f.id}>
+                  <td className="mono">{f.nummer ?? <span className="ts-sub">concept</span>}</td>
+                  <td className="afgekapt">{f.klant}</td>
+                  <td className="mono">{f.periode ?? '—'}</td>
+                  <td className="num">{money(f.bedragExcl)}</td>
+                  <td>
+                    {f.status === 'concept' && <Badge>concept</Badge>}
+                    {f.status === 'verstuurd' && <Badge tone="warn" dot>verstuurd</Badge>}
+                    {f.status === 'betaald' && <Badge tone="ok" dot>betaald</Badge>}
+                    {f.exactId && <Badge tone="ok">in Exact</Badge>}
+                    {f.status === 'verstuurd' && !f.exactId && !f.heeftRelatie && (
+                      <Badge tone="danger">geen relatie</Badge>
+                    )}
+                    {f.fout && <span className="ts-sub"> · {f.fout}</span>}
+                  </td>
+                  <td>
+                    {f.status === 'concept' && (
+                      <button
+                        className="btn sm"
+                        disabled={bezig !== null || f.bedragExcl <= 0}
+                        onClick={() => void doe('versturen', async () => {
+                          const uit = await exactVerkoopVersturen(f.id)
+                          setStand(uit)
+                          toast.ok(`Factuur ${uit.nummer} verstuurd.`)
+                        })}
+                      >
+                        Versturen
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+        Een concept heeft nog geen nummer — dat zou een gat in de reeks achterlaten als je hem
+        weggooit. Bij versturen krijgt hij er een en liggen de regels vast; wat daarna nog kan is
+        een creditnota, en dat is een nieuwe factuur.
+      </p>
     </Card>
   )
 }
