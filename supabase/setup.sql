@@ -10894,6 +10894,21 @@ comment on function public.grootboek_in_gebruik(text) is
 --  gaat dus soms goed en soms niet, en "soms" is bij een boeking niet goed
 --  genoeg. Wat één keer met de hand is vastgelegd, blijft vastliggen.
 --
+--  Waar de crediteuren zelf staan
+--  ------------------------------
+--
+--  In exact_relatie, en dat wordt in 0063 aangemaakt. Hier stond eerst een
+--  eigen tabel exact_crediteur, die 0063 vervolgens weer weggooide omdat
+--  klanten en crediteuren bij Exact in dezelfde lijst staan.
+--
+--  Die tabel bestond daarmee alleen tussen twee migraties in, en dat is
+--  precies het soort tussenstand waar een half gedraaid bijwerkbestand op
+--  stukloopt: "relation public.exact_crediteur does not exist", terwijl er
+--  in het eindresultaat helemaal geen exact_crediteur hoort te zijn.
+--
+--  Dus is hij hier weggehaald. Het eindresultaat is hetzelfde en er is één
+--  tussenstand minder om in te blijven steken.
+--
 --  Opnieuw draaien mag.
 -- ===========================================================================
 
@@ -10916,32 +10931,6 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
   ('in_exact_btw_0', 'exact_btw_0', '',
    'De btw-code in Exact voor 0% of vrijgesteld.')
 on conflict (id) do nothing;
-
--- ---------------------------------------------------------------------------
---  De crediteuren zoals Exact ze kent
---
---  Een kopie om in te kunnen zoeken, net als bij het rekeningschema en het
---  personeel. Wordt in zijn geheel bijgewerkt door de sync.
--- ---------------------------------------------------------------------------
-
-create table if not exists public.exact_crediteur (
-  /* De guid van Exact. Dit is wat er in de boeking komt te staan. */
-  exact_id   text primary key,
-  code       text,
-  naam       text not null default '',
-  /* Op deze genormaliseerde naam wordt automatisch gekoppeld: kleine letters,
-     zonder rechtsvorm en zonder leestekens. Zie de functie hieronder. */
-  zoeknaam   text,
-  btw_nummer text,
-  division   text,
-  updated_at bigint not null default public.now_ms()
-);
-
-create index if not exists exact_crediteur_zoek_idx on public.exact_crediteur (zoeknaam);
-
-comment on table public.exact_crediteur is
-  'De crediteuren zoals Exact ze kent (0058). Een kopie om op te zoeken; de '
-  'koppeling zelf staat in exact_leverancier.';
 
 -- ---------------------------------------------------------------------------
 --  Welke leverancier op onze bon welke crediteur in Exact is
@@ -11010,74 +10999,20 @@ comment on function public.kaal_bedrijf(text) is
 --  doet geen mens -- de Edge Function werkt met de servicesleutel.
 -- ---------------------------------------------------------------------------
 
-alter table public.exact_crediteur   enable row level security;
 alter table public.exact_leverancier enable row level security;
 
-do $$
-declare t text;
-begin
-  foreach t in array array['exact_crediteur', 'exact_leverancier'] loop
-    execute format('drop policy if exists %I_select on public.%I', t, t);
-    execute format(
-      'create policy %I_select on public.%I for select to authenticated '
-      'using (public.is_management() or public.heeft_recht(''admin.desk'') '
-      '       or public.heeft_recht(''dev.logs''))',
-      t, t);
-  end loop;
-end $$;
+drop policy if exists exact_leverancier_select on public.exact_leverancier;
+create policy exact_leverancier_select on public.exact_leverancier
+  for select to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk')
+         or public.heeft_recht('dev.logs'));
 
 -- ---------------------------------------------------------------------------
 --  En het soort werk erbij
 -- ---------------------------------------------------------------------------
 
-insert into public.exact_sync (soort) values ('crediteuren'), ('facturen')
+insert into public.exact_sync (soort) values ('facturen')
 on conflict (soort) do nothing;
-
--- ---------------------------------------------------------------------------
---  De zoeknaam zetten en koppelen wat vanzelf kan
---
---  Na elke ophaalronde. Twee dingen, en het tweede is voorzichtig: alleen
---  koppelen als er precies EEN crediteur met die naam is. Zijn het er twee,
---  dan is een keuze maken raden -- en een factuur bij de verkeerde crediteur
---  boeken is de fout die niemand terugvindt.
--- ---------------------------------------------------------------------------
-
-create or replace function public.exact_crediteuren_klaarzetten(door_in text default null)
-returns integer
-language plpgsql security definer set search_path = public as $$
-declare gekoppeld integer;
-begin
-  update public.exact_crediteur
-     set zoeknaam = public.kaal_bedrijf(naam)
-   where zoeknaam is distinct from public.kaal_bedrijf(naam);
-
-  with kandidaten as (
-    select public.kaal_bedrijf(e.supplier) as zoeknaam,
-           min(e.supplier)                 as gezien_als
-      from public.expenses e
-     where e.status = 'goedgekeurd'
-       and e.exact_id is null
-       and public.kaal_bedrijf(e.supplier) is not null
-     group by 1
-  ),
-  eenduidig as (
-    select k.zoeknaam, k.gezien_als, min(c.exact_id) as exact_id, min(c.naam) as naam
-      from kandidaten k
-      join public.exact_crediteur c on c.zoeknaam = k.zoeknaam
-     where not exists (select 1 from public.exact_leverancier l where l.zoeknaam = k.zoeknaam)
-     group by k.zoeknaam, k.gezien_als
-    having count(*) = 1
-  )
-  insert into public.exact_leverancier (zoeknaam, gezien_als, exact_id, exact_naam, bron, door)
-  select zoeknaam, gezien_als, exact_id, naam, 'naam', door_in from eenduidig
-  on conflict (zoeknaam) do nothing;
-
-  get diagnostics gekoppeld = row_count;
-  return gekoppeld;
-end $$;
-
-revoke execute on function public.exact_crediteuren_klaarzetten(text) from public, anon, authenticated;
-grant  execute on function public.exact_crediteuren_klaarzetten(text) to service_role;
 
 -- ---------------------------------------------------------------------------
 --  Wat er klaarstaat om verstuurd te worden
@@ -12035,9 +11970,13 @@ comment on table public.exact_relatie is
   'lijst -- zo staan ze daar ook. Een kopie; de koppelingen staan in '
   'exact_leverancier en company_exact.';
 
-/* De oude, smallere kopie kan weg: hij wordt bij elke ophaalronde opnieuw
+/* Voor wie 0058 heeft gedraaid toen die nog een eigen exact_crediteur
+   aanmaakte: die kopie kan weg. Hij werd bij elke ophaalronde opnieuw
    gevuld en staat nu in exact_relatie. exact_leverancier blijft staan --
-   daar zitten de koppelingen in die met de hand zijn gelegd. */
+   daar zitten de koppelingen in die met de hand zijn gelegd.
+
+   Sinds de herziening maakt 0058 hem niet meer aan; deze regel staat er nog
+   voor databases die er al een hebben. "if exists" doet de rest. */
 drop table if exists public.exact_crediteur;
 
 -- ---------------------------------------------------------------------------
@@ -12133,7 +12072,8 @@ end $$;
 revoke execute on function public.exact_relaties_klaarzetten(text) from public, anon, authenticated;
 grant  execute on function public.exact_relaties_klaarzetten(text) to service_role;
 
-/* De oude naam bestaat niet meer; hij werkte op exact_crediteur. */
+/* Idem: hij werkte op exact_crediteur en bestaat sinds de herziening van
+   0058 niet meer. Weg als hij er nog is. */
 drop function if exists public.exact_crediteuren_klaarzetten(text);
 
 -- ---------------------------------------------------------------------------

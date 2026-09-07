@@ -68,9 +68,13 @@ comment on table public.exact_relatie is
   'lijst -- zo staan ze daar ook. Een kopie; de koppelingen staan in '
   'exact_leverancier en company_exact.';
 
-/* De oude, smallere kopie kan weg: hij wordt bij elke ophaalronde opnieuw
+/* Voor wie 0058 heeft gedraaid toen die nog een eigen exact_crediteur
+   aanmaakte: die kopie kan weg. Hij werd bij elke ophaalronde opnieuw
    gevuld en staat nu in exact_relatie. exact_leverancier blijft staan --
-   daar zitten de koppelingen in die met de hand zijn gelegd. */
+   daar zitten de koppelingen in die met de hand zijn gelegd.
+
+   Sinds de herziening maakt 0058 hem niet meer aan; deze regel staat er nog
+   voor databases die er al een hebben. "if exists" doet de rest. */
 drop table if exists public.exact_crediteur;
 
 -- ---------------------------------------------------------------------------
@@ -166,7 +170,8 @@ end $$;
 revoke execute on function public.exact_relaties_klaarzetten(text) from public, anon, authenticated;
 grant  execute on function public.exact_relaties_klaarzetten(text) to service_role;
 
-/* De oude naam bestaat niet meer; hij werkte op exact_crediteur. */
+/* Idem: hij werkte op exact_crediteur en bestaat sinds de herziening van
+   0058 niet meer. Weg als hij er nog is. */
 drop function if exists public.exact_crediteuren_klaarzetten(text);
 
 -- ---------------------------------------------------------------------------
