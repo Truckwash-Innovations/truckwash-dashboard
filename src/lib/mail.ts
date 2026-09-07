@@ -255,10 +255,19 @@ export async function mailVrij(
   return sendMail({ template: 'vrij', email, vars: { onderwerp, tekst } })
 }
 
-/** Een melding uit de app ook in het postvak laten belanden. */
+/**
+ * Een melding uit de app ook in het postvak laten belanden.
+ *
+ * `open` zegt waar het over gaat: een schermnaam uit schermen.ts, of
+ * 'meldingen' voor de bel. Het komt achter het adres in de knop van de mail te
+ * staan, zodat die knop uitkomt bij het bericht en niet op de startpagina.
+ * De serverfunctie laat alleen letters, cijfers, - en _ door, en de app kijkt
+ * de naam na tegen haar eigen lijst; wat daar niet in staat opent gewoon de
+ * app.
+ */
 export async function mailBericht(
   toUserId: string,
-  vars: { titel: string; tekst: string; van?: string },
+  vars: { titel: string; tekst: string; van?: string; open?: string },
 ) {
   return sendMail({ template: 'bericht', toUserId, vars })
 }

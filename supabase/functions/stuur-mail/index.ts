@@ -23,6 +23,7 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { adressen, openen, ophalen } from '../_gedeeld/adressen.ts'
 
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
@@ -266,8 +267,18 @@ const isManagement = (b: Beller | null) => !!b?.rollen.includes('management')
  *  De sjablonen
  * ------------------------------------------------------------------ */
 
-const APP_LINK = Deno.env.get('APP_LINK') ??
-  'https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/latest'
+/* De adressen komen uit _gedeeld/adressen.ts en dus uit de tabel
+   instellingen. Hier stond een APP_LINK die terugviel op de releasepagina van
+   GitHub -- en omdat die secret nergens gezet was, was die terugval wat er
+   werkelijk gebeurde. Wie de mail kreeg dat zijn aanmelding was goedgekeurd,
+   kwam uit bij een lijst .exe-bestanden. */
+
+interface Adres {
+  /** /medewerkers/ op de site: uitleg plus een knop per besturingssysteem. */
+  ophalen: string
+  /** De app zelf, eventueel meteen op het juiste scherm. */
+  openen: (scherm?: string | null, id?: string | null) => string
+}
 
 function briefAanmelding(naam: string): Brief {
   return {
@@ -281,7 +292,9 @@ function briefAanmelding(naam: string): Brief {
   }
 }
 
-function briefManagement(naam: string, soort: string, email: string, bericht?: string): Brief {
+function briefManagement(
+  adres: Adres, naam: string, soort: string, email: string, bericht?: string,
+): Brief {
   return {
     onderwerp: `Nieuwe aanmelding: ${naam}`,
     kop: 'Er staat een aanmelding klaar',
@@ -290,6 +303,7 @@ function briefManagement(naam: string, soort: string, email: string, bericht?: s
       ...(bericht ? [`Wat diegene erbij schreef: "${bericht}"`] : []),
       'Je vindt de aanmelding in het dashboard onder Personeel, tabblad Aanmeldingen. Daar bepaal je meteen de rollen en de vestiging.',
     ],
+    knop: { tekst: 'Naar de aanmeldingen', link: adres.openen('aanmeldingen') },
     gegevens: [
       ['Naam', naam],
       ['E-mailadres', email],
@@ -298,7 +312,7 @@ function briefManagement(naam: string, soort: string, email: string, bericht?: s
   }
 }
 
-function briefGoedgekeurd(naam: string, rollen: string): Brief {
+function briefGoedgekeurd(adres: Adres, naam: string, rollen: string): Brief {
   return {
     onderwerp: 'Je kunt inloggen op het Truckwash1-dashboard',
     kop: `Welkom, ${naam}`,
@@ -307,7 +321,9 @@ function briefGoedgekeurd(naam: string, rollen: string): Brief {
       'De app werkt ook zonder internet: wat je invult blijft staan en gaat vanzelf door zodra je weer bereik hebt.',
     ],
     gegevens: rollen ? [['Je krijgt toegang tot', rollen]] : undefined,
-    knop: { tekst: 'De app ophalen', link: APP_LINK },
+    /* Naar /medewerkers/ en niet naar de app zelf: wie deze mail krijgt heeft
+       de app nog niet, en daar staat per apparaat wat hij nodig heeft. */
+    knop: { tekst: 'De app ophalen', link: adres.ophalen },
   }
 }
 
@@ -341,12 +357,18 @@ function briefVrij(onderwerp: string, tekst: string, van: string): Brief {
   }
 }
 
-function briefBericht(titel: string, tekst: string, van?: string): Brief {
+function briefBericht(
+  adres: Adres, titel: string, tekst: string, van?: string,
+  scherm?: string | null, id?: string | null,
+): Brief {
   return {
     onderwerp: titel,
     kop: titel,
     alineas: [tekst, ...(van ? [`Dit bericht komt van ${van}.`] : [])],
-    knop: { tekst: 'Openen in het dashboard', link: APP_LINK },
+    /* Weten we waar het bericht over gaat, dan gaat dat mee in het adres en
+       opent de app meteen dat scherm -- in plaats van de startpagina, waarna
+       je zelf mag zoeken wat er ook alweer klaarstond. */
+    knop: { tekst: 'Openen in het dashboard', link: adres.openen(scherm, id) },
     voet: 'Je krijgt deze mail omdat er in het dashboard iets voor je klaarstaat.',
   }
 }
@@ -354,6 +376,20 @@ function briefBericht(titel: string, tekst: string, van?: string): Brief {
 /* ------------------------------------------------------------------ *
  *  Het verzoek
  * ------------------------------------------------------------------ */
+
+/**
+ * De adressen voor deze mail, in de vorm die de sjablonen verwachten.
+ *
+ * Eén keer per verzoek opgehaald en niet per sjabloon: het is één vraag aan de
+ * database, en zo kunnen twee links in dezelfde mail niet uit elkaar lopen.
+ */
+async function adresVoorMail() {
+  const { app, site } = await adressen(admin)
+  return {
+    ophalen: ophalen(site),
+    openen: (scherm?: string | null, id?: string | null) => openen(app, scherm, id),
+  }
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -420,6 +456,7 @@ Deno.serve(async (req) => {
       const ok = await verstuur(
         baas.email,
         briefManagement(
+          await adresVoorMail(),
           String(aanmelding.name ?? ''),
           String(aanmelding.kind ?? ''),
           aanmelding.email,
@@ -453,7 +490,7 @@ Deno.serve(async (req) => {
 
     const naam = String(vars.naam ?? aanmelding.name ?? '').split(' ')[0] || 'daar'
     const brief = template === 'aanmelding-goedgekeurd'
-      ? briefGoedgekeurd(naam, String(vars.rollen ?? ''))
+      ? briefGoedgekeurd(await adresVoorMail(), naam, String(vars.rollen ?? ''))
       : briefAfgewezen(naam, String(vars.reden ?? ''))
 
     const ok = await verstuur(aanmelding.email, brief, { template })
@@ -519,7 +556,15 @@ Deno.serve(async (req) => {
 
     const ok = await verstuur(
       ontvanger.email,
-      briefBericht(titel, tekst, String(vars.van ?? '') || undefined),
+      /* open en id zeggen waar het bericht over gaat. Ze komen van de
+         aanroeper, en dat mag: adressen.ts laat alleen letters, cijfers, - en _
+         door, en de app kijkt de schermnaam na tegen haar eigen lijst. Wat er
+         niet in staat wordt genegeerd en dan opent gewoon de startpagina. */
+      briefBericht(
+        await adresVoorMail(), titel, tekst, String(vars.van ?? '') || undefined,
+        vars.open ? String(vars.open) : null,
+        vars.id ? String(vars.id) : null,
+      ),
       { template: 'bericht', toUserId: ontvanger.id },
     )
     return json({ sent: ok ? 1 : 0 })

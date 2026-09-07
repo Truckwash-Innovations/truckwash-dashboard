@@ -88,6 +88,8 @@ export default function BerichtVersturen({
               titel: title.slice(0, MAX_TITLE),
               tekst: body.slice(0, MAX_BODY),
               van: me.name,
+              // Een los bericht hoort nergens anders dan bij de bel.
+              open: 'meldingen',
             })
           }
         }

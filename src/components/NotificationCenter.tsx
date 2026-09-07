@@ -78,6 +78,15 @@ export default function NotificationCenter() {
   const goto = useNav((s) => s.goto)
   const items = useMyNotifications()
   const [open, setOpen] = useState(false)
+
+  /* Een link uit een mail kan vragen of de bel opengaat. Zie useDiepeLink. */
+  const meldingenRequest = useNav((s) => s.meldingenRequest)
+  const clearMeldingenRequest = useNav((s) => s.clearMeldingenRequest)
+  useEffect(() => {
+    if (!meldingenRequest) return
+    setOpen(true)
+    clearMeldingenRequest()
+  }, [meldingenRequest, clearMeldingenRequest])
   const [permission, setPermission] = useState(notifyPermissionState())
   const [pos, setPos] = useState({ top: 0, right: 0 })
 

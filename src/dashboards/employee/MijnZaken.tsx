@@ -112,6 +112,8 @@ function Loonstroken() {
     setMailt(doc.id)
     try {
       const uit = await mailBericht(me.id, {
+        // De mail zegt waar de loonstrook staat; de knop brengt je er ook heen.
+        open: 'kosten',
         titel: `Je loonstrook: ${doc.title}`,
         tekst:
           `Je vroeg om ${doc.title}. Hij staat klaar in het dashboard onder ` +

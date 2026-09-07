@@ -488,6 +488,9 @@ export const notifications = {
         titel: note.title,
         tekst: note.body,
         van: input.from.name,
+        /* Wijst de melding ergens heen, dan wijst de knop in de mail daar ook
+           heen. Zo niet, dan naar de bel -- daar staat hij hoe dan ook. */
+        open: note.link || 'meldingen',
       })
     }
 

@@ -5440,5 +5440,95 @@ console.log('\n43. Het SEPA-betaalbestand')
   check('een eigen rekening die niet klopt stopt het hele bestand', eigenFout)
 }
 
+/* ====================================================================
+ *  44. Waar een link in een mail uitkomt
+ *
+ *  Casper: "kan je ervoor zorgen dat alle linken die in mails worden
+ *  verstuurd op de website uitkomen ipv de github release?"
+ *
+ *  Waarom hier een toets op staat en niet alleen een aanpassing: dit is een
+ *  fout die niemand ziet. De code doet het, de mail komt aan, de knop werkt
+ *  -- hij komt alleen op de verkeerde plek uit. Er stond bovendien twee keer
+ *  dezelfde constante in twee functies, dus één van de twee terugzetten kon
+ *  ongemerkt. Nu staat het adres op één plek en let dit hoofdstuk erop dat er
+ *  geen tweede bijkomt.
+ *
+ *  En op het schoonvegen van wat er uit een mail meekomt. Het adres in een
+ *  mail is de enige plek waar een buitenstaander invloed heeft op waar de app
+ *  heen springt.
+ * ==================================================================== */
+
+console.log('\n44. Waar een link in een mail uitkomt')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const { ophalen, openen } = await import('../supabase/functions/_gedeeld/adressen.ts')
+
+  const site = new URL('https://truckwash-workspace.com/')
+  const app = new URL('https://truckwash-workspace.com/app/')
+
+  /* --- de twee soorten link --- */
+
+  check('"de app ophalen" gaat naar de medewerkerspagina',
+    ophalen(site) === 'https://truckwash-workspace.com/medewerkers/')
+
+  check('een site met een pad erin raakt dat pad kwijt, want /medewerkers/ staat op de wortel',
+    ophalen(new URL('https://truckwash-workspace.com/ergens/')) ===
+      'https://truckwash-workspace.com/medewerkers/')
+
+  check('zonder scherm is het gewoon de app', openen(app) === 'https://truckwash-workspace.com/app/')
+
+  check('met een scherm komt dat erachter',
+    openen(app, 'postbus') === 'https://truckwash-workspace.com/app/?open=postbus')
+
+  check('en met een id erbij',
+    openen(app, 'kosten', 'exp_7') ===
+      'https://truckwash-workspace.com/app/?open=kosten&id=exp_7')
+
+  /* --- wat er niet doorheen mag ---
+   *
+   * Deze waarden komen van de aanroeper van de serverfunctie. Een schuine
+   * streep of een vraagteken dat hier ongezien in glipt, verandert niet de
+   * parameter maar het adres zelf -- en dan staat er een link in onze mail,
+   * met ons logo erboven, die ergens anders uitkomt.
+   */
+
+  const junk = ['../../kwaad', 'post/bus', 'a?b=c', 'a&b', 'a b', '', 'https://elders.nl']
+  check('rommel als scherm wordt genegeerd',
+    junk.every((j) => openen(app, j) === 'https://truckwash-workspace.com/app/'))
+
+  check('en rommel als id ook, terwijl het scherm blijft staan',
+    junk.filter((j) => j !== '').every((j) =>
+      openen(app, 'postbus', j) === 'https://truckwash-workspace.com/app/?open=postbus'))
+
+  check('een scherm van veertig tekens of langer valt af',
+    openen(app, 'x'.repeat(80)) === 'https://truckwash-workspace.com/app/?open=' + 'x'.repeat(40))
+
+  /* --- en geen enkele mail wijst nog naar GitHub --- */
+
+  const mailers = ['stuur-mail', 'nodig-uit']
+  const bronnen = mailers.map((m) =>
+    readFileSync(`supabase/functions/${m}/index.ts`, 'utf8'))
+
+  check('geen mailfunctie noemt nog een GitHub-adres',
+    bronnen.every((b) => !/github\.com/.test(b)))
+
+  /* Op de declaratie en niet op het woord: de commentaarregels die uitleggen
+     wat er stond noemen APP_LINK, en die horen te blijven staan. */
+  check('en geen van beide heeft nog een eigen APP_LINK-constante',
+    bronnen.every((b) => !/const\s+APP_LINK/.test(b)))
+
+  /*
+   * De app moet de schermnaam uit het adres nakijken tegen haar eigen lijst.
+   * Zonder die controle kan een link iemand een scherm in duwen dat hij niet
+   * had gekozen -- en een adres uit een mail komt van wie de mail stuurde.
+   */
+  const nav = readFileSync('src/store/useNav.ts', 'utf8')
+  check('de app kijkt een schermnaam uit een adres na tegen DASHBOARDS_MET',
+    /DASHBOARDS_MET\[scherm\]/.test(nav))
+  check('en veegt het adres daarna schoon',
+    /searchParams\.delete\('open'\)/.test(nav) && /replaceState/.test(nav))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

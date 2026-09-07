@@ -26,14 +26,17 @@
  * =========================================================================== */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { adressen, openen } from '../_gedeeld/adressen.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''
 const AFZENDER = Deno.env.get('MAIL_FROM') ??
   'Truckwash1 Group <dashboard@preview.truckwash.cloud>'
-const APP_LINK = Deno.env.get('APP_LINK') ??
-  'https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/latest'
+/* Hier stond een APP_LINK die naar de releasepagina op GitHub wees. Wie deze
+   mail krijgt is een chauffeur met een tijdelijk wachtwoord die moet inloggen,
+   niet iemand die een installatiebestand zoekt. Dus naar de app zelf; het
+   adres staat in de tabel instellingen. Zie _gedeeld/adressen.ts. */
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -89,7 +92,10 @@ interface Brief {
   voet?: string
 }
 
-function omhulsel(b: Brief): string {
+/* De knop wijst naar de app. Het adres komt uit de tabel instellingen, dus
+   het gaat als parameter mee in plaats van als constante bovenin: bij een
+   verhuizing hoeft er dan geen nieuwe versie uit. */
+function omhulsel(b: Brief, appLink: string): string {
   return `<!doctype html>
 <html lang="nl"><body style="margin:0;padding:0;background:#f2f4f8">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f8;padding:28px 12px">
@@ -117,7 +123,7 @@ function omhulsel(b: Brief): string {
             </table>` : ''}
           <table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 20px">
             <tr><td style="border-radius:9px;background:#f8c010">
-              <a href="${veilig(APP_LINK)}"
+              <a href="${veilig(appLink)}"
                  style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:700;
                         color:#14202f;text-decoration:none">De app openen</a>
             </td></tr>
@@ -136,6 +142,8 @@ function omhulsel(b: Brief): string {
 
 async function verstuur(naar: string, brief: Brief, template: string): Promise<boolean> {
   const id = 'em_' + crypto.randomUUID().replace(/-/g, '')
+  const { app } = await adressen(admin)
+  const appLink = openen(app)
   let ok = false
   let fout: string | undefined
   let providerId: string | undefined
@@ -148,9 +156,12 @@ async function verstuur(naar: string, brief: Brief, template: string): Promise<b
         from: AFZENDER,
         to: [naar],
         subject: brief.onderwerp,
-        html: omhulsel(brief),
+        html: omhulsel(brief, appLink),
+        /* Ook in de kale tekstversie, anders staat er voor wie geen HTML
+           leest een mail zonder enige weg naar binnen. */
         text: [brief.kop, '', ...brief.alineas,
-               ...(brief.gegevens ?? []).map(([k, v]) => `${k}: ${v}`)].join('\n'),
+               ...(brief.gegevens ?? []).map(([k, v]) => `${k}: ${v}`),
+               '', `De app openen: ${appLink}`].join('\n'),
       }),
     })
     const body = await res.json().catch(() => ({}))

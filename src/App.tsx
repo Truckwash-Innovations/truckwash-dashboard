@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { AnimatePresence, MotionConfig } from 'framer-motion'
 import { AlertTriangle, Loader2, RefreshCw, Trash2, Truck } from 'lucide-react'
 import { useAuth } from './store/useAuth'
+import { useDiepeLink } from './store/useNav'
 import { effectivePermissions } from './lib/permissions'
 import { setSyncEnabled, startSyncEngine } from './lib/sync'
 import { installErrorCapture, onCapturedError, trail } from './lib/trail'
@@ -34,6 +35,8 @@ import TrucksupplyDashboard from './dashboards/trucksupply/TrucksupplyDashboard'
 
 export default function App() {
   const { user, role, booting, restore } = useAuth()
+  /* Een link uit een mail kan meteen het juiste scherm openen. */
+  useDiepeLink()
   const initUpdates = useUpdates((s) => s.init)
   const rustig = useTheme((s) => s.rustig)
 
