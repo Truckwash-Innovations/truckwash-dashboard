@@ -6,56 +6,61 @@
 --  Twijfel je of je een eerdere migratie hebt gedraaid, neem dan
 --  supabase/setup.sql -- dat is het geheel, en dat mag ook opnieuw.
 --
+--  Dit bestand wordt gemaakt door scripts/build-bijwerken-sql.cjs. Wijzig de
+--  migraties in supabase/migrations, niet dit bestand: de handgeschreven
+--  versie liep uit de pas met de migraties, en dat kwam er pas uit toen het
+--  in de echte database misging.
+--
 --  Wat erin zit:
---    0017  een werkgever en zijn chauffeur mogen elkaar bereiken
---    0018  in- en uitklokken gaat via de kassa
---    0019  een bericht als gelezen kunnen melden
---    0020  van melding naar plan
---    0021  je maakt jezelf geen management meer (belangrijk)
---    0022  bijwerken is geen aanmaken -- de bonnen uit de mail
---    0023  uitnodigen, uitschrijven en wissen
---    0024  uren rechtzetten en kilometers
---    0025  de kluis en het koppelen van een kassa
---    0026  vestigingen aanmaken, wijzigen, foto's en veilig wissen
---    0027  een foto bij het artikel (kassa)
---    0028  een kassa is geen aanmelding (kassa) -- draai deze
---    0029  de administratie, en wat er uit een factuur is gelezen
---    0030  0030_gewone_facturen_waren_verdacht.sql
---    0031  0031_bijwerken_is_nog_steeds_geen_aanmaken.sql
---    0032  0032_wat_weg_is_moet_ook_weg_blijven.sql
---    0033  de vestiging vult de website
---    0034  anon hoort hier niet bij te kunnen (beveiliging -- draai deze)
---    0035  de achttien vestigingen komen naar binnen
---    0036  Utrecht bleef op "kasweg 2112" staan (draai deze)
---    0037  een kassa mag klokken
---    0038  een verwijdering moet zichzelf melden (draai deze)
---    0039  verdwaalde regeleindes in de vestigingsteksten
---    0040  bijwerken is geen aanmaken -- nu op alle tabellen (draai deze)
---    0041  Trucky praat met bezoekers (draai deze, anders werkt de chat niet)
---    0042  Trucky kent de antwoorden zelf (draai deze)
---    0043  de app en de database oneens over kanalen (draai deze)
---    0044  facturen boeken zichzelf (draai deze -- grootboek en tags)
---    0045  een kassa ziet wie er bij hem mag werken (kassa)
---    0046  de foto's gaan mee naar de website (draai deze -- de site toont ze)
---    0047  een verkoopfactuur is geen kostenpost (draai deze, voor de post)
---    0048  Trucksupply ziet de voorraad (draai deze -- nieuw dashboard)
---    0049  de factuur kan ook thuis gelezen worden (draai deze voor de lokale lezer)
---    0050  wat drie keer hetzelfde was, keurt zichzelf goed (staat uit)
---    0051  de eigen AI mag ook meedenken bij meldingen en Trucky (staat uit)
---    0052  de Exact-sleutels staan in de database, te zetten bij Ontwikkeling
+--    0017  Berichten over de grens van het eigen bedrijf heen
+--    0018  In- en uitklokken gaat via de kassa
+--    0019  Een bericht als gelezen kunnen melden
+--    0020  Van melding naar plan
+--    0021  Wat je aan je eigen dossier mag veranderen, en de rondleiding
+--    0022  Bijwerken is geen aanmaken
+--    0023  Uitnodigen en uitschrijven
+--    0024  Uren rechtzetten en kilometers verantwoorden
+--    0025  De kluis, en het koppelen van een kassa
+--    0026  De vestigingen zelf beheren
+--    0027  Een foto bij het artikel
+--    0028  Een kassa is geen aanmelding
+--    0029  De administratie
+--    0030  Gewone facturen stonden als verdacht in de postbus
+--    0031  Bijwerken is nog steeds geen aanmaken
+--    0032  Wat weg is, moet ook wegblijven
+--    0033  De vestiging vult de website
+--    0034  Anon hoort hier niet bij te kunnen
+--    0035  De achttien vestigingen komen naar binnen
+--    0036  Utrecht bleef op "kasweg 2112" staan
+--    0037  Een kassa mag klokken
+--    0038  Een verwijdering moet zichzelf melden
+--    0039  Verdwaalde regeleindes in de vestigingsteksten
+--    0040  Bijwerken is nog steeds geen aanmaken -- nu op alle tabellen
+--    0041  Trucky praat met bezoekers
+--    0042  Trucky kent de antwoorden zelf
+--    0043  De app en de database waren het oneens over wie een kanaal mag maken
+--    0044  Facturen boeken zichzelf
+--    0045  Een kassa ziet wie er bij hem mag werken
+--    0046  De foto's gaan mee naar de website
+--    0047  Een verkoopfactuur is geen kostenpost
+--    0048  Trucksupply ziet de voorraad
+--    0049  De factuur kan ook thuis gelezen worden
+--    0050  Wat drie keer hetzelfde was, hoeft de vierde keer niet opnieuw
+--    0051  De eigen AI mag ook meedenken
+--    0052  De Exact-sleutels verhuizen van de omgeving naar de database
 --    0053  Exact kent het rekeningschema, en de bon weet waar hij heen ging
---    0054  Exact kent het personeel (alleen-lezen; koppelen aan onze mensen)
---    0055  na het koppelen met Exact kom je terug in de app
---    0056  het dossier valt uiteen: identiteit apart van geld
---    0057  het grootboek komt uit Exact: overnemen, categorie, weggooien
---    0058  goedgekeurde facturen naar Exact (staat UIT)
---    0059  meerdere bv's, elk met een eigen grootboek
---    0060  vier ogen: een factuur gaat langs twee mensen
---    0061  de historie van een factuur, en notities erbij
---    0062  een factuur splitsen over meerdere rekeningen en vestigingen
---    0063  relaties uit Exact: crediteuren en klanten in een lijst
---    0064  verkoopfacturen: de andere kant van de factuurstroom
---    0065  betaald zetten, en een SEPA-bestand voor de bank
+--    0054  Exact kent het personeel, en wij weten wie wie is
+--    0055  Terugkomen in de app na het koppelen
+--    0056  Het dossier valt uiteen: identiteit apart van geld
+--    0057  Het grootboek komt uit Exact
+--    0058  Goedgekeurde facturen naar Exact
+--    0059  Meerdere bv's, elk met een eigen grootboek
+--    0060  Vier ogen: één die kijkt, één die tekent
+--    0061  De historie van een factuur, en notities erbij
+--    0062  Een factuur splitsen
+--    0063  Relaties uit Exact: crediteuren én klanten
+--    0064  Verkoopfacturen: de andere kant van de factuurstroom
+--    0065  Betaald zetten, en een SEPA-bestand voor de bank
 -- ===========================================================================
 
 -- ===========================================================================
@@ -4828,7 +4833,11 @@ from (values
    array['brandstof','diesel','tankpas','shell','bp','total','leasing','lease'], 21),
   ('4090', 'Overige bedrijfskosten', array[]::text[], 21)
 ) as v(code, naam, trefwoorden, btw_pct)
-on conflict (code) do nothing;
+/* Op id en niet op code. Sinds 0059 is de code niet meer op zichzelf uniek --
+   dezelfde rekening bestaat in elke bv -- en dan is er geen sleutel om op te
+   botsen. De id is er altijd geweest en is hier ook de natuurlijke: deze
+   startlijst is er één, met vaste id's. */
+on conflict (id) do nothing;
 
 insert into public.kosten_tags (id, naam, trefwoorden)
 select 'tag_' || v.naam, v.naam, v.trefwoorden
@@ -6405,15 +6414,46 @@ comment on table public.ai_opdrachten is
   'lezer/ haalt hem op via de functie lezer. Rijen worden na afhandeling '
   'weggegooid.';
 
-
 -- ===========================================================================
---  De Exact-sleutels horen niet in de omgeving  (0052)
+--  De Exact-sleutels verhuizen van de omgeving naar de database
 --
---  Het client-id en het clientgeheim van de Exact-app stonden als geheim op
---  de server. Ze staan nu in exact_koppeling, te zetten in het dashboard bij
---  Ontwikkeling -> Exact. Die tabel heeft RLS aan zonder policies: alleen de
---  Edge Function komt erbij, en het geheim gaat nooit mee in de
---  synchronisatie. Wat op de server staat blijft werken als terugval.
+--  De vraag van Casper: "ik heb nu een exact dev account, dus niet de
+--  realtime, zorg dat je dit makkelijk in het dashboard bij ontwikkelaar kan
+--  aanpassen dan wel aub".
+--
+--  Tot nu toe stonden EXACT_CLIENT_ID en EXACT_CLIENT_SECRET als geheim op
+--  de server. Dat is een prima plek voor iets dat nooit verandert, en een
+--  slechte plek voor iets dat je aan het uitproberen bent: elke wijziging is
+--  "supabase secrets set" plus opnieuw uitrollen, en dat wil je niet doen
+--  terwijl je nog aan het uitzoeken bent welke sleutels Exact eigenlijk
+--  geeft.
+--
+--  Waarom hier en niet in instellingen
+--  -----------------------------------
+--
+--  instellingen synchroniseert mee naar elke tablet en elke telefoon. Het
+--  clientgeheim van Exact is de helft van de sleutel tot de boekhouding; dat
+--  hoort daar dus niet. exact_koppeling heeft RLS aan zonder ook maar één
+--  policy -- alleen de servicesleutel komt erbij, en dat is precies wat een
+--  geheim nodig heeft. De tokens liggen daar al om dezelfde reden.
+--
+--  Proef of echt
+--  -------------
+--
+--  Een dev-account van Exact en de echte administratie zien er in het
+--  dashboard identiek uit, en dat is gevaarlijk: een testfactuur in de echte
+--  boekhouding is werk voor de accountant, en een echte factuur in een
+--  proefadministratie is een factuur die niemand meer terugvindt. Daarom
+--  staat het er met zoveel woorden bij, zodat het scherm het kan tonen.
+--
+--  De basis-URL erbij
+--  ------------------
+--
+--  Exact draait per land op een eigen adres, en een proefomgeving kan daar
+--  weer van afwijken. Die stond hard in de functie. Nu niet meer -- maar wel
+--  met een slot erop, want naar dat adres gaat het clientgeheim toe. Welke
+--  adressen mogen staat in de Edge Function, niet hier: een controle die je
+--  in de database zet geldt alleen voor wat via de database binnenkomt.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -6479,18 +6519,44 @@ on conflict (id) do nothing;
 --  synchronisatie terecht kan komen.
 -- ---------------------------------------------------------------------------
 
-
 -- ===========================================================================
---  Exact kent het rekeningschema  (0053)
+--  Exact kent het rekeningschema, en de bon weet waar hij heen ging
 --
---  Twee lijsten die naast elkaar staan: public.grootboek blijft onze korte
---  lijst met eigen namen, public.exact_grootboek is een kopie van wat Exact
---  kent. Zo is te zien of elke code waarop wij boeken daar ook bestaat --
---  een code die daar ontbreekt is een boeking die geweigerd wordt.
+--  De vraag van Casper: "zorg dat ik op een goeie manier een koppeling kan
+--  maken met exact, en vanuit daar ook dingen kan exporteren (personeel,
+--  facturen ect) grootboekrekeningen moeten ook met exact syncen, zodat
+--  alles netjes kan staan".
 --
---  Verder drie velden op expenses, zodat een bon weet of hij al verstuurd
---  is. Zonder dat staat dezelfde factuur na een tweede poging twee keer in
---  de boekhouding.
+--  Waarom het rekeningschema NIET over public.grootboek heen gaat
+--  --------------------------------------------------------------
+--
+--  Dat lijkt de kortste weg en het is de verkeerde. In 0044 staat er met
+--  zoveel woorden bij waarom grootboek klein is: "alleen de rekeningen die
+--  hier werkelijk gebruikt worden. Een compleet rekeningschema overtypen
+--  levert een lijst op waar niemand doorheen komt." Een administratie in
+--  Exact heeft er al gauw een paar honderd. Wie die er allemaal in kiepert,
+--  krijgt bij elke bon een keuzelijst waar de administratie niet meer in
+--  vindt wat ze zoekt -- en de zorgvuldig gekozen namen en trefwoorden zijn
+--  dan bovendien overschreven door de omschrijving uit Exact.
+--
+--  Dus twee lijsten, met een brug ertussen:
+--
+--    public.grootboek        wat WIJ gebruiken, kort en met eigen woorden
+--    public.exact_grootboek  wat EXACT kent, compleet en onaangeraakt
+--
+--  Daarmee kan het scherm de vraag beantwoorden waar het echt om gaat:
+--  bestaat elke code waarop wij boeken ook in Exact, en heet hij daar
+--  hetzelfde? Een code die hier wel bestaat en daar niet, is een boeking die
+--  straks geweigerd wordt -- dat wil je zien vóórdat de factuur weg is, niet
+--  erna. En een rekening uit Exact overnemen is dan één handeling.
+--
+--  Wat er van een bon bijkomt
+--  --------------------------
+--
+--  Drie velden op expenses: waar hij in Exact terechtkwam, wanneer, en wat
+--  er misging als het niet lukte. Zonder dat eerste veld is er geen manier
+--  om te weten of een bon al verstuurd is, en dan staat dezelfde factuur na
+--  een tweede poging twee keer in de boekhouding.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -6599,17 +6665,63 @@ begin
   end loop;
 end $$;
 
-
 -- ===========================================================================
---  Exact kent het personeel  (0054)
+--  Exact kent het personeel, en wij weten wie wie is
 --
---  Personeel NAAR Exact sturen kan niet: payroll/Employees is alleen-lezen.
---  Wat hier komt is de andere kant: wie Exact kent, en wie bij ons wie is
---  daar. Nodig voordat er ooit loonmutaties heen kunnen, en meteen nuttig --
---  het laat zien wie in Exact uit dienst staat en hier nog kan inloggen.
+--  Casper: "voor personeel mag je alles doen."
 --
---  exact_personeel bewaart het volledige antwoord van Exact en kan dus een
---  BSN bevatten. Daarom management-only, dezelfde grens als het dossier.
+--  Wat er dan niet blijkt te kunnen
+--  --------------------------------
+--
+--  Personeel naar Exact exporteren kan niet. De HRM-kant van de Exact-API is
+--  alleen-lezen: payroll/Employees, Employments, EmploymentContracts en
+--  EmploymentSalaries ondersteunen GET en verder niets. Er is geen POST en
+--  geen PUT -- je kunt via de API geen medewerker aanmaken of wijzigen.
+--
+--  Dat is geen tekortkoming van deze migratie maar van wat Exact aanbiedt, en
+--  het is maar goed ook dat het hier staat: een export bouwen die stilzwijgend
+--  door Exact wordt geweigerd is werk dat er af uitziet en niets doet.
+--
+--  Eén ding is wél te schrijven: payroll/VariableMutations (GET, POST, PUT).
+--  Dat zijn de variabele loonmutaties -- gewerkte uren, verlof, toeslagen per
+--  loonperiode. Precies het werk dat elke maand met de hand gaat. Daar is deze
+--  migratie de voorbereiding voor, want zo'n mutatie wijst naar een
+--  EmployeeHID en die moeten we eerst kennen.
+--
+--  Wat er dus wel gebeurt
+--  ----------------------
+--
+--    exact_personeel   wie Exact kent, opgehaald en verder onaangeraakt
+--    exact_medewerker  wie bij ons wie is daar
+--
+--  Twee tabellen en geen kolom op profiles, met opzet. profiles gaat mee in
+--  de synchronisatie naar elk apparaat; een koppeltabel die alleen de server
+--  leest, blijft op de server.
+--
+--  De vergelijking beantwoordt drie vragen, en de derde is de belangrijkste:
+--  wie staat in Exact uit dienst terwijl hij hier nog actief is? Dat is
+--  iemand die weg is en nog steeds kan inloggen.
+--
+--  Het hele record, en wat dat betekent voor wie erbij mag
+--  -------------------------------------------------------
+--
+--  Casper wil bij een medewerker de bijbehorende Exact-medewerker kunnen
+--  opzoeken "waar dus ook alle dingen bij meekomen". Daarom komt het hele
+--  antwoord van Exact mee, in kolom ruw. Dat is niet luiheid: een vaste
+--  lijst velden opgeven betekent dat je ze allemaal bij naam moet kennen,
+--  en één verzonnen veldnaam in een $select laat Exact het hele verzoek
+--  weigeren. Wat we zeker weten staat in eigen kolommen; de rest blijft
+--  bewaard zoals het binnenkwam.
+--
+--  Daar hangt wel iets aan. In dat hele record kunnen het
+--  burgerservicenummer en de geboortedatum zitten, en dat is precies wat in
+--  0009 achter slot ligt: personnel_private is te lezen door het management
+--  en door jezelf, en door verder niemand. Zou deze tabel ruimer staan --
+--  bijvoorbeeld op staff.view, waar een leidinggevende onder valt -- dan is
+--  het BSN via de achterdeur alsnog breder te zien dan via het dossier.
+--
+--  Vandaar: alleen het management. Dezelfde grens als het dossier zelf,
+--  want het zijn dezelfde gegevens.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -6715,16 +6827,32 @@ begin
   end loop;
 end $$;
 
-
 -- ===========================================================================
---  Terugkomen in de app na het koppelen  (0055)
+--  Terugkomen in de app na het koppelen
 --
---  Na het toestaan bij Exact kwam je uit op een kaal pagina'tje van de
---  serverfunctie, en moest je zelf terug naar de app en zelf verversen. Nu
---  stuurt hij je terug naar de app, die meteen zegt wat er gebeurd is.
+--  Casper: "zodat ik erop kan klikken, en erop terug kom, evt dat je
+--  webbrowser opent ervoor?"
 --
---  Let op het verschil met APP_LINK op de server: dat is waar je de app
---  OPHAALT (de releasepagina), dit is waar de app DRAAIT.
+--  Wat er nu gebeurt is een halve rondgang. Je klikt op Koppelen, je browser
+--  opent, je logt in bij Exact, en dan kom je uit op een kaal pagina'tje van
+--  de serverfunctie: "Gekoppeld. Je kunt dit venster sluiten." Daarna moet je
+--  zelf terug naar de app en zelf op het pijltje drukken om te zien of het
+--  gelukt is. Dat is drie handelingen te veel, en het ergste is dat je bij
+--  twijfel niet weet of het nou wel of niet gelukt is.
+--
+--  Waarom dit een instelling is en geen vaste waarde
+--  -------------------------------------------------
+--
+--  De serverfunctie moet weten waar hij je heen moet sturen, en dat adres
+--  staat nergens in de database. Het hoort ook niet in de code: er is een
+--  proefomgeving, er is de echte, en het uitroldomein is al een keer
+--  verhuisd. Een verhuizing zou anders betekenen dat de koppeling stilvalt
+--  tot er iemand een nieuwe versie uitbrengt.
+--
+--  Let op wat het NIET is. Er staat al een APP_LINK op de server, en die
+--  wijst naar de releasepagina op GitHub -- dat is de plek waar je de app
+--  ophaalt, en dat is iets anders dan de plek waar de app draait. Casper
+--  wilde juist van dat GitHub-adres af, dus die twee blijven gescheiden.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -6736,23 +6864,63 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    'serverfunctie zijn eigen pagina toont in plaats van je terug te sturen.')
 on conflict (id) do nothing;
 
-
 -- ===========================================================================
---  Het dossier valt uiteen: identiteit apart van geld  (0056)
+--  Het dossier valt uiteen: identiteit apart van geld
 --
---  Een leidinggevende die iemand aanneemt moet het BSN kunnen invullen, en
---  dat kon niet: personnel_private stond op "jezelf of het management".
---  Simpelweg verruimen kon ook niet -- RLS werkt per rij, dus dan zag hij
---  meteen ook het rekeningnummer, het uurloon en de interne notities.
+--  Casper: "maar als leidinggevende een medewerker aanmaken, moeten hun ook
+--  gewoon een BSN zien."
 --
---  Dus valt het dossier uiteen. personnel_private houdt de identiteit en
---  gaat open voor wie personeel mag inzien; personnel_loon houdt het geld en
---  houdt de oude grens.
+--  Dat kon niet, en niet omdat het dichtgezet was: personnel_private staat
+--  sinds 0009 op "jezelf of het management", en een leidinggevende is geen
+--  van beide. Wie iemand aanneemt kon dus zijn identiteitsgegevens niet
+--  invullen.
 --
---  LET OP: deze migratie VERPLAATST gegevens en verwijdert daarna drie
---  kolommen uit personnel_private. Hij kopieert eerst en kijkt of de
---  kolommen er nog zijn, dus opnieuw draaien mag -- maar draai hem één keer
---  in zijn geheel en niet half.
+--  Waarom de deur niet gewoon opengaat
+--  -----------------------------------
+--
+--  In diezelfde tabel staan het rekeningnummer, het uurloon en de interne
+--  notities van het management over die persoon. RLS werkt per rij en niet
+--  per kolom: één policy verruimen betekent dat een leidinggevende ook ziet
+--  wat zijn team verdient en wat er over hem is opgeschreven. Dat is niet
+--  gevraagd, en het is precies het soort ding dat je pas merkt als iemand
+--  het al gelezen heeft.
+--
+--  Dus valt het dossier uiteen langs de lijn die er altijd al in zat:
+--
+--    personnel_private   wie iemand is -- geboorte, document, BSN, noodgeval
+--    personnel_loon      wat hij kost -- rekeningnummer, uurloon, notities
+--
+--  De eerste gaat open voor wie personeel mag inzien. De tweede houdt exact
+--  de grens die het hele dossier had: jezelf, of het management.
+--
+--  Waarom op de ROL en niet op een recht
+--  -------------------------------------
+--
+--  Voor de hand liggend zou heeft_recht('staff.view') zijn. Dat werkt niet,
+--  en het werkt op een manier die je pas merkt als je het probeert: die
+--  functie kijkt alleen naar de kolom grants -- de rechten die iemand LOS
+--  heeft gekregen. Wat een rol standaard meebrengt staat in permissions.ts,
+--  in de app, en daar weet de database niets van. Een leidinggevende heeft
+--  staff.view via zijn rol, dus heeft_recht('staff.view') is voor hem
+--  gewoon false.
+--
+--  Dus: is_supervisor() of is_management(), plus heeft_recht('staff.view')
+--  voor wie het los toegekend kreeg. Niet is_lead(), want daar zit de
+--  technische dienst in en die neemt geen mensen aan.
+--
+--  Het gevolg is wel dat een leidinggevende het dossier van een collega ook
+--  kan wijzigen, niet alleen lezen. Dat volgt uit "een medewerker aanmaken":
+--  wie het invult moet een typefout kunnen herstellen.
+--
+--  Wat dit betekent voor het apparaat
+--  ----------------------------------
+--
+--  personnel_private synchroniseert mee. Leidinggevenden erbij laten betekent
+--  dat er BSN's in de lokale opslag van hun tablet komen te staan. Dat is
+--  bewust zo besloten; het staat hier zodat het een besluit blijft en geen
+--  bijverschijnsel.
+--
+--  Opnieuw draaien mag.
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
@@ -6841,24 +7009,41 @@ drop policy if exists prive_select on public.personnel_private;
 create policy prive_select on public.personnel_private for select to authenticated
   using (user_id = public.my_id()
          or public.is_management()
+         or public.is_supervisor()
          or public.heeft_recht('staff.view'));
 
 drop policy if exists prive_write on public.personnel_private;
 create policy prive_write on public.personnel_private for all to authenticated
-  using (public.is_management() or public.heeft_recht('staff.view'))
-  with check (public.is_management() or public.heeft_recht('staff.view'));
-
+  using (public.is_management() or public.is_supervisor()
+         or public.heeft_recht('staff.view'))
+  with check (public.is_management() or public.is_supervisor()
+              or public.heeft_recht('staff.view'));
 
 -- ===========================================================================
---  Het grootboek komt uit Exact  (0057)
+--  Het grootboek komt uit Exact
 --
---  Een categorie op grootboek, zodat een lang rekeningschema te overzien is,
---  en een telling die zegt hoeveel kostenposten er op een code staan -- want
---  een rekening weggooien waarop al geboekt is, laat bonnen achter met een
---  code die nergens naar wijst.
+--  Casper: "kan je er niet voor zorgen dat de grootboeken uit exact bij ons in
+--  het systeem komen met de knop ophalen? Zodat alle dingen opkomen, ook moet
+--  je zorgen dat ik ze kan verwijderen, in een categorie kan plaatsen ect.
+--  Wel met bevestiging uiteraard. Zodat we echt een sync hebben ipv alles
+--  handmatig oppakken."
 --
---  Overnemen uit Exact voegt alleen toe; bestaande regels houden hun eigen
---  naam en trefwoorden.
+--  In 0053 stond nog waarom het schema NIET werd overgenomen: public.grootboek
+--  is met opzet kort (0044), en een administratie in Exact heeft er honderden.
+--  Die zorg blijft staan -- maar het antwoord erop is niet "dan niet", het is
+--  gereedschap. Overnemen wat je nodig hebt, weggooien wat je niet gebruikt,
+--  en een categorie eromheen zodat een lange lijst toch te overzien is.
+--
+--  Wat een overname NIET doet
+--  --------------------------
+--
+--  Bestaande regels aanraken. "Inkoop wasmiddelen en chemie" is een naam die
+--  iemand hier heeft bedacht omdat de administratie hem zo herkent; in Exact
+--  heet diezelfde rekening iets als "Kosten grond- en hulpstoffen". Een sync
+--  die dat overschrijft, wist elke keer opnieuw het werk van de vorige keer
+--  -- en dat merk je pas als je bij een bon de rekening niet meer terugvindt.
+--
+--  Dus: alleen toevoegen wat er nog niet is. Wat er staat blijft van ons.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -6909,14 +7094,43 @@ comment on function public.grootboek_in_gebruik(text) is
   'de rekening weg mag; daarboven laat je kostenposten achter met een code '
   'die nergens meer naar wijst.';
 
-
 -- ===========================================================================
---  Goedgekeurde facturen naar Exact  (0058)  --  STAAT UIT
+--  Goedgekeurde facturen naar Exact
 --
---  Alles staat er en er gaat niets. De schakelaar exact_facturen staat op
---  "uit", en de serverfunctie weigert te versturen zolang dat zo is.
+--  Casper: "uiteindelijk wil ik natuurlijk als er facturen goedgekeurd
+--  worden, bij exact netjes komen, zodat we blue10 volledig weg kunnen halen.
+--  Kan je dat wel alvast integreren, maar voor nu even uit laten zetten? bij
+--  ontwikkelaar moet ik dat aan en uit kunnen zetten."
 --
---  Aanzetten doe je in het dashboard bij Ontwikkeling -> Exact, niet hier.
+--  Dus: alles staat er, en er gaat niets. De schakelaar staat op uit, en
+--  zolang die uit staat weigert de serverfunctie te versturen -- niet alleen
+--  het scherm. Een knop die je verstopt is geen slot.
+--
+--  Wat een inkoopboeking bij Exact nodig heeft
+--  -------------------------------------------
+--
+--  Drie dingen, en geen ervan is te verzinnen:
+--
+--    1. een DAGBOEK -- het inkoopdagboek, vaak 70. Staat in jullie eigen
+--       administratie en verschilt per inrichting.
+--    2. de LEVERANCIER als relatie in Exact. Een boeking wijst naar een
+--       crediteur met een guid, niet naar "Shell Nederland" zoals het op de
+--       bon staat. Daar is deze koppeltabel voor.
+--    3. de BTW-CODE. 21% heet in Exact niet "21" maar een code die per
+--       administratie kan verschillen.
+--
+--  Het rekeningschema was het vierde, en dat staat er al (0053/0057): een
+--  boeking wijst naar de guid van de grootboekrekening, en die bewaren we
+--  in exact_grootboek.exact_id.
+--
+--  Waarom de leverancier een eigen tabel krijgt
+--  --------------------------------------------
+--
+--  expenses.supplier is vrije tekst van de factuur. Dezelfde leverancier
+--  heet daar de ene keer "Shell Nederland Verkoopmij B.V." en de andere keer
+--  "SHELL NEDERLAND VERKOOPMAATSCHAPPIJ BV". Op naam matchen tegen Exact
+--  gaat dus soms goed en soms niet, en "soms" is bij een boeking niet goed
+--  genoeg. Wat één keer met de hand is vastgelegd, blijft vastliggen.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -7005,13 +7219,21 @@ comment on table public.exact_leverancier is
 create or replace function public.kaal_bedrijf(naam text)
 returns text
 language sql immutable as $$
+  /*
+   * Eerst de leestekens eruit, dan pas de rechtsvorm. Andersom ging het mis:
+   * "B.V." aan het eind bleef staan omdat de woordgrens na de laatste punt
+   * niet matcht, terwijl "bv" zonder punten wel werd afgehaald. Dan komen
+   * twee schrijfwijzen van dezelfde firma dus NIET op elkaar uit -- en dat is
+   * precies waar deze functie voor bestaat. De zelftest ving het.
+   *
+   * Daarom staat de rechtsvorm hieronder ook als "b\s*v": na het weghalen van
+   * de punten is "B.V." veranderd in "b v".
+   */
   select nullif(
     trim(regexp_replace(
-      regexp_replace(
-        lower(coalesce(naam, '')),
-        '\s*\m(b\.?v\.?|n\.?v\.?|v\.?o\.?f\.?|c\.?v\.?|b\.?v\.?b\.?a\.?|gmbh|ltd|inc|s\.?a\.?)\M\s*$',
-        '', 'g'),
-      '[^a-z0-9]+', ' ', 'g')),
+      trim(regexp_replace(lower(coalesce(naam, '')), '[^a-z0-9]+', ' ', 'g')),
+      '\s+(b\s*v\s*b\s*a|b\s*v|n\s*v|v\s*o\s*f|c\s*v|gmbh|ltd|inc|s\s*a)$',
+      '', 'g')),
     '');
 $$;
 
@@ -7104,6 +7326,12 @@ grant  execute on function public.exact_crediteuren_klaarzetten(text) to service
 --  tweehonderd heen-en-weertjes, en het zette dezelfde kennis op twee plekken.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg. "create or replace" mag de vorm van een tabelfunctie niet
+   wijzigen, en 0059 zet er een kolom bij (administratie). Zonder deze regel
+   valt dit bestand om zodra het na 0059 nog eens gedraaid wordt -- en elke
+   migratie hier belooft dat dat mag. */
+drop function if exists public.exact_facturen_wachtend();
+
 create or replace function public.exact_facturen_wachtend()
 returns table (
   id             text,
@@ -7144,17 +7372,40 @@ $$;
 revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated;
 grant  execute on function public.exact_facturen_wachtend() to service_role;
 
-
 -- ===========================================================================
---  Meerdere bv's, elk met een eigen grootboek  (0059)
+--  Meerdere bv's, elk met een eigen grootboek
 --
---  Rekening 4000 bestaat in elke administratie en betekent er iets anders.
---  Daarom is "code" niet meer op zichzelf uniek maar samen met de bv, weet
---  een vestiging bij welke bv hij hoort, en erft een kostenpost dat van zijn
---  vestiging.
+--  Casper: "Ik heb in exact meerdere bv's, die hebben ook allemaal een eigen
+--  grootboekrekening, fix dit."
 --
---  LET OP: dit maakt exact_grootboek eenmalig leeg. Dat is een kopie die de
---  eerstvolgende ophaalronde opnieuw vult, nu per administratie.
+--  Alles wat er tot nu toe staat gaat uit van één administratie. De koppeling
+--  bewaart één division, het rekeningschema is één lijst, en een boeking gaat
+--  naar "de" administratie. Dat klopt niet meer, en het klopt op een manier
+--  die stil misgaat: rekening 4000 bestaat in elke bv en betekent er iets
+--  anders. Een factuur van de wasstraat op de 4000 van de holding boeken
+--  levert geen foutmelding op -- alleen een verkeerde boeking.
+--
+--  Daarom eerst dit, en pas daarna de rest. Elke andere stap (tweede
+--  goedkeuring, splitsen, verkoopfacturen, betalingen) hangt aan de vraag "in
+--  welke bv gebeurt dit", en die vraag moet één keer goed beantwoord zijn.
+--
+--  Wat er verandert
+--  ----------------
+--
+--    exact_administratie   de bv's die Exact kent, en welke wij gebruiken
+--    grootboek             krijgt een administratie; code is niet meer uniek
+--                          op zichzelf maar samen met de bv
+--    locations             weet bij welke bv hij hoort
+--    exact_grootboek       per administratie in plaats van één lijst
+--
+--  Waarom de bv op de vestiging en niet op de bon
+--  ----------------------------------------------
+--
+--  Een kostenpost weet al bij welke vestiging hij hoort, en een vestiging
+--  hoort bij één bv. De bv op de bon zetten zou dat verdubbelen, en dan is er
+--  een dag waarop die twee iets anders zeggen. Verhuist een vestiging ooit
+--  naar een andere bv, dan is dat één veld -- en oude bonnen die al geboekt
+--  zijn dragen hun boekingsnummer en veranderen niet meer.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -7228,11 +7479,66 @@ end $$;
 
 alter table public.grootboek add column if not exists administratie text;
 
+/*
+ * Eerst de verwijzing eruit die eraan hangt.
+ *
+ * leverancier_boeking.grootboek_code verwees naar grootboek(code) -- het
+ * geheugen "deze leverancier boekt meestal op 4031". Dat kan niet blijven
+ * zodra dezelfde code in meerdere bv's bestaat: er is dan geen één rij meer
+ * om naar te wijzen.
+ *
+ * En dat hoeft ook niet. Het geheugen onthoudt een CODE, niet een rij; welke
+ * bv erbij hoort komt van de vestiging op de bon. "Enexis boekt op 4010" is
+ * waar in elke administratie.
+ *
+ * Wat we ermee kwijtraken is "on delete set null": gooi je een rekening weg,
+ * dan blijft die code in het geheugen staan. Dat is te overzien -- het
+ * geheugen is een suggestie, en factuur_indelen() zoekt de code alsnog op.
+ * 0057 laat een rekening waarop geboekt is bovendien niet weggooien.
+ */
 do $$
+declare c text;
 begin
-  alter table public.grootboek drop constraint if exists grootboek_code_key;
-exception when others then
-  raise notice 'grootboek_code_key stond er niet meer: %', sqlerrm;
+  for c in
+    select con.conname
+      from pg_constraint con
+      join pg_class     t on t.oid = con.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+     where n.nspname = 'public'
+       and t.relname = 'leverancier_boeking'
+       and con.contype = 'f'
+  loop
+    execute format('alter table public.leverancier_boeking drop constraint %I', c);
+    raise notice 'verwijzing van leverancier_boeking naar grootboek weg: %', c;
+  end loop;
+end $$;
+
+/*
+ * De oude "uniek op code" eraf, hoe hij ook heet.
+ *
+ * In 0044 staat hij als "code text not null unique" in de tabeldefinitie, en
+ * dan verzint Postgres de naam. Meestal grootboek_code_key, maar daarop
+ * gokken is precies het soort aanname dat pas opvalt als er twee bv's zijn en
+ * de tweede zijn eigen 4000 niet kwijt kan. Dus opzoeken.
+ */
+do $$
+declare c text;
+begin
+  for c in
+    select con.conname
+      from pg_constraint con
+      join pg_class     t on t.oid = con.conrelid
+      join pg_namespace n on n.oid = t.relnamespace
+     where n.nspname = 'public'
+       and t.relname = 'grootboek'
+       and con.contype = 'u'
+       and array_length(con.conkey, 1) = 1
+       and (select a.attname from pg_attribute a
+             where a.attrelid = t.oid and a.attnum = con.conkey[1]) = 'code'
+  loop
+    execute format('alter table public.grootboek drop constraint %I', c);
+    raise notice 'oude unieke sleutel op grootboek.code weg: %', c;
+  end loop;
 end $$;
 
 /* Uniek per bv. Een lege administratie telt als zijn eigen groep, zodat de
@@ -7300,6 +7606,12 @@ comment on function public.bon_administratie(text) is
 --  eerste de beste pakken.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: "create or replace" mag de vorm van een tabelfunctie niet
+   wijzigen, en er komt een kolom bij (administratie). Zonder deze regel valt
+   de hele migratie om met "cannot change return type of existing function" --
+   en dan is er ook niets anders gedraaid. */
+drop function if exists public.exact_facturen_wachtend();
+
 create or replace function public.exact_facturen_wachtend()
 returns table (
   id             text,
@@ -7347,18 +7659,42 @@ $$;
 revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated;
 grant  execute on function public.exact_facturen_wachtend() to service_role;
 
-
 -- ===========================================================================
---  Vier ogen: een factuur gaat langs twee mensen  (0060)
+--  Vier ogen: één die kijkt, één die tekent
 --
---  open -> eerste_akkoord -> goedgekeurd. Afkeuren blijft een stap en mag
---  door een: tegenhouden kan geen kwaad, doorlaten wel.
+--  Casper: "Daarnaast moet je zorgen dat je na de eerste check van een
+--  factuur ect, ook een tweede persoon moet hebben om hem goed te keuren."
 --
---  Een trigger bewaakt dat de tweede handtekening van iemand anders komt.
---  Dat staat hier en niet in het scherm, want de app praat rechtstreeks met
---  de database en een wijziging uit de wachtrij heeft geen scherm gezien.
+--  Dat is de gewoonte die in elk factuurpakket zit, en de reden ervoor is
+--  saai maar hard: hier gaat geld weg. Eén iemand die zich vergist, of eén
+--  iemand die het niet zo nauw neemt, is bij één handtekening genoeg.
 --
---  Staat standaard AAN, vanaf nul euro. De drempel is in te stellen.
+--  Hoe het loopt
+--  -------------
+--
+--    open              er is nog niemand langs geweest
+--    eerste_akkoord    één iemand heeft hem nagekeken
+--    goedgekeurd       een TWEEDE iemand heeft getekend
+--    afgekeurd         iemand heeft hem tegengehouden
+--
+--  Afkeuren kan in elke stand en door één iemand. Dat is geen inconsistentie:
+--  tegenhouden kan geen kwaad, doorlaten wel.
+--
+--  Waarom de tweede handtekening in de database wordt bewaakt
+--  ---------------------------------------------------------
+--
+--  Het scherm kan de knop verbergen voor wie al getekend heeft. Maar de app
+--  praat rechtstreeks met de database, en een wijziging die via de wachtrij
+--  binnenkomt heeft geen scherm gezien. De regel "niet twee keer dezelfde
+--  persoon" hoort dus hier te staan, waar hij altijd geldt.
+--
+--  De drempel
+--  ----------
+--
+--  Standaard nul: alles langs twee mensen. Er staat een bedrag naast, want
+--  bij een parkeerbon van drie euro is twee handtekeningen geen zorgvuldigheid
+--  maar een rem. Wie dat wil, zet hem hoger; wie het zo wil houden, doet
+--  niets.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -7471,16 +7807,37 @@ comment on function public.expenses_vier_ogen() is
   'in de database en niet in het scherm: de app praat rechtstreeks met de '
   'database, en een wijziging uit de wachtrij heeft geen scherm gezien.';
 
-
 -- ===========================================================================
---  De historie van een factuur, en notities erbij  (0061)
+--  De historie van een factuur, en notities erbij
 --
---  Een tabel met wat er met een kostenpost gebeurd is, gevuld door een
---  trigger. Die ziet alles -- ook wat via de wachtrij of door de post en de
---  lezer binnenkomt -- en dat is waarom het geen taak van de app is.
+--  Casper: "je moet de historie zien van dat factuur, goed kunnen zoeken,
+--  notities erbij zetten".
 --
---  Alleen 'notitie' schrijft een mens, en alleen op eigen naam. Wijzigen en
---  weggooien kan niemand: een spoor dat je kunt bijschaven is geen spoor.
+--  Er wás al een tijdlijn in het scherm, maar die werd afgeleid uit de velden
+--  op de bon: binnengekomen, voorgelezen, goedgekeurd. Dat werkt zolang er
+--  drie momenten zijn en elk moment zijn eigen kolom heeft. Zodra iemand een
+--  bedrag corrigeert, een rekening omzet of een tweede handtekening zet, is
+--  er niets meer wat dat onthoudt -- en juist dát is wat je wilt terugzien
+--  als een boeking achteraf niet klopt.
+--
+--  Waarom een trigger en niet de app
+--  ---------------------------------
+--
+--  Omdat er drie wegen naar een kostenpost lopen. De app (via de wachtrij),
+--  de post die een factuur binnenhaalt, en de lezer die hem invult. Alle drie
+--  zouden ze netjes een regel moeten schrijven, en op een dag doet er een dat
+--  niet -- en dan mist er een gebeurtenis zonder dat iemand het merkt.
+--
+--  Een trigger ziet alles, ook wat langs de wachtrij binnenkomt. Wat hij niet
+--  ziet is WAAROM iets veranderde; daar zijn de notities voor.
+--
+--  Wat er NIET in komt
+--  -------------------
+--
+--  Elke wijziging van elk veld. Dat levert een lijst op waar niemand
+--  doorheen komt, met tien regels "updated_at gewijzigd" per bon. Alleen wat
+--  ertoe doet: de stand, het bedrag, de rekening, de leverancier, het
+--  factuurnummer, en de gang naar Exact.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -7649,15 +8006,38 @@ create policy gebeurtenis_insert on public.expense_gebeurtenis
   with check (public.rij_bestaat('public.expense_gebeurtenis'::regclass, id)
               or (soort = 'notitie' and door = public.my_id()));
 
-
 -- ===========================================================================
---  Een factuur splitsen  (0062)
+--  Een factuur splitsen
 --
---  Een rekening van Enexis voor drie vestigingen, of een bon die half op
---  wasmiddelen en half op klein materiaal staat. Geen regels = zoals het was.
+--  Casper: "notities erbij zetten, splitsen, koppelen ect."
 --
---  Het optellen wordt bij het GOEDKEUREN afgedwongen en niet per regel: een
---  splitsing bouw je op, en tussentijds klopt hij per definitie niet.
+--  Eén factuur, meerdere regels. De rekening van Enexis is voor drie
+--  vestigingen; de bon van de groothandel staat half op wasmiddelen en half
+--  op klein materiaal. Tot nu toe kon dat niet: een kostenpost had één bedrag
+--  en één grootboekrekening, en wie het wilde splitsen moest hem twee keer
+--  invoeren -- met twee keer hetzelfde factuurnummer, wat de dubbelcontrole
+--  juist tegenhoudt.
+--
+--  Hoe het werkt
+--  -------------
+--
+--  Geen regels = zoals het was. Het bedrag en de rekening op de bon zelf
+--  zijn dan de boeking. Dat is verreweg het meeste, en dat moet simpel
+--  blijven.
+--
+--  Wél regels = de bon is de optelsom. Het bedrag op de bon blijft leidend --
+--  dat is wat de leverancier vraagt -- en de regels moeten daarop uitkomen.
+--
+--  Waarom het optellen pas bij het goedkeuren wordt afgedwongen
+--  -----------------------------------------------------------
+--
+--  Omdat je een splitsing opbouwt. Zet je de eis op elke regel die je
+--  toevoegt, dan klopt hij per definitie niet zolang je bezig bent, en dan is
+--  het onmogelijk om er een tweede regel bij te typen.
+--
+--  Bij het goedkeuren is het wél de vraag die telt: gaat er straks precies
+--  het bedrag naar de boekhouding dat er op de factuur staat? Een verschil
+--  van een cent is daar geen detail maar een boeking die niet sluit.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -7823,17 +8203,40 @@ drop policy if exists expense_regel_delete on public.expense_regel;
 create policy expense_regel_delete on public.expense_regel for delete to authenticated
   using (public.mag_kosten_beslissen());
 
-
 -- ===========================================================================
---  Relaties uit Exact: crediteuren en klanten  (0063)
+--  Relaties uit Exact: crediteuren én klanten
 --
---  Ze staan bij Exact in dezelfde lijst met alleen een vlaggetje ertussen,
---  dus wordt het hier ook een lijst: exact_relatie. exact_crediteur gaat
---  daarin op -- dat was een kopie die elke ophaalronde opnieuw wordt gevuld.
+--  Casper: "In exact staan natuurlijk relaties, dat worden onze bedrijven,
+--  sync dit dan ook."
 --
---  public.companies blijft van ons. Er hangen wasbeurten en portalen aan; een
---  sync die daar rijen overheen zet sloopt verwijzingen die nergens anders
---  vandaan komen. Dus een koppeltabel ernaast, per administratie.
+--  In 0058 kwam er een tabel voor de crediteuren, omdat een inkoopboeking
+--  naar een guid moet wijzen. Klanten hebben precies hetzelfde nodig zodra er
+--  verkoopfacturen bijkomen -- en ze staan in Exact in dezelfde lijst
+--  (crm/Accounts), met alleen een vlaggetje ertussen.
+--
+--  Twee tabellen die dezelfde lijst ophalen betekent twee keer hetzelfde
+--  verkeer en twee plekken waar dezelfde relatie kan verschillen. Dus wordt
+--  het er één: exact_relatie, met per rij of het een leverancier is, een
+--  klant, of beide.
+--
+--  Weg met exact_crediteur
+--  -----------------------
+--
+--  Die tabel is een kopie die bij elke ophaalronde opnieuw wordt gevuld, dus
+--  hij kan gewoon verdwijnen -- de eerstvolgende sync zet alles terug in de
+--  nieuwe. Wat NIET verdwijnt is exact_leverancier: daar staan de koppelingen
+--  die met de hand zijn gelegd, en die zijn niet opnieuw te maken.
+--
+--  Onze bedrijven blijven van ons
+--  ------------------------------
+--
+--  public.companies is geen kopie van Exact. Er hangen wasbeurten aan, en
+--  klantenportalen, en profielen. Een sync die daar rijen overheen zet of
+--  weggooit, sloopt verwijzingen die nergens anders vandaan komen.
+--
+--  Dus hetzelfde als bij het grootboek (0057): een kopie ernaast, een
+--  koppeling ertussen, en overnemen is een handeling. Wat automatisch gaat is
+--  alleen het koppelen op naam, en alleen als het eenduidig is.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -8000,18 +8403,35 @@ on conflict (soort) do nothing;
 
 delete from public.exact_sync where soort = 'crediteuren';
 
-
 -- ===========================================================================
---  Verkoopfacturen  (0064)
+--  Verkoopfacturen: de andere kant van de factuurstroom
 --
---  Het scherm bij de klant rekende zijn facturen elke keer opnieuw uit uit de
---  wasbeurten. Handig om te zien, en geen factuur: geen nummer, geen datum,
---  geen bedrag dat vastligt. Nu wel.
+--  Casper: "Bij een factuur moet je zowel inkomend als uitkomend nadenken,
+--  pas dit dan ook toe."
 --
---  Twee sloten waar het om gaat: een wasbeurt kan maar op EEN factuur staan,
---  en een verstuurde factuur ligt vast. Nummering per bv per jaar, via een
---  teller -- twee mensen tegelijk zouden bij max()+1 hetzelfde nummer
---  krijgen.
+--  Tot nu toe kende dit systeem alleen de inkomende kant. Aan de klantzijde
+--  stond wel een scherm "Facturen", maar dat was een BEREKENING: alle
+--  gereedgemelde wasbeurten van een maand bij elkaar opgeteld. Handig om te
+--  zien, en geen factuur -- er is geen nummer, geen datum, geen bedrag dat
+--  vastligt, en dus ook niets om aan een betaling te koppelen of naar Exact
+--  te sturen.
+--
+--  Waarom een berekening geen factuur is
+--  -------------------------------------
+--
+--  Omdat een factuur een moment vastlegt. Wordt er na het versturen een
+--  wasbeurt bijgeboekt of een prijs gecorrigeerd, dan verandert de berekening
+--  mee en klopt hij niet meer met het papier dat de klant heeft. Daarom
+--  worden de regels bij het opmaken overgenomen en niet later nog eens
+--  uitgerekend.
+--
+--  Eén wasbeurt, één factuur
+--  -------------------------
+--
+--  De belangrijkste regel hier. Zonder slot komt dezelfde wasbeurt op de
+--  factuur van maart en die van april -- en dan heb je hem twee keer in
+--  rekening gebracht bij een klant die dat wél opmerkt. Vandaar de unieke
+--  index op de wasbeurt in de regels.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================
@@ -8398,20 +8818,34 @@ end $$;
 revoke execute on function public.verkoopfactuur_versturen(text) from public, anon, authenticated;
 grant  execute on function public.verkoopfactuur_versturen(text) to service_role;
 
-
 -- ===========================================================================
---  Betaald zetten, en een SEPA-bestand voor de bank  (0065)
+--  Betaald zetten, en een SEPA-bestand voor de bank
 --
---  Een betaalopdracht is een moment: op 3 april is er voor 12.400 euro aan
---  achttien facturen weggezet. Vandaar een batch en niet een vlaggetje per
---  factuur.
+--  Casper: "Zorg ervoor dat je hem ook op betaald kan zetten, evt een sepa
+--  bestand kan aanmaken ect."
 --
---  Het bestand maken zet niets op betaald. Dat is een aparte handeling, pas
---  als iemand zegt dat de bank hem heeft gedraaid -- een bestand maken is
---  niet hetzelfde als geld overmaken.
+--  Twee dingen die bij elkaar horen. Een factuur op betaald zetten is de
+--  laatste stap van de keten -- daarna is hij klaar. En een SEPA-bestand is
+--  hoe dat betalen in de praktijk gaat: je maakt één bestand met alle
+--  openstaande facturen erin, laadt het bij de bank, en die maakt ze in één
+--  keer over.
 --
---  Zet het eigen rekeningnummer per bv (exact_administratie.eigen_iban),
---  anders kan er geen bestand gemaakt worden.
+--  Waarom een batch en niet per factuur
+--  ------------------------------------
+--
+--  Omdat de bank het zo wil, en omdat je anders niet terug kunt kijken. Een
+--  batch is een moment: op 3 april is er voor 12.400 euro aan achttien
+--  facturen weggezet. Zonder dat is er alleen een stapel facturen die
+--  "betaald" heet en niets dat zegt wanneer en in welke opdracht.
+--
+--  Wat er NIET automatisch gebeurt
+--  -------------------------------
+--
+--  Betaald zetten bij het maken van het bestand. Een bestand maken is niet
+--  hetzelfde als geld overmaken -- er kan nog van alles tussen komen: de
+--  bank weigert het, iemand vergeet het te fiatteren, het bestand blijft in
+--  de map staan. Pas als iemand zegt dat het is uitgevoerd, gaan de facturen
+--  op betaald. Dat is een handeling, met opzet.
 --
 --  Opnieuw draaien mag.
 -- ===========================================================================

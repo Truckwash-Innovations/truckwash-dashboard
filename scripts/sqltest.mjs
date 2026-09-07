@@ -10,7 +10,7 @@
  */
 
 import { PGlite } from '@electric-sql/pglite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -98,6 +98,11 @@ create table storage.objects (
 grant usage on schema storage to anon, authenticated, service_role;
 grant select, insert, update, delete on all tables in schema storage to authenticated;
 `
+
+/** De migratiebestanden op volgorde. */
+function migratieBestanden() {
+  return readdirSync(join(root, 'supabase', 'migrations')).filter((f) => f.endsWith('.sql')).sort()
+}
 
 async function fresh() {
   const db = await PGlite.create()
@@ -5763,6 +5768,114 @@ try {
   await db.query(`select public.verkoopfactuur_versturen('vf_tweede')`)
 } catch { vkLeeg = true }
 check('een factuur van nul euro gaat niet de deur uit', vkLeeg)
+
+/* ==================================================================== *
+ *  bijwerken.sql doet het ook echt
+ *
+ *  Dit ontbrak, en dat kostte Casper een avond.
+ *
+ *  setup.sql wordt gegenereerd en hierboven twee keer gedraaid, dus die bleef
+ *  schoon. bijwerken.sql werd met de hand bijgehouden: bij elke nieuwe
+ *  migratie werd de tekst van dat moment eronder geplakt. Werd een oudere
+ *  migratie daarna nog gerepareerd -- en dat gebeurde drie keer -- dan bleef
+ *  de kopie hier de kapotte versie.
+ *
+ *  Dat kwam er pas uit toen hij het in de echte database plakte:
+ *
+ *    "public.exact_crediteur bestaat niet"
+ *    "cannot change return type of existing function"
+ *
+ *  Allebei allang opgelost in de migraties. Sinds vandaag wordt bijwerken.sql
+ *  gegenereerd (scripts/build-bijwerken-sql.cjs) én hier gedraaid, op een
+ *  database die tot en met 0016 bij is -- precies zoals hij hem gebruikt.
+ * ==================================================================== */
+
+console.log('\n48. bijwerken.sql op een bestaande database')
+
+/*
+ * Eerst: is het bestand wel bij?
+ *
+ * De functionele test hieronder vangt een kapot bestand. Deze vangt het
+ * geval ervoor: een migratie erbij, en vergeten te genereren. Dan draait
+ * bijwerken.sql prima -- alleen mist er een stuk, en dat merk je pas als
+ * iemand een scherm opent dat de nieuwe tabel nodig heeft.
+ */
+{
+  const kop = sqlFile('supabase/bijwerken.sql').split('-- ====', 2)[1] ?? ''
+  const setup = sqlFile('supabase/setup.sql')
+
+  const ontbreekt = migratieBestanden()
+    .filter((f) => Number(f.slice(0, 4)) >= 17)
+    .filter((f) => !kop.includes(`--    ${f.slice(0, 4)}  `))
+  check('elke migratie staat in bijwerken.sql', ontbreekt.length === 0,
+    ontbreekt.length > 0 ? `ontbreekt: ${ontbreekt.join(', ')} -- draai npm run sql:bouw` : '')
+
+  /* En setup.sql: daar staan geen nummers in, dus kijken we of de eerste
+     kopregel van elke migratie erin voorkomt. */
+  const mistInSetup = migratieBestanden().filter((f) => {
+    const eerste = sqlFile(`supabase/migrations/${f}`).split('\n')
+      .find((r) => /^--\s{2}\S/.test(r) && !/^--\s*=+/.test(r))
+    return eerste && !setup.includes(eerste.trim())
+  })
+  check('en in setup.sql ook', mistInSetup.length === 0,
+    mistInSetup.length > 0 ? `ontbreekt: ${mistInSetup.join(', ')} -- draai npm run sql:bouw` : '')
+}
+
+{
+  const bijDb = await fresh()
+
+  /* Eerst de basis waar bijwerken.sql van uitgaat. */
+  let basisGoed = true
+  for (const naam of migratieBestanden().filter((f) => Number(f.slice(0, 4)) <= 16)) {
+    try {
+      await bijDb.exec(sqlFile(`supabase/migrations/${naam}`))
+    } catch (e) {
+      basisGoed = false
+      check(`basis ${naam}`, false, e.message)
+      break
+    }
+  }
+  check('de basis tot en met 0016 staat', basisGoed)
+
+  /* En dan het bestand dat Casper plakt. */
+  let bijGoed = true
+  let bijFout = ''
+  try {
+    await bijDb.exec(sqlFile('supabase/bijwerken.sql'))
+  } catch (e) {
+    bijGoed = false
+    bijFout = e.message
+  }
+  check('bijwerken.sql draait erop', bijGoed, bijFout)
+
+  /* En nog een keer, want dat belooft de kop van dat bestand. */
+  let nogGoed = true
+  let nogFout = ''
+  try {
+    await bijDb.exec(sqlFile('supabase/bijwerken.sql'))
+  } catch (e) {
+    nogGoed = false
+    nogFout = e.message
+  }
+  check('en opnieuw draaien mag ook echt', nogGoed, nogFout)
+
+  /* Komt hij op hetzelfde uit als setup.sql? Anders is er een migratie die
+     wel in het een en niet in het ander zit. */
+  const bijTabellen = (await bijDb.query(`
+    select table_name from information_schema.tables
+     where table_schema = 'public' order by table_name`)).rows.map((r) => r.table_name)
+  const setupTabellen = (await db.query(`
+    select table_name from information_schema.tables
+     where table_schema = 'public' order by table_name`)).rows.map((r) => r.table_name)
+
+  const mist = setupTabellen.filter((t) => !bijTabellen.includes(t))
+  const teveel = bijTabellen.filter((t) => !setupTabellen.includes(t))
+  check('en levert dezelfde tabellen op als de migraties',
+    mist.length === 0 && teveel.length === 0,
+    `mist: ${mist.join(', ') || '-'} | te veel: ${teveel.join(', ') || '-'}`)
+
+  await bijDb.close()
+}
 
 await db.close()
 
