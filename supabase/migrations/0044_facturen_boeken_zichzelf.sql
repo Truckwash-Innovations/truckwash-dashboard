@@ -296,7 +296,11 @@ from (values
    array['brandstof','diesel','tankpas','shell','bp','total','leasing','lease'], 21),
   ('4090', 'Overige bedrijfskosten', array[]::text[], 21)
 ) as v(code, naam, trefwoorden, btw_pct)
-on conflict (code) do nothing;
+/* Op id en niet op code. Sinds 0059 is de code niet meer op zichzelf uniek --
+   dezelfde rekening bestaat in elke bv -- en dan is er geen sleutel om op te
+   botsen. De id is er altijd geweest en is hier ook de natuurlijke: deze
+   startlijst is er één, met vaste id's. */
+on conflict (id) do nothing;
 
 insert into public.kosten_tags (id, naam, trefwoorden)
 select 'tag_' || v.naam, v.naam, v.trefwoorden

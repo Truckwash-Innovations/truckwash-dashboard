@@ -20,6 +20,8 @@
  *   sync-personeel    het personeel uit Exact ophalen
  *   personeel-stand   onze mensen naast die van Exact leggen
  *   koppel-medewerker met de hand zeggen wie wie is
+ *   sync-administraties  welke bv's Exact kent
+ *   zet-administratie    een bv aan- of uitzetten, of tot hoofd maken
  *   sync-crediteuren  de leveranciers uit Exact ophalen
  *   facturen-stand    wat er klaarstaat om te versturen, en wat mist
  *   stuur-facturen    goedgekeurde facturen als inkoopboeking naar Exact
@@ -57,7 +59,9 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
-import { ExactFout, exactDatum, exactLijst, exactPost, geldigToken } from '../_gedeeld/exact.ts'
+import {
+  ExactFout, exactDatum, exactLijst, exactPost, geldigToken, type ExactLijn,
+} from '../_gedeeld/exact.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -669,6 +673,101 @@ async function instellen(body: Record<string, unknown>, beller: Beller): Promise
 }
 
 /* ------------------------------------------------------------------ *
+ *  De administraties
+ *
+ *  Sinds 0059 zijn het er meer dan één. Het token geldt voor alle bv's waar
+ *  de ingelogde Exact-gebruiker bij mag; welke dat zijn vraagt hij hier op.
+ *
+ *  Nieuwe administraties komen binnen als NIET actief. Dat is met opzet: er
+ *  kunnen bv's tussen zitten waar wij niets mee doen -- een holding, een
+ *  slapende vennootschap -- en die elke ophaalronde meenemen kost tijd en
+ *  levert lijsten op waar niemand iets aan heeft. Aanzetten doe je zelf.
+ * ------------------------------------------------------------------ */
+
+interface ExactDivision {
+  Code?: number | string
+  Description?: string
+  HID?: number
+  Main?: number | boolean
+}
+
+async function syncAdministraties(): Promise<Response> {
+  const lijn = await geldigToken(admin)
+  const rijen = await exactLijst<ExactDivision>(lijn, 'system/Divisions', {
+    $select: 'Code,Description,Main',
+  })
+
+  const nu = Date.now()
+  const codes = rijen
+    .map((r) => ({ code: String(r.Code ?? '').trim(), naam: String(r.Description ?? '').trim() }))
+    .filter((r) => r.code)
+
+  for (const r of codes) {
+    /* Alleen invoegen wat er nog niet is: actief en hoofd zijn keuzes die
+       hier zijn gemaakt en die een ophaalronde niet hoort terug te draaien. */
+    await admin.from('exact_administratie').upsert(
+      { code: r.code, naam: r.naam, updated_at: nu },
+      { onConflict: 'code', ignoreDuplicates: false },
+    ).select()
+  }
+
+  /*
+   * Is er nog geen hoofdadministratie, dan wordt het die van de koppeling.
+   * Zonder hoofd valt bon_administratie() terug op niets, en dan blijft elke
+   * bon zonder vestiging staan zonder dat het scherm zegt waarom.
+   */
+  const { count: hoofden } = await admin.from('exact_administratie')
+    .select('code', { count: 'exact', head: true }).eq('hoofd', true)
+  if (!hoofden) {
+    await admin.from('exact_administratie')
+      .update({ hoofd: true, actief: true, updated_at: nu })
+      .eq('code', lijn.division)
+  }
+
+  return json({ ok: true, aantal: codes.length, ...await administraties() })
+}
+
+async function administraties() {
+  const { data } = await admin.from('exact_administratie').select('*').order('code')
+  return {
+    administraties: (data ?? []).map((r) => ({
+      code: String(r.code),
+      naam: String(r.naam ?? ''),
+      actief: r.actief === true,
+      hoofd: r.hoofd === true,
+    })),
+  }
+}
+
+async function zetAdministratie(body: Record<string, unknown>): Promise<Response> {
+  const code = String(body.code ?? '').trim()
+  if (!code) return json({ ok: false, reden: 'Geen administratie meegestuurd.' }, 400)
+
+  const velden: Record<string, unknown> = { updated_at: Date.now() }
+  if ('actief' in body) velden.actief = body.actief === true
+  if ('hoofd' in body && body.hoofd === true) {
+    /* Er kan er maar één zijn; de database bewaakt dat ook, maar een nette
+       omzetting is beter dan een botsing op een unieke index. */
+    await admin.from('exact_administratie').update({ hoofd: false }).eq('hoofd', true)
+    velden.hoofd = true
+    velden.actief = true
+  }
+
+  const { error } = await admin.from('exact_administratie').update(velden).eq('code', code)
+  if (error) return json({ ok: false, reden: error.message }, 502)
+  return json({ ok: true, ...await administraties() })
+}
+
+/** De bv's waar we werkelijk iets mee doen. */
+async function actieveAdministraties(lijn: ExactLijn): Promise<string[]> {
+  const { data } = await admin.from('exact_administratie')
+    .select('code').eq('actief', true).order('code')
+  const uit = (data ?? []).map((r) => String(r.code))
+  /* Nog nooit opgehaald? Dan is er er één: die van de koppeling. */
+  return uit.length > 0 ? uit : [lijn.division]
+}
+
+/* ------------------------------------------------------------------ *
  *  Het rekeningschema ophalen
  *
  *  Uit Exact naar public.exact_grootboek, en verder niets: public.grootboek
@@ -705,52 +804,63 @@ const GL_SOORTEN: Record<number, string> = {
 
 async function syncGrootboek(beller: Beller): Promise<Response> {
   const lijn = await geldigToken(admin)
-
-  const rijen = await exactLijst<ExactGL>(lijn, 'financial/GLAccounts', {
-    $select: 'ID,Code,Description,IsBlocked,Type',
-    $orderby: 'Code',
-  })
+  const bvs = await actieveAdministraties(lijn)
 
   const nu = Date.now()
-  const uit = rijen
-    .map((r) => ({
-      code: String(r.Code ?? '').trim(),
-      omschrijving: String(r.Description ?? '').trim(),
-      exact_id: r.ID ?? null,
-      soort: typeof r.Type === 'number' ? (GL_SOORTEN[r.Type] ?? String(r.Type)) : null,
-      geblokkeerd: r.IsBlocked === true,
-      division: lijn.division,
-      updated_at: nu,
-    }))
-    .filter((r) => r.code !== '')
+  let totaal = 0
 
-  if (uit.length > 0) {
+  /*
+   * Per bv, want elke administratie heeft zijn eigen schema. Rekening 4000
+   * bestaat overal en betekent overal iets anders; ze op één hoop gooien
+   * levert een lijst op waarin de eerste de beste wint.
+   */
+  for (const bv of bvs) {
+    const rijen = await exactLijst<ExactGL>(lijn, 'financial/GLAccounts', {
+      $select: 'ID,Code,Description,IsBlocked,Type',
+      $orderby: 'Code',
+    }, bv)
+
+    const uit = rijen
+      .map((r) => ({
+        code: String(r.Code ?? '').trim(),
+        omschrijving: String(r.Description ?? '').trim(),
+        exact_id: r.ID ?? null,
+        soort: typeof r.Type === 'number' ? (GL_SOORTEN[r.Type] ?? String(r.Type)) : null,
+        geblokkeerd: r.IsBlocked === true,
+        division: bv,
+        updated_at: nu,
+      }))
+      .filter((r) => r.code !== '')
+
     /* In brokken, want een administratie met honderden rekeningen in één
        verzoek is een tijdslimiet die je een keer haalt en daarna niet meer. */
     for (let i = 0; i < uit.length; i += 200) {
       const { error } = await admin.from('exact_grootboek')
-        .upsert(uit.slice(i, i + 200), { onConflict: 'code' })
+        .upsert(uit.slice(i, i + 200), { onConflict: 'division,code' })
       if (error) throw new ExactFout(`exact_grootboek schrijven: ${error.message}`)
     }
 
     /*
-     * Rekeningen die er niet meer zijn, of die uit een andere administratie
-     * komen. Zonder dit blijft de lijst van het proefaccount naast die van de
-     * echte staan, en dan lijkt elke code te bestaan.
+     * Opruimen binnen DEZE bv. Op updated_at alleen zou de lijst van de
+     * vorige administratie weggooien die we net hadden opgehaald.
      */
-    await admin.from('exact_grootboek').delete().lt('updated_at', nu)
+    await admin.from('exact_grootboek').delete().eq('division', bv).lt('updated_at', nu)
+    totaal += uit.length
   }
+
+  /* En wat er van een bv staat die niet meer actief is. */
+  await admin.from('exact_grootboek').delete().not('division', 'in', `(${bvs.map((b) => `"${b}"`).join(',')})`)
 
   await admin.from('exact_sync').upsert({
     soort: 'grootboek',
     laatst_at: nu,
-    aantal: uit.length,
+    aantal: totaal,
     laatste_fout: null,
     door: beller.naam || beller.id,
     updated_at: nu,
   }, { onConflict: 'soort' })
 
-  return json({ ok: true, aantal: uit.length, division: lijn.division, ...await grootboekStand() })
+  return json({ ok: true, aantal: totaal, bvs, ...await grootboekStand() })
 }
 
 /* ------------------------------------------------------------------ *
@@ -836,32 +946,41 @@ interface ExactAccount {
 
 async function syncCrediteuren(beller: Beller): Promise<Response> {
   const lijn = await geldigToken(admin)
-
-  const rijen = await exactLijst<ExactAccount>(lijn, 'crm/Accounts', {
-    $select: 'ID,Code,Name,VATNumber',
-    $filter: 'IsSupplier eq true',
-  })
+  const bvs = await actieveAdministraties(lijn)
 
   const nu = Date.now()
-  const uit = rijen
-    .filter((r) => r.ID)
-    .map((r) => ({
-      exact_id: String(r.ID),
-      code: (r.Code ?? '').trim() || null,
-      naam: String(r.Name ?? '').trim(),
-      btw_nummer: r.VATNumber ?? null,
-      division: lijn.division,
-      updated_at: nu,
-    }))
+  let uitTotaal = 0
 
-  if (uit.length > 0) {
+  /* Een relatie hoort bij één administratie en heeft daar zijn eigen guid.
+     Dezelfde leverancier in twee bv's is dus twee rijen -- en dat moet ook,
+     want een boeking wijst naar de guid van díe bv. */
+  for (const bv of bvs) {
+    const rijen = await exactLijst<ExactAccount>(lijn, 'crm/Accounts', {
+      $select: 'ID,Code,Name,VATNumber',
+      $filter: 'IsSupplier eq true',
+    }, bv)
+
+    const uit = rijen
+      .filter((r) => r.ID)
+      .map((r) => ({
+        exact_id: String(r.ID),
+        code: (r.Code ?? '').trim() || null,
+        naam: String(r.Name ?? '').trim(),
+        btw_nummer: r.VATNumber ?? null,
+        division: bv,
+        updated_at: nu,
+      }))
+
     for (let i = 0; i < uit.length; i += 200) {
       const { error } = await admin.from('exact_crediteur')
         .upsert(uit.slice(i, i + 200), { onConflict: 'exact_id' })
       if (error) throw new ExactFout(`exact_crediteur schrijven: ${error.message}`)
     }
-    await admin.from('exact_crediteur').delete().lt('updated_at', nu)
+    await admin.from('exact_crediteur').delete().eq('division', bv).lt('updated_at', nu)
+    uitTotaal += uit.length
   }
+
+  const uit = { length: uitTotaal }
 
   /*
    * De zoeknaam en het automatisch koppelen doet de database, in één keer.
@@ -924,7 +1043,10 @@ async function facturenStand() {
 
   const wachtend = ((wacht.data ?? []) as Record<string, unknown>[]).map((e) => {
     const mist: string[] = []
+    if (!e.administratie) mist.push('bv')
     if (!e.crediteur_id) mist.push('crediteur')
+    /* "grootboekrekening" betekent hier: bestaat die code ook in DEZE bv.
+       De join in exact_facturen_wachtend() kijkt op code én administratie. */
     if (!e.grootboek_id) mist.push('grootboekrekening')
     if (!Number(e.bedrag)) mist.push('bedrag')
     return {
@@ -937,6 +1059,7 @@ async function facturenStand() {
       grootboek: (e.grootboek_code as string) ?? null,
       grootboekId: (e.grootboek_id as string) ?? null,
       crediteurId: (e.crediteur_id as string) ?? null,
+      administratie: (e.administratie as string) ?? null,
       datum: Number(e.datum) || 0,
       crediteur: (e.crediteur_naam as string) ?? null,
       mist,
@@ -961,6 +1084,7 @@ async function facturenStand() {
     verstuurd: gedaan.count ?? 0,
     mislukt: mislukt.count ?? 0,
     crediteuren: crediteuren ?? 0,
+    ...await administraties(),
     laatstAt: sync.data?.laatst_at ?? null,
     laatsteFout: sync.data?.laatste_fout ?? null,
   }
@@ -1094,6 +1218,14 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
        * "2026-00841" of "F/44821". Erin persen levert een 400 op die niets
        * uitlegt.
        */
+      /*
+       * In de bv van de vestiging. Rekening 4000 bestaat in elke
+       * administratie en betekent er iets anders; zonder dit belandt een
+       * factuur van de wasstraat in het grootboek van de holding, en dat
+       * levert geen foutmelding op -- alleen een verkeerde boeking.
+       */
+      if (!bon.administratie) throw new Error('geen administratie bekend voor deze bon')
+
       const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
         Journal: inst.dagboek,
         Supplier: bon.crediteurId,
@@ -1106,7 +1238,7 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           VATCode: btwCode,
           Description: (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
         }],
-      })
+      }, bon.administratie)
 
       const id = uit.EntryID ?? (uit.EntryNumber != null ? String(uit.EntryNumber) : null)
       if (!id) throw new Error('Exact gaf geen boekingsnummer terug')
@@ -1549,6 +1681,16 @@ Deno.serve(async (req) => {
          browser van een kantoormedewerker staat de hele dag open. */
       link.searchParams.set('force_login', '1')
       return json({ ok: true, url: link.toString() })
+    }
+
+    /* ---- de administraties ---- */
+
+    if (actie === 'sync-administraties' || actie === 'zet-administratie') {
+      if (!beller.magSleutels && !(await magAdministratie(req))) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      if (actie === 'sync-administraties') return await syncAdministraties()
+      return await zetAdministratie(body)
     }
 
     /* ---- het rekeningschema ophalen ---- */

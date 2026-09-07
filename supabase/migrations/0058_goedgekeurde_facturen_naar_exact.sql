@@ -230,6 +230,12 @@ grant  execute on function public.exact_crediteuren_klaarzetten(text) to service
 --  tweehonderd heen-en-weertjes, en het zette dezelfde kennis op twee plekken.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg. "create or replace" mag de vorm van een tabelfunctie niet
+   wijzigen, en 0059 zet er een kolom bij (administratie). Zonder deze regel
+   valt dit bestand om zodra het na 0059 nog eens gedraaid wordt -- en elke
+   migratie hier belooft dat dat mag. */
+drop function if exists public.exact_facturen_wachtend();
+
 create or replace function public.exact_facturen_wachtend()
 returns table (
   id             text,

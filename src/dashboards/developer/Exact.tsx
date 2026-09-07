@@ -43,14 +43,18 @@ import {
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../lib/db'
 import { enqueue } from '../../lib/sync'
-import type { Grootboek } from '../../lib/types'
+/* Location moet hier bij naam staan: zonder deze import pakt TypeScript de
+   Location van de browser, en dan klopt er niets van de foutmeldingen. */
+import type { Grootboek, Location } from '../../lib/types'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
-  exactSyncCrediteuren, exactSyncPersoneel, exactVerbindUrl,
-  type ExactBtwCode, type ExactDagboek, type FacturenStand,
+  exactSyncAdministraties, exactSyncCrediteuren, exactSyncPersoneel,
+  exactVerbindUrl, exactZetAdministratie,
+  type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
+  type FacturenStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
@@ -519,6 +523,10 @@ export default function Exact() {
       </div>
 
       <div style={{ gridColumn: '1 / -1' }}>
+        <Administraties verbonden={stand?.verbonden === true} />
+      </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
         <Grootboek verbonden={stand?.verbonden === true} />
       </div>
 
@@ -530,6 +538,168 @@ export default function Exact() {
         <Facturen verbonden={stand?.verbonden === true} />
       </div>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  De bv's
+ *
+ *  Casper: "Ik heb in exact meerdere bv's, die hebben ook allemaal een eigen
+ *  grootboekrekening, fix dit."
+ *
+ *  Dit is het blok waar de rest aan hangt. Rekening 4000 bestaat in elke
+ *  administratie en betekent er iets anders; welke bv erbij hoort bepaalt
+ *  dus welke rekening geldt en waar de boeking heen gaat. Een bon erft dat
+ *  van zijn vestiging, en die staan hieronder.
+ * ------------------------------------------------------------------ */
+
+function Administraties({ verbonden }: { verbonden: boolean }) {
+  const [lijst, setLijst] = useState<ExactAdministratie[] | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setLijst((await exactFacturenStand()).administraties)
+      } catch { /* nog niet gekoppeld; het blok blijft leeg */ }
+    })()
+  }, [])
+
+  async function haalOp() {
+    setBezig(true)
+    setFout(null)
+    try {
+      const uit = await exactSyncAdministraties()
+      setLijst(uit)
+      toast.ok(`${uit.length} administratie(s) gevonden.`)
+    } catch (e) {
+      const b = e instanceof Error ? e.message : 'Ophalen mislukte.'
+      setFout(b)
+      toast.error(b)
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function zet(code: string, velden: { actief?: boolean; hoofd?: boolean }) {
+    try {
+      setLijst(await exactZetAdministratie(code, velden))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    }
+  }
+
+  async function zetVestiging(id: string, adm: string) {
+    const l = vestigingen.find((v) => v.id === id)
+    if (!l) return
+    const nieuw: Location = { ...l, administratie: adm || undefined, updatedAt: Date.now() }
+    await db.locations.put(nieuw)
+    await enqueue('locations', 'put', nieuw.id, nieuw)
+  }
+
+  const actief = (lijst ?? []).filter((a) => a.actief)
+  const zonder = vestigingen.filter((v) => !v.administratie)
+
+  return (
+    <Card
+      title="De bv's"
+      hint="Elke administratie heeft zijn eigen grootboek"
+      action={
+        <button className="btn sm" disabled={bezig || !verbonden} onClick={() => void haalOp()}>
+          {bezig ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Ophalen uit Exact
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      {(lijst ?? []).length === 0 && (
+        <Empty text="Nog niet opgehaald. Haal de administraties op om te beginnen." />
+      )}
+
+      {(lijst ?? []).length > 0 && (
+        <>
+          <p className="help" style={{ marginTop: 0 }}>
+            Zet alleen aan waar jullie werkelijk in boeken. Een bv die aanstaat wordt bij elke
+            ophaalronde meegenomen — grootboek, crediteuren, alles.
+          </p>
+          <div className="table-wrap mb">
+            <table className="data">
+              <thead><tr><th>Nummer</th><th>Naam</th><th>Gebruiken</th><th>Hoofd</th></tr></thead>
+              <tbody>
+                {(lijst ?? []).map((a) => (
+                  <tr key={a.code}>
+                    <td className="mono">{a.code}</td>
+                    <td className="afgekapt">{a.naam || '—'}</td>
+                    <td>
+                      <label className="row" style={{ gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={a.actief}
+                          onChange={(e) => void zet(a.code, { actief: e.currentTarget.checked })}
+                        />
+                        <span className="ts-sub">{a.actief ? 'ja' : 'nee'}</span>
+                      </label>
+                    </td>
+                    <td>
+                      {a.hoofd
+                        ? <Badge tone="ok">hoofd</Badge>
+                        : (
+                          <button className="btn ghost sm" onClick={() => void zet(a.code, { hoofd: true })}>
+                            Tot hoofd maken
+                          </button>
+                        )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ---- welke vestiging in welke bv ---- */}
+
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>Welke vestiging boekt waar</h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Een bon erft zijn bv van de vestiging. Staat er niets, dan valt hij terug op de
+            hoofdadministratie — en dan boekt hij mogelijk in de verkeerde.
+          </p>
+          {zonder.length > 0 && (
+            <div className="waarschuwing zacht mb">
+              <TriangleAlert size={14} />
+              <span>{zonder.length} vestiging(en) hebben nog geen bv.</span>
+            </div>
+          )}
+          <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table className="data">
+              <thead><tr><th>Vestiging</th><th>Plaats</th><th>Bv</th></tr></thead>
+              <tbody>
+                {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name)).map((v) => (
+                  <tr key={v.id}>
+                    <td className="afgekapt">{v.name}</td>
+                    <td className="afgekapt">{v.city ?? '—'}</td>
+                    <td>
+                      <select
+                        className="input"
+                        value={v.administratie ?? ''}
+                        onChange={(e) => void zetVestiging(v.id, e.currentTarget.value)}
+                      >
+                        <option value="">— hoofdadministratie —</option>
+                        {actief.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.code}{a.naam ? ` · ${a.naam}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
   )
 }
 

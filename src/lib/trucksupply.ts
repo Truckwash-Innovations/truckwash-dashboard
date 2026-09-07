@@ -1134,6 +1134,8 @@ export async function exactKoppelMedewerker(
 
 export interface WachtendeFactuur {
   id: string
+  /** In welke bv deze bon geboekt wordt; leeg = nog niet bekend. */
+  administratie: string | null
   leverancier: string
   zoeknaam: string
   factuurnummer: string | null
@@ -1147,7 +1149,15 @@ export interface WachtendeFactuur {
   fout: string | null
 }
 
+export interface ExactAdministratie {
+  code: string
+  naam: string
+  actief: boolean
+  hoofd: boolean
+}
+
 export interface FacturenStand {
+  administraties: ExactAdministratie[]
   aan: boolean
   dagboek: string
   btw: Record<string, string>
@@ -1163,6 +1173,7 @@ export interface FacturenStand {
 
 function alsFacturen(uit: Partial<FacturenStand>): FacturenStand {
   return {
+    administraties: uit.administraties ?? [],
     aan: uit.aan === true,
     dagboek: uit.dagboek ?? '',
     btw: uit.btw ?? {},
@@ -1218,4 +1229,26 @@ export async function exactDagboeken(): Promise<ExactDagboek[]> {
 export async function exactBtwCodes(): Promise<ExactBtwCode[]> {
   const uit = await roepFunctie<{ codes?: ExactBtwCode[] }>('exact', { actie: 'btw-codes' })
   return uit.codes ?? []
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  De administraties
+ *
+ *  Meerdere bv's, elk met een eigen grootboek (0059). Nieuwe komen binnen
+ *  als NIET actief -- er kunnen bv's tussen zitten waar wij niets mee doen.
+ * ------------------------------------------------------------------ */
+
+export async function exactSyncAdministraties(): Promise<ExactAdministratie[]> {
+  const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
+    'exact', { actie: 'sync-administraties' })
+  return uit.administraties ?? []
+}
+
+export async function exactZetAdministratie(
+  code: string, velden: { actief?: boolean; hoofd?: boolean },
+): Promise<ExactAdministratie[]> {
+  const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
+    'exact', { actie: 'zet-administratie', code, ...velden })
+  return uit.administraties ?? []
 }

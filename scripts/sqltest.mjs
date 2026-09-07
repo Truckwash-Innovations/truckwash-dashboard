@@ -189,6 +189,7 @@ await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migratio
 await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
+await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -249,6 +250,7 @@ await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_d
 await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
+await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 
 
 
@@ -5219,6 +5221,91 @@ check('de wachtrij-functie is alleen voor de server',
 const fxWacht = (await db.query(`select * from public.exact_facturen_wachtend()`)).rows
 check('een goedgekeurde bon zonder crediteur staat wel in de rij maar zonder koppeling',
   Array.isArray(fxWacht))
+
+/* ==================================================================== *
+ *  Meerdere bv's (0059)
+ *
+ *  Waar het op staat: rekening 4000 bestaat in elke administratie en betekent
+ *  er iets anders. Zou "code" nog steeds op zichzelf uniek zijn, dan kan er
+ *  maar één 4000 bestaan en boekt de tweede bv op de rekening van de eerste.
+ *  Dat levert geen foutmelding op -- alleen een verkeerde boeking.
+ * ==================================================================== */
+
+console.log('\n43. Meerdere bv\'s (0059)')
+
+check('exact_administratie bestaat',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public' and table_name = 'exact_administratie'`)).rows[0].n === 1)
+
+check('grootboek weet in welke bv hij geldt',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'grootboek'
+       and column_name = 'administratie'`)).rows[0].n === 1)
+
+check('en een vestiging ook',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'locations'
+       and column_name = 'administratie'`)).rows[0].n === 1)
+
+/* ---- dezelfde code mag in twee bv's ---- */
+
+await db.exec(`
+  insert into public.grootboek (id, code, naam, administratie) values
+    ('gb_bv1_4000', '4000', 'Inkoop wasmiddelen', 'BV1'),
+    ('gb_bv2_4000', '4000', 'Kosten holding',     'BV2')
+  on conflict (id) do nothing;`)
+
+check('dezelfde code mag in twee bv\'s bestaan',
+  (await db.query(`select count(*)::int as n from public.grootboek where code = '4000'`)).rows[0].n >= 2)
+
+let bvDubbel = false
+try {
+  await db.exec(`insert into public.grootboek (id, code, naam, administratie)
+                 values ('gb_bv1_4000b', '4000', 'Nog een keer', 'BV1')`)
+} catch { bvDubbel = true }
+check('maar twee keer dezelfde code in dezelfde bv niet', bvDubbel)
+
+/* ---- er kan er maar één de hoofdadministratie zijn ---- */
+
+await db.exec(`
+  insert into public.exact_administratie (code, naam, actief, hoofd)
+  values ('BV1', 'Wasstraat', true, true)
+  on conflict (code) do nothing;`)
+
+let bvTweeHoofden = false
+try {
+  await db.exec(`insert into public.exact_administratie (code, naam, actief, hoofd)
+                 values ('BV2', 'Holding', true, true)`)
+} catch { bvTweeHoofden = true }
+check('er kan maar één hoofdadministratie zijn', bvTweeHoofden)
+
+await db.exec(`insert into public.exact_administratie (code, naam, actief, hoofd)
+               values ('BV2', 'Holding', true, false) on conflict (code) do nothing;`)
+
+/* ---- een bon erft de bv van zijn vestiging ---- */
+
+const bvLoc = (await db.query(`select id from public.locations limit 1`)).rows[0]
+if (bvLoc) {
+  await db.exec(`update public.locations set administratie = 'BV2' where id = '${bvLoc.id}'`)
+  await db.exec(`
+    insert into public.expenses (id, expense_date, category, supplier, description,
+                                 amount_excl, vat_pct, status, source, location_id)
+    values ('exp_bv_1', public.now_ms(), 'overig', 'Test', 'x', 10, 21, 'goedgekeurd', 'app', '${bvLoc.id}')
+    on conflict (id) do nothing;`)
+  check('een bon erft de bv van zijn vestiging',
+    (await db.query(`select public.bon_administratie('exp_bv_1') as a`)).rows[0].a === 'BV2')
+}
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_bv_2', public.now_ms(), 'overig', 'Test', 'x', 10, 21, 'goedgekeurd', 'app')
+  on conflict (id) do nothing;`)
+check('en zonder vestiging valt hij terug op de hoofdadministratie',
+  (await db.query(`select public.bon_administratie('exp_bv_2') as a`)).rows[0].a === 'BV1')
 
 await db.close()
 

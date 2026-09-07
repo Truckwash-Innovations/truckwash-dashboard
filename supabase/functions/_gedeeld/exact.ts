@@ -238,8 +238,18 @@ export async function exactLijst<T = Record<string, unknown>>(
   lijn: ExactLijn,
   pad: string,
   query: Record<string, string> = {},
+  /*
+   * Een andere administratie dan die van de koppeling.
+   *
+   * Het token geldt voor elke bv waar de ingelogde gebruiker bij mag, en het
+   * divisienummer staat gewoon in het adres. Sinds 0059 hebben we er meer dan
+   * één, en dan is dit het enige wat er hoeft te veranderen -- zolang de
+   * aanroeper er maar aan denkt. Vandaar dat het een gewone parameter is en
+   * geen stille standaard.
+   */
+  division?: string,
 ): Promise<T[]> {
-  const eerste = new URL(`${lijn.basis}/api/v1/${lijn.division}/${pad}`)
+  const eerste = new URL(`${lijn.basis}/api/v1/${division ?? lijn.division}/${pad}`)
   for (const [k, v] of Object.entries(query)) eerste.searchParams.set(k, v)
 
   const alles: T[] = []
@@ -279,8 +289,9 @@ export async function exactPost<T = Record<string, unknown>>(
   lijn: ExactLijn,
   pad: string,
   lijf: unknown,
+  division?: string,
 ): Promise<T> {
-  const res = await fetch(`${lijn.basis}/api/v1/${lijn.division}/${pad}`, {
+  const res = await fetch(`${lijn.basis}/api/v1/${division ?? lijn.division}/${pad}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${lijn.token}`,

@@ -205,6 +205,14 @@ export interface Location {
   punten?: string[]
 
   updatedAt: number
+  /**
+   * In welke bv deze vestiging boekt (0059).
+   *
+   * Leeg = de hoofdadministratie. Een kostenpost erft dit van zijn vestiging;
+   * het staat hier en niet op de bon zelf, want dan zijn er twee plekken die
+   * het kunnen weten en één dag waarop ze iets anders zeggen.
+   */
+  administratie?: string
 }
 
 export type Weekdag = 'ma' | 'di' | 'wo' | 'do' | 'vr' | 'za' | 'zo'
