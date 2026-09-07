@@ -37,16 +37,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Check, Download, ExternalLink, Link2, Link2Off, Loader2, RefreshCw, Save,
-  Search, TriangleAlert, Unlink, Users, X,
+  Check, Download, ExternalLink, Link2, Link2Off, Loader2, Plus, RefreshCw,
+  Save, Search, Trash2, TriangleAlert, Unlink, Users, X,
 } from 'lucide-react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../../lib/db'
+import { enqueue } from '../../lib/sync'
+import type { Grootboek } from '../../lib/types'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactSyncPersoneel, exactVerbindUrl,
-  type ExactPersoon, type ExactStatus, type GrootboekStand, type PersoneelRegel,
-  type PersoneelStand,
+  type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
+  type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
 import { dateShort, dateTime, relative } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
@@ -544,6 +548,13 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
   const [alles, setAlles] = useState(false)
+  /** Welke rekeningen van Exact staan er klaar om over te nemen. */
+  const [overnemen, setOvernemen] = useState<ExactRekening[] | null>(null)
+  const [weg, setWeg] = useState<{ code: string; naam: string; inGebruik: number } | null>(null)
+
+  /* Onze eigen lijst komt uit de plaatselijke opslag: die is er ook zonder
+     verbinding, en wijzigingen gaan via de gewone wachtrij naar de server. */
+  const onze = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
 
   useEffect(() => {
     void (async () => {
@@ -554,6 +565,73 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
       }
     })()
   }, [])
+
+  /**
+   * Overnemen wat er nog niet is.
+   *
+   * Alleen toevoegen. Bestaande regels blijven zoals ze zijn -- "Inkoop
+   * wasmiddelen en chemie" is een naam die hier is bedacht omdat de
+   * administratie hem zo herkent, en in Exact heet diezelfde rekening iets
+   * als "Kosten grond- en hulpstoffen". Overschrijven zou dat elke ophaalronde
+   * opnieuw wissen.
+   */
+  async function neemOver(rijen: ExactRekening[]) {
+    const nu = Date.now()
+    for (const r of rijen) {
+      const rij: Grootboek = {
+        id: 'gb_' + r.code,
+        code: r.code,
+        naam: r.omschrijving || r.code,
+        trefwoorden: [],
+        categorie: r.soort ?? undefined,
+        btwPct: 21,
+        /* Geblokkeerd bij Exact komt binnen als "niet in gebruik". Boeken op
+           zo'n rekening wordt daar toch geweigerd. */
+        actief: !r.geblokkeerd,
+        updatedAt: nu,
+      }
+      await db.grootboek.put(rij)
+      await enqueue('grootboek', 'put', rij.id, rij)
+    }
+    setOvernemen(null)
+    toast.ok(`${rijen.length} rekening${rijen.length === 1 ? '' : 'en'} overgenomen.`)
+    try {
+      setStand(await exactGrootboekStand())
+    } catch { /* de lijst hiernaast klopt al; de stand komt vanzelf */ }
+  }
+
+  async function zetCategorie(code: string, categorie: string) {
+    const rij = onze.find((g) => g.code === code)
+    if (!rij) return
+    const nieuw: Grootboek = { ...rij, categorie: categorie.trim() || undefined, updatedAt: Date.now() }
+    await db.grootboek.put(nieuw)
+    await enqueue('grootboek', 'put', nieuw.id, nieuw)
+  }
+
+  /**
+   * Weggooien, maar niet zomaar.
+   *
+   * Een rekening waarop al geboekt is, laat kostenposten achter met een code
+   * die nergens naar wijst. Daarom eerst tellen, en het aantal in de vraag
+   * zetten -- "weet je het zeker" zonder te zeggen waar het over gaat is geen
+   * bevestiging maar een drempel.
+   */
+  async function vraagWeg(code: string, naam: string) {
+    const bonnen = await db.expenses.toArray()
+    setWeg({ code, naam, inGebruik: bonnen.filter((e) => e.grootboekCode === code).length })
+  }
+
+  async function gooiWeg(code: string) {
+    const rij = onze.find((g) => g.code === code)
+    if (!rij) return
+    await db.grootboek.delete(rij.id)
+    await enqueue('grootboek', 'delete', rij.id, rij)
+    setWeg(null)
+    toast.ok('Rekening verwijderd.')
+    try {
+      setStand(await exactGrootboekStand())
+    } catch { /* niet erg */ }
+  }
 
   async function haalOp() {
     setBezig(true)
@@ -639,9 +717,10 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
               <tr>
                 <th>Code</th>
                 <th>Bij ons</th>
+                <th>Categorie</th>
                 <th>In Exact</th>
-                <th>Soort</th>
                 <th>Staat</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -649,16 +728,44 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
                 <tr key={r.code}>
                   <td className="mono">{r.code}</td>
                   <td className="afgekapt">{r.naam}{!r.actief && <span className="ts-sub"> · niet in gebruik</span>}</td>
+                  <td>
+                    {/*
+                      * Vrije tekst, met wat er al gebruikt wordt als suggestie.
+                      * Een vaste lijst zou betekenen dat iemand met een eigen
+                      * indeling -- "wasstraat" naast "wagenpark" -- er niet in
+                      * past, en dan gaat hij hem in de naam zetten.
+                      */}
+                    <input
+                      className="input"
+                      style={{ minWidth: 120 }}
+                      defaultValue={r.categorie ?? ''}
+                      list="grootboek-categorieen"
+                      placeholder="—"
+                      onBlur={(e) => {
+                        const v = e.currentTarget.value
+                        if (v.trim() === (r.categorie ?? '')) return
+                        void zetCategorie(r.code, v)
+                      }}
+                    />
+                  </td>
                   <td className="afgekapt">
                     {r.inExact
                       ? (r.exactNaam || <span className="ts-sub">zonder omschrijving</span>)
                       : <span className="ts-sub">—</span>}
                   </td>
-                  <td>{r.exactSoort ?? '—'}</td>
                   <td>
                     {!r.inExact && <Badge tone="danger" dot>niet in Exact</Badge>}
                     {r.inExact && r.geblokkeerd && <Badge tone="warn" dot>geblokkeerd</Badge>}
                     {r.inExact && !r.geblokkeerd && <Badge tone="ok" dot>klopt</Badge>}
+                  </td>
+                  <td>
+                    <button
+                      className="btn ghost sm"
+                      title="Deze rekening verwijderen"
+                      onClick={() => void vraagWeg(r.code, r.naam)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -677,10 +784,157 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
         </div>
       )}
 
+      {/* De categorieën die al in gebruik zijn, als suggestie bij het typen. */}
+      <datalist id="grootboek-categorieen">
+        {[...new Set(onze.map((g) => g.categorie).filter(Boolean))].map((c) => (
+          <option key={c} value={c as string} />
+        ))}
+      </datalist>
+
+      {/* ---- wat Exact kent en wij nog niet ---- */}
+
+      {stand && stand.nogNiet.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 20, marginBottom: 6 }}>
+            Nog niet overgenomen ({stand.nogNiet.length})
+          </h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Deze rekeningen kent Exact wel en wij niet. Overnemen voegt ze toe met de
+            omschrijving en het soort uit Exact; wat er al staat blijft ongemoeid.
+          </p>
+          <div className="row mb">
+            <button
+              className="btn primary sm"
+              onClick={() => setOvernemen(stand.nogNiet)}
+            >
+              <Plus size={14} /> Alle {stand.nogNiet.length} overnemen
+            </button>
+            <button
+              className="btn sm"
+              onClick={() => setOvernemen(stand.nogNiet.filter((r) => !r.geblokkeerd))}
+            >
+              Alleen de niet-geblokkeerde
+            </button>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr><th>Code</th><th>In Exact</th><th>Soort</th><th>Staat</th><th /></tr>
+              </thead>
+              <tbody>
+                {stand.nogNiet.map((r) => (
+                  <tr key={r.code}>
+                    <td className="mono">{r.code}</td>
+                    <td className="afgekapt">{r.omschrijving || '—'}</td>
+                    <td>{r.soort ?? '—'}</td>
+                    <td>
+                      {r.geblokkeerd
+                        ? <Badge tone="warn">geblokkeerd</Badge>
+                        : <Badge tone="ok">bruikbaar</Badge>}
+                    </td>
+                    <td>
+                      <button className="btn ghost sm" onClick={() => setOvernemen([r])}>
+                        <Plus size={13} /> Overnemen
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
-        Onze lijst blijft kort en houdt zijn eigen namen; die van Exact is een kopie ernaast.
-        Wat je hier ziet is of ze op elkaar aansluiten.
+        Overnemen voegt alleen toe. Wat er staat houdt zijn eigen naam en trefwoorden — die
+        zijn hier bedacht omdat de administratie ze zo herkent, en in Exact heet dezelfde
+        rekening vaak heel anders.
       </p>
+
+      {/* ---- bevestigen: overnemen ---- */}
+
+      {overnemen && (
+        <Modal
+          open
+          title={overnemen.length === 1
+            ? `Rekening ${overnemen[0].code} overnemen?`
+            : `${overnemen.length} rekeningen overnemen?`}
+          subtitle="Ze komen erbij in ons grootboek; er wordt niets overschreven"
+          onClose={() => setOvernemen(null)}
+          width={620}
+        >
+          {overnemen.some((r) => r.geblokkeerd) && (
+            <div className="waarschuwing zacht mb">
+              <TriangleAlert size={14} />
+              <span>
+                Er zitten geblokkeerde rekeningen bij. Die komen erin als “niet in gebruik”,
+                want boeken erop wordt bij Exact toch geweigerd.
+              </span>
+            </div>
+          )}
+          <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <table className="data">
+              <thead><tr><th>Code</th><th>Wordt</th><th>Categorie</th></tr></thead>
+              <tbody>
+                {overnemen.slice(0, 200).map((r) => (
+                  <tr key={r.code}>
+                    <td className="mono">{r.code}</td>
+                    <td className="afgekapt">{r.omschrijving || r.code}</td>
+                    <td>{r.soort ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {overnemen.length > 200 && (
+            <p className="ts-sub">…en nog {overnemen.length - 200}.</p>
+          )}
+          <div className="row end" style={{ marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setOvernemen(null)}>Annuleren</button>
+            <button className="btn primary" onClick={() => void neemOver(overnemen)}>
+              <Plus size={14} /> Overnemen
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ---- bevestigen: weggooien ---- */}
+
+      {weg && (
+        <Modal
+          open
+          title={`Rekening ${weg.code} verwijderen?`}
+          subtitle={weg.naam}
+          onClose={() => setWeg(null)}
+          width={520}
+        >
+          {weg.inGebruik > 0 ? (
+            <div className="waarschuwing mb">
+              <TriangleAlert size={14} />
+              <span>
+                Er staan <strong>{weg.inGebruik} kostenpost{weg.inGebruik === 1 ? '' : 'en'}</strong> op
+                deze rekening. Weggooien laat die achter met een code die nergens meer naar wijst.
+                Boek ze eerst om, of zet de rekening op “niet in gebruik” — dan blijft hij bestaan
+                maar stelt hij zich niet meer voor bij een nieuwe bon.
+              </span>
+            </div>
+          ) : (
+            <p className="help" style={{ marginTop: 0 }}>
+              Er staat geen enkele kostenpost op deze rekening, dus er blijft niets achter.
+            </p>
+          )}
+          <div className="row end" style={{ marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setWeg(null)}>Annuleren</button>
+            <button
+              className="btn danger"
+              disabled={weg.inGebruik > 0}
+              onClick={() => void gooiWeg(weg.code)}
+            >
+              <Trash2 size={14} /> Verwijderen
+            </button>
+          </div>
+        </Modal>
+      )}
     </Card>
   )
 }

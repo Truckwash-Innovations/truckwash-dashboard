@@ -759,7 +759,7 @@ async function syncGrootboek(beller: Beller): Promise<Response> {
 
 async function grootboekStand() {
   const [onze, hunne, sync] = await Promise.all([
-    admin.from('grootboek').select('code, naam, actief').order('code'),
+    admin.from('grootboek').select('code, naam, categorie, actief').order('code'),
     admin.from('exact_grootboek').select('code, omschrijving, soort, geblokkeerd').order('code'),
     admin.from('exact_sync').select('*').eq('soort', 'grootboek').maybeSingle(),
   ])
@@ -778,6 +778,7 @@ async function grootboekStand() {
     return {
       code: String(g.code),
       naam: String(g.naam),
+      categorie: (g.categorie as string) ?? null,
       actief: g.actief === true,
       inExact: Boolean(e),
       exactNaam: e?.omschrijving ?? null,
@@ -786,8 +787,26 @@ async function grootboekStand() {
     }
   })
 
+  /*
+   * En andersom: wat Exact kent en wij nog niet.
+   *
+   * Dit is nieuw sinds 0057. Tot dan liet dit scherm alleen zien of ONZE
+   * codes bij Exact bestonden; overnemen moest met de hand. Casper: "zodat
+   * we echt een sync hebben ipv alles handmatig oppakken."
+   */
+  const onzeCodes = new Set((onze.data ?? []).map((g) => String(g.code)))
+  const nogNiet = (hunne.data ?? [])
+    .filter((r) => !onzeCodes.has(String(r.code)))
+    .map((r) => ({
+      code: String(r.code),
+      omschrijving: String(r.omschrijving ?? ''),
+      soort: (r.soort as string) ?? null,
+      geblokkeerd: r.geblokkeerd === true,
+    }))
+
   return {
     regels,
+    nogNiet,
     /* Alleen tellen wat ertoe doet: een rekening die wij niet meer gebruiken
        hoeft niet in Exact te bestaan. */
     ontbreekt: regels.filter((r) => r.actief && !r.inExact).length,

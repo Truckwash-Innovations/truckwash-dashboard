@@ -969,6 +969,7 @@ export async function exactLos(): Promise<void> {
 export interface GrootboekRegel {
   code: string
   naam: string
+  categorie: string | null
   actief: boolean
   inExact: boolean
   exactNaam: string | null
@@ -976,8 +977,18 @@ export interface GrootboekRegel {
   geblokkeerd: boolean
 }
 
+/** Een rekening die Exact kent en wij nog niet. */
+export interface ExactRekening {
+  code: string
+  omschrijving: string
+  soort: string | null
+  geblokkeerd: boolean
+}
+
 export interface GrootboekStand {
   regels: GrootboekRegel[]
+  /** Wat Exact kent en wij nog niet -- de lijst om uit over te nemen. */
+  nogNiet: ExactRekening[]
   /** Actieve rekeningen van ons die Exact niet kent. */
   ontbreekt: number
   /** Actieve rekeningen die in Exact geblokkeerd staan. */
@@ -992,6 +1003,7 @@ export interface GrootboekStand {
 function alsStand(uit: Partial<GrootboekStand>): GrootboekStand {
   return {
     regels: uit.regels ?? [],
+    nogNiet: uit.nogNiet ?? [],
     ontbreekt: uit.ontbreekt ?? 0,
     geblokkeerd: uit.geblokkeerd ?? 0,
     exactAantal: uit.exactAantal ?? 0,

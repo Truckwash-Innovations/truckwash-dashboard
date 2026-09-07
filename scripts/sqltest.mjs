@@ -187,6 +187,7 @@ await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase
 await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
+await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -245,6 +246,7 @@ await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_
 await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
+await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
 
 
 
@@ -5088,6 +5090,56 @@ check('RLS staat aan op personnel_loon',
     select c.relrowsecurity as rls from pg_class c
       join pg_namespace ns on ns.oid = c.relnamespace
      where ns.nspname = 'public' and c.relname = 'personnel_loon'`)).rows[0].rls === true)
+
+/* ==================================================================== *
+ *  Het grootboek komt uit Exact (0057)
+ *
+ *  Twee dingen die je niet ziet als ze fout gaan.
+ *
+ *  Een rekening weggooien waarop al geboekt is, laat kostenposten achter met
+ *  een code die nergens naar wijst. Het scherm vraagt dat na, maar een scherm
+ *  is geen slot: de telling hoort in de database te staan.
+ *
+ *  En de categorie moet een gewone kolom zijn die iedereen die het grootboek
+ *  mag wijzigen ook kan zetten -- anders is het een veld dat je invult en dat
+ *  bij het opslaan stilletjes wordt geweigerd.
+ * ==================================================================== */
+
+console.log('\n41. Het grootboek komt uit Exact (0057)')
+
+check('grootboek heeft een categorie',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'grootboek'
+       and column_name = 'categorie'`)).rows[0].n === 1)
+
+check('en de telling van wat in gebruik is bestaat',
+  (await db.query(`
+    select count(*)::int as n from pg_proc p
+      join pg_namespace ns on ns.oid = p.pronamespace
+     where ns.nspname = 'public' and p.proname = 'grootboek_in_gebruik'`)).rows[0].n === 1)
+
+/* Een verse code is nergens in gebruik. */
+await db.exec(`
+  insert into public.grootboek (id, code, naam, categorie)
+  values ('gb_9999', '9999', 'Testrekening', 'Kosten')
+  on conflict (id) do nothing;`)
+
+check('een ongebruikte rekening telt nul',
+  Number((await db.query(`select public.grootboek_in_gebruik('9999') as n`)).rows[0].n) === 0)
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source, grootboek_code)
+  values ('exp_gb_1', public.now_ms(), 'overig', 'Test', 'x', 10, 21, 'open', 'app', '9999')
+  on conflict (id) do nothing;`)
+
+check('en zodra er een bon op staat, telt hij mee',
+  Number((await db.query(`select public.grootboek_in_gebruik('9999') as n`)).rows[0].n) === 1)
+
+check('anon mag die telling niet doen',
+  (await db.query(`select has_function_privilege('anon',
+     'public.grootboek_in_gebruik(text)', 'execute') as mag`)).rows[0].mag === false)
 
 await db.close()
 

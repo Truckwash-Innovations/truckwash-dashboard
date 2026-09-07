@@ -565,6 +565,14 @@ export interface Grootboek {
   naam: string
   /** Woorden die op een factuur naar deze rekening wijzen */
   trefwoorden: string[]
+  /**
+   * Vrije groepering om een lang schema te kunnen overzien (0057).
+   *
+   * Bij het overnemen uit Exact gevuld met hun soort -- Kosten, Omzet,
+   * Balans. Daarna van ons: wie zijn kosten liever splitst in "wasstraat" en
+   * "wagenpark" typt dat gewoon.
+   */
+  categorie?: string
   btwPct?: number
   actief: boolean
   updatedAt: number
