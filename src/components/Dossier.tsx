@@ -22,7 +22,7 @@ import { users as userRepo } from '../lib/repo'
 import { WijzigingenVan } from './Wijzigingen'
 import {
   DOCUMENT_KINDS, type DocumentKind, type PersonnelDocument,
-  type PersonnelPrivate, type User,
+  type PersonnelPrivate, type PersonnelLoon, type User,
 } from '../lib/types'
 import { dateShort, dateTime, money, relative } from '../lib/format'
 import { dateInputValue, dayFromDateInput } from '../lib/roster'
@@ -50,10 +50,23 @@ import type { Bekijkbaar } from '../lib/bekijken'
 export default function Dossier({ person }: { person: User }) {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
+  /*
+   * Twee rechten sinds 0056, en dat is het hele punt van die migratie.
+   *
+   * magBeheren gaat over geld en over de interne notities: het management.
+   * magInvullen gaat over wie iemand is -- geboorte, document, BSN,
+   * noodcontact -- en dat mag ook een leidinggevende, want die neemt mensen
+   * aan en moet hun papieren kunnen invullen.
+   */
   const magBeheren = perms.can('staff.edit')
+  const magInvullen = magBeheren || perms.can('staff.view')
 
   const prive = useLiveQuery(
     () => db.personnelPrivate.get(person.id), [person.id], undefined)
+  /* De geldkant komt uit een eigen tabel. Mag je er niet bij, dan haalt de
+     synchronisatie hem niet op en staat hij hier gewoon leeg. */
+  const loon = useLiveQuery(
+    () => db.personnelLoon.get(person.id), [person.id], undefined)
   const docs = useLiveQuery(() => db.documents.toArray(), [], [] as PersonnelDocument[])
 
   const [gegevens, setGegevens] = useState(false)
@@ -83,9 +96,11 @@ export default function Dossier({ person }: { person: User }) {
       {/* --------------------- Afgeschermde gegevens ------------------ */}
 
       <Card
-        title="Persoons- en loongegevens"
-        hint="Alleen het management en deze persoon zelf"
-        action={magBeheren ? (
+        title={magBeheren ? 'Persoons- en loongegevens' : 'Persoonsgegevens'}
+        hint={magBeheren
+          ? 'Alleen het management en deze persoon zelf'
+          : 'De gegevens die je nodig hebt om iemand aan te nemen'}
+        action={magInvullen ? (
           <button className="btn sm" onClick={() => setGegevens(true)}>
             <PenLine size={14} /> Bewerken
           </button>
@@ -110,15 +125,26 @@ export default function Dossier({ person }: { person: User }) {
             geheim={!!prive?.bsn}
             volledig={prive?.bsn ? bsnFormatteer(prive.bsn) : undefined}
           />
-          <Regel
-            label="Rekeningnummer"
-            value={prive?.iban ? ibanFormatteer(prive.iban) : '—'}
-            icon={<CreditCard size={13} />}
-          />
-          <Regel
-            label="Uurtarief"
-            value={prive?.hourlyRate ? money(prive.hourlyRate) : '—'}
-          />
+          {/*
+            * Sinds 0056 staan deze twee in personnel_loon, en daar komt een
+            * leidinggevende niet bij. De rij wordt voor hem niet eens
+            * opgehaald, dus hij zou hier altijd een streepje zien -- en een
+            * lege regel "Uurtarief —" laat je je afvragen of er iets stuk is.
+            * Weglaten is eerlijker dan leeg tonen.
+            */}
+          {magBeheren && (
+            <Regel
+              label="Rekeningnummer"
+              value={loon?.iban ? ibanFormatteer(loon.iban) : '—'}
+              icon={<CreditCard size={13} />}
+            />
+          )}
+          {magBeheren && (
+            <Regel
+              label="Uurtarief"
+              value={loon?.hourlyRate ? money(loon.hourlyRate) : '—'}
+            />
+          )}
           <Regel
             label="Identiteitsbewijs"
             value={prive?.documentNumber
@@ -142,12 +168,12 @@ export default function Dossier({ person }: { person: User }) {
           />
         </div>
 
-        {magBeheren && prive?.internalNotes && (
+        {magBeheren && loon?.internalNotes && (
           <div className="aanmelding-bericht afgewezen" style={{ marginTop: 14 }}>
             <EyeOff size={16} />
             <div>
               <div className="kop">Interne notitie — niet zichtbaar voor {person.name.split(' ')[0]}</div>
-              <p>{prive.internalNotes}</p>
+              <p>{loon.internalNotes}</p>
             </div>
           </div>
         )}
@@ -193,6 +219,8 @@ export default function Dossier({ person }: { person: User }) {
         open={gegevens}
         person={person}
         prive={prive}
+        loon={loon}
+        magBeheren={magBeheren}
         onClose={() => setGegevens(false)}
       />
 
@@ -388,11 +416,21 @@ function DocumentRegel({
  * ================================================================== */
 
 function GegevensDialoog({
-  open, person, prive, onClose,
+  open, person, prive, loon, magBeheren, onClose,
 }: {
   open: boolean
   person: User
   prive?: PersonnelPrivate
+  loon?: PersonnelLoon
+  /**
+   * Mag deze gebruiker ook aan het geld komen?
+   *
+   * Zo niet, dan blijven het rekeningnummer, het uurloon en de interne
+   * notities weg uit dit venster -- niet leeg maar afwezig. Een leeg veld
+   * dat je niet mag invullen nodigt uit tot proberen, en dan krijg je een
+   * afwijzing van de database in plaats van een scherm dat klopt.
+   */
+  magBeheren: boolean
   onClose: () => void
 }) {
   const leeg = () => ({
@@ -403,20 +441,24 @@ function GegevensDialoog({
     documentNumber: prive?.documentNumber ?? '',
     documentExpires: prive?.documentExpires ? dateInputValue(prive.documentExpires) : '',
     bsn: prive?.bsn ? bsnFormatteer(prive.bsn) : '',
-    iban: prive?.iban ? ibanFormatteer(prive.iban) : '',
-    hourlyRate: String(prive?.hourlyRate ?? ''),
+    iban: loon?.iban ? ibanFormatteer(loon.iban) : '',
+    hourlyRate: String(loon?.hourlyRate ?? ''),
     emergencyName: prive?.emergencyName ?? '',
     emergencyPhone: prive?.emergencyPhone ?? '',
     emergencyRelation: prive?.emergencyRelation ?? '',
-    internalNotes: prive?.internalNotes ?? '',
+    internalNotes: loon?.internalNotes ?? '',
   })
 
   const [form, setForm] = useState(leeg)
-  const [sleutel, setSleutel] = useState(person.id + (prive?.updatedAt ?? 0))
+  /* Ook op de geldkant letten: die komt uit een eigen tabel en kan een tel
+     later binnenkomen dan de rest. Zonder dat in de sleutel blijft het
+     formulier dan met lege geldvelden staan. */
+  const [sleutel, setSleutel] = useState(
+    person.id + (prive?.updatedAt ?? 0) + ':' + (loon?.updatedAt ?? 0))
   const [mrzOpen, setMrzOpen] = useState(false)
   const [gecontroleerd, setGecontroleerd] = useState(prive?.documentVerified ?? false)
 
-  const nieuweSleutel = person.id + (prive?.updatedAt ?? 0)
+  const nieuweSleutel = person.id + (prive?.updatedAt ?? 0) + ':' + (loon?.updatedAt ?? 0)
   if (open && sleutel !== nieuweSleutel) {
     setSleutel(nieuweSleutel)
     setForm(leeg())
@@ -445,7 +487,7 @@ function GegevensDialoog({
 
   async function opslaan() {
     if (bsnFout) return toast.error(bsnFout)
-    if (ibanFout) return toast.error(ibanFout)
+    if (magBeheren && ibanFout) return toast.error(ibanFout)
 
     await dossierRepo.save(person.id, {
       birthDate: form.birthDate ? dayFromDateInput(form.birthDate) : undefined,
@@ -456,13 +498,24 @@ function GegevensDialoog({
       documentExpires: form.documentExpires ? dayFromDateInput(form.documentExpires) : undefined,
       documentVerified: gecontroleerd,
       bsn: form.bsn.replace(/\D/g, '') || undefined,
-      iban: form.iban.replace(/\s+/g, '').toUpperCase() || undefined,
-      hourlyRate: form.hourlyRate ? Number(form.hourlyRate.replace(',', '.')) : undefined,
       emergencyName: form.emergencyName.trim() || undefined,
       emergencyPhone: form.emergencyPhone.trim() || undefined,
       emergencyRelation: form.emergencyRelation.trim() || undefined,
-      internalNotes: form.internalNotes.trim() || undefined,
     })
+
+    /*
+     * De geldkant apart, en alleen als je eraan mag. Zou dit in dezelfde
+     * bewaring zitten, dan zou een leidinggevende die een geboortedatum
+     * invult een afwijzing krijgen over een uurloon dat hij niet eens ziet.
+     */
+    if (magBeheren) {
+      await dossierRepo.saveLoon(person.id, {
+        iban: form.iban.replace(/\s+/g, '').toUpperCase() || undefined,
+        hourlyRate: form.hourlyRate ? Number(form.hourlyRate.replace(',', '.')) : undefined,
+        internalNotes: form.internalNotes.trim() || undefined,
+      })
+    }
+
     toast.ok('Dossier bijgewerkt')
     onClose()
   }
@@ -548,26 +601,30 @@ function GegevensDialoog({
               placeholder="123 456 782"
             />
           </Field>
-          <Field
-            label="Rekeningnummer"
-            help={ibanFout ?? 'Wordt gecontroleerd met de mod-97-toets'}
-          >
-            <input
-              className={`input mono ${ibanFout ? 'fout' : ''}`}
-              value={form.iban}
-              onChange={(e) => set({ iban: ibanFormatteer(e.target.value) })}
-              placeholder="NL91 ABNA 0417 1643 00"
-            />
-          </Field>
+          {magBeheren && (
+            <Field
+              label="Rekeningnummer"
+              help={ibanFout ?? 'Wordt gecontroleerd met de mod-97-toets'}
+            >
+              <input
+                className={`input mono ${ibanFout ? 'fout' : ''}`}
+                value={form.iban}
+                onChange={(e) => set({ iban: ibanFormatteer(e.target.value) })}
+                placeholder="NL91 ABNA 0417 1643 00"
+              />
+            </Field>
+          )}
         </div>
 
-        <Field label="Uurtarief (€)" help="Staat afgeschermd; collega’s zien dit niet">
-          <input
-            className="input" inputMode="decimal" value={form.hourlyRate}
-            onChange={(e) => set({ hourlyRate: e.target.value })}
-            placeholder="22"
-          />
-        </Field>
+        {magBeheren && (
+          <Field label="Uurtarief (€)" help="Staat afgeschermd; collega’s zien dit niet">
+            <input
+              className="input" inputMode="decimal" value={form.hourlyRate}
+              onChange={(e) => set({ hourlyRate: e.target.value })}
+              placeholder="22"
+            />
+          </Field>
+        )}
 
         <div className="grid cols-3">
           <Field label="Bij nood bellen">
@@ -592,15 +649,25 @@ function GegevensDialoog({
           </Field>
         </div>
 
-        <Field
-          label="Interne notitie"
-          help={`${person.name.split(' ')[0]} ziet dit nooit, ook niet in zijn eigen dossier.`}
-        >
-          <textarea
-            className="textarea" value={form.internalNotes}
-            onChange={(e) => set({ internalNotes: e.target.value })}
-          />
-        </Field>
+        {magBeheren && (
+          <Field
+            label="Interne notitie"
+            help={`${person.name.split(' ')[0]} ziet dit nooit, ook niet in zijn eigen dossier.`}
+          >
+            <textarea
+              className="textarea" value={form.internalNotes}
+              onChange={(e) => set({ internalNotes: e.target.value })}
+            />
+          </Field>
+        )}
+
+        {!magBeheren && (
+          <p className="help" style={{ marginTop: 0 }}>
+            Het rekeningnummer, het uurtarief en de interne notitie staan hier niet:
+            die zijn van het management. Wat je hier invult zijn de gegevens die je nodig
+            hebt om iemand aan te nemen.
+          </p>
+        )}
 
         <div className="row end">
           <button className="btn ghost" onClick={onClose}>Annuleren</button>

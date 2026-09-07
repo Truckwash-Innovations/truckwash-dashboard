@@ -16,7 +16,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
-  PersonnelDocument, PersonnelPrivate,
+  PersonnelDocument, PersonnelPrivate, PersonnelLoon,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
 } from './types'
@@ -70,6 +70,7 @@ class TruckwashDB extends Dexie {
   channelReads!: Table<ChannelRead, string>
   emailLog!: Table<EmailLog, string>
   personnelPrivate!: Table<PersonnelPrivate, string>
+  personnelLoon!: Table<PersonnelLoon, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
   changeRequests!: Table<DossierWijziging, string>
@@ -145,6 +146,7 @@ class TruckwashDB extends Dexie {
     // v8: het afgeschermde deel van het dossier, en de documenten
     this.version(8).stores({
       personnelPrivate: 'id, userId, updatedAt',
+      personnelLoon: 'id, userId, updatedAt',
       documents: 'id, userId, kind, requiresSignature, updatedAt',
     })
 

@@ -5192,5 +5192,84 @@ console.log('\n40. Terugkomen uit Exact')
     scherm.includes('const tot = Date.now() + 3 * 60_000'))
 }
 
+/* ==================================================================== *
+ *  Het dossier valt uiteen (0056)
+ *
+ *  Casper: "als leidinggevende een medewerker aanmaken, moeten hun ook
+ *  gewoon een BSN zien."
+ *
+ *  De schematest bewaakt de kant van de database. Dit hoofdstuk bewaakt de
+ *  kant van de app, en dat is een andere fout: hier gaat het niet mis met
+ *  een policy maar met een veld dat terugkruipt. Zou het rekeningnummer of
+ *  het uurloon ooit weer via dossier.save() meegaan, dan schrijft de app het
+ *  in personnel_private -- en dan staat het weer naast de identiteit, waar
+ *  de leidinggevende bij mag.
+ *
+ *  Dat levert geen foutmelding op. Het veld verdwijnt gewoon stilletjes naar
+ *  de verkeerde tabel.
+ * ==================================================================== */
+
+console.log('\n41. Het dossier valt uiteen')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  /* --- de opslaghulp --- */
+
+  const repo = readFileSync('src/lib/dossier.ts', 'utf8')
+  check('er is een aparte bewaring voor de geldkant', repo.includes('async saveLoon('))
+  check('die schrijft in personnelLoon',
+    /put\('personnelLoon', db\.personnelLoon, rij\)/.test(repo))
+
+  /*
+   * En de gewone save() raakt het geld niet aan. Deze twee stukken staan
+   * vlak onder elkaar in hetzelfde bestand; één copy-paste te veel en het
+   * uurloon zit weer in de verkeerde helft.
+   */
+  const gewoon = repo.slice(repo.indexOf('async save('), repo.indexOf('async saveLoon('))
+  check('en de gewone bewaring schrijft alleen in personnelPrivate',
+    gewoon.includes("put('personnelPrivate'") && !gewoon.includes('personnelLoon'))
+
+  /* --- het scherm --- */
+
+  const scherm = readFileSync('src/components/Dossier.tsx', 'utf8')
+
+  check('de geldkant komt uit de eigen tabel',
+    scherm.includes('db.personnelLoon.get(person.id)'))
+  check('en het scherm kent twee rechten',
+    scherm.includes("const magInvullen = magBeheren || perms.can('staff.view')"))
+
+  /*
+   * Het rekeningnummer, het uurloon en de interne notitie horen alleen in
+   * beeld te komen voor wie eraan mag. Niet grijs, niet leeg: afwezig.
+   */
+  for (const veld of ['Rekeningnummer', 'Uurtarief', 'Interne notitie']) {
+    const i = scherm.indexOf(`label="${veld}`)
+    check(`${veld} staat achter magBeheren`,
+      i > 0 && /\{magBeheren && \($/m.test(scherm.slice(Math.max(0, i - 260), i)),
+      i > 0 ? 'gevonden maar niet afgeschermd' : 'veld niet gevonden')
+  }
+
+  /* En bij het opslaan gaat de geldkant apart, achter hetzelfde recht. */
+  check('opslaan van het geld gebeurt alleen met dat recht',
+    /if \(magBeheren\) \{\s*await dossierRepo\.saveLoon\(/.test(scherm))
+
+  /* --- wat er niet meer bij de identiteit hoort te staan --- */
+
+  const opslaan = scherm.slice(scherm.indexOf('await dossierRepo.save(person.id, {'),
+    scherm.indexOf('if (magBeheren) {'))
+  for (const veld of ['iban:', 'hourlyRate:', 'internalNotes:']) {
+    check(`${veld.slice(0, -1)} gaat niet mee met de identiteitsgegevens`,
+      !opslaan.includes(veld))
+  }
+
+  /* --- de synchronisatie kent de nieuwe tabel --- */
+
+  const sync = readFileSync('src/lib/sync.ts', 'utf8')
+  check('personnelLoon staat in de duwvolgorde', sync.includes("'personnelLoon'"))
+  check('en wordt opgeruimd bij het uitloggen',
+    (sync.match(/db\.personnelLoon\.clear\(\)/g) ?? []).length === 2)
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

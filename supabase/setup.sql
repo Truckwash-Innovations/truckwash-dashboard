@@ -2083,38 +2083,80 @@ end $$;
 --  weggooien zou een oudere versie van de app breken die nog draait.
 -- ---------------------------------------------------------------------------
 
-insert into public.personnel_private (id, user_id, hourly_rate)
-select p.id, p.id, p.hourly_rate
-  from public.profiles p
- where p.hourly_rate is not null
-   and p.hourly_rate <> 0
-   and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
-on conflict (id) do nothing;
+/*
+ * Het uurloon dat in profiles stond hierheen halen -- eenmalig, bij de
+ * invoering van het dossier.
+ *
+ * Sinds 0056 staat het uurloon niet meer in deze tabel maar in
+ * personnel_loon, en dan bestaat de kolom hier niet meer. Zonder deze
+ * controle valt 0009 daarna om, en dat is precies wat er niet mag: elke
+ * migratie in dit project belooft dat je hem opnieuw mag draaien.
+ *
+ * Merk op dat er NIET "add column if not exists" staat. Dat zou de kolom
+ * terugzetten, en daarmee zouden het uurloon en het rekeningnummer weer
+ * zichtbaar worden voor iedereen die de identiteitsgegevens mag lezen --
+ * sinds 0056 ook de leidinggevende. Niets doen is hier het goede antwoord.
+ */
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_private'
+       and column_name = 'hourly_rate'
+  ) then
+    execute $v$
+      insert into public.personnel_private (id, user_id, hourly_rate)
+      select p.id, p.id, p.hourly_rate
+        from public.profiles p
+       where p.hourly_rate is not null
+         and p.hourly_rate <> 0
+         and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
+      on conflict (id) do nothing;
 
-update public.personnel_private pp
-   set hourly_rate = p.hourly_rate
-  from public.profiles p
- where pp.id = p.id
-   and pp.hourly_rate is null
-   and p.hourly_rate is not null;
+      update public.personnel_private pp
+         set hourly_rate = p.hourly_rate
+        from public.profiles p
+       where pp.id = p.id
+         and pp.hourly_rate is null
+         and p.hourly_rate is not null;
+    $v$;
+  end if;
+end $$;
 
 update public.profiles set hourly_rate = null where hourly_rate is not null;
 
 -- Interne notities gaan dezelfde kant op.
-insert into public.personnel_private (id, user_id, internal_notes)
-select p.id, p.id, p.notes
-  from public.profiles p
- where coalesce(trim(p.notes), '') <> ''
-   and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
-on conflict (id) do nothing;
+--
+-- Sinds 0056 staan ze in personnel_loon en bestaat internal_notes hier niet
+-- meer. Zelfde reden als hierboven: elke migratie belooft dat je hem opnieuw
+-- mag draaien, en zonder deze controle valt 0009 na 0056 om. De kolom
+-- terugzetten zou erger zijn -- dan zijn de notities weer zichtbaar voor
+-- iedereen die de identiteitsgegevens mag lezen.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_private'
+       and column_name = 'internal_notes'
+  ) then
+    execute $v$
+      insert into public.personnel_private (id, user_id, internal_notes)
+      select p.id, p.id, p.notes
+        from public.profiles p
+       where coalesce(trim(p.notes), '') <> ''
+         and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
+      on conflict (id) do nothing;
 
-update public.personnel_private pp
-   set internal_notes = coalesce(pp.internal_notes, p.notes)
-  from public.profiles p
- where pp.id = p.id
-   and coalesce(trim(p.notes), '') <> '';
+      update public.personnel_private pp
+         set internal_notes = coalesce(pp.internal_notes, p.notes)
+        from public.profiles p
+       where pp.id = p.id
+         and coalesce(trim(p.notes), '') <> '';
 
-update public.profiles set notes = null where coalesce(trim(notes), '') <> '';
+      update public.profiles set notes = null where coalesce(trim(notes), '') <> '';
+    $v$;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 --  4. Beveiliging op de gegevens
@@ -10129,3 +10171,608 @@ comment on table public.ai_opdrachten is
   'functie legt er een opdracht in en wacht op het antwoord; het programma in '
   'lezer/ haalt hem op via de functie lezer. Rijen worden na afhandeling '
   'weggegooid.';
+
+-- ===========================================================================
+--  De Exact-sleutels verhuizen van de omgeving naar de database
+--
+--  De vraag van Casper: "ik heb nu een exact dev account, dus niet de
+--  realtime, zorg dat je dit makkelijk in het dashboard bij ontwikkelaar kan
+--  aanpassen dan wel aub".
+--
+--  Tot nu toe stonden EXACT_CLIENT_ID en EXACT_CLIENT_SECRET als geheim op
+--  de server. Dat is een prima plek voor iets dat nooit verandert, en een
+--  slechte plek voor iets dat je aan het uitproberen bent: elke wijziging is
+--  "supabase secrets set" plus opnieuw uitrollen, en dat wil je niet doen
+--  terwijl je nog aan het uitzoeken bent welke sleutels Exact eigenlijk
+--  geeft.
+--
+--  Waarom hier en niet in instellingen
+--  -----------------------------------
+--
+--  instellingen synchroniseert mee naar elke tablet en elke telefoon. Het
+--  clientgeheim van Exact is de helft van de sleutel tot de boekhouding; dat
+--  hoort daar dus niet. exact_koppeling heeft RLS aan zonder ook maar één
+--  policy -- alleen de servicesleutel komt erbij, en dat is precies wat een
+--  geheim nodig heeft. De tokens liggen daar al om dezelfde reden.
+--
+--  Proef of echt
+--  -------------
+--
+--  Een dev-account van Exact en de echte administratie zien er in het
+--  dashboard identiek uit, en dat is gevaarlijk: een testfactuur in de echte
+--  boekhouding is werk voor de accountant, en een echte factuur in een
+--  proefadministratie is een factuur die niemand meer terugvindt. Daarom
+--  staat het er met zoveel woorden bij, zodat het scherm het kan tonen.
+--
+--  De basis-URL erbij
+--  ------------------
+--
+--  Exact draait per land op een eigen adres, en een proefomgeving kan daar
+--  weer van afwijken. Die stond hard in de functie. Nu niet meer -- maar wel
+--  met een slot erop, want naar dat adres gaat het clientgeheim toe. Welke
+--  adressen mogen staat in de Edge Function, niet hier: een controle die je
+--  in de database zet geldt alleen voor wat via de database binnenkomt.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Wat erbij komt
+-- ---------------------------------------------------------------------------
+
+alter table public.exact_koppeling add column if not exists client_id      text;
+alter table public.exact_koppeling add column if not exists client_geheim  text;
+alter table public.exact_koppeling add column if not exists basis_url      text;
+alter table public.exact_koppeling add column if not exists redirect_uri   text;
+alter table public.exact_koppeling add column if not exists omgeving       text;
+
+/* Wie de sleutels heeft gezet, en wanneer. Niet om iemand aan te wijzen maar
+   om te kunnen zien of de sleutels van vandaag zijn of van drie maanden
+   terug -- bij "het werkt ineens niet meer" is dat de eerste vraag. */
+alter table public.exact_koppeling add column if not exists sleutels_door  text;
+alter table public.exact_koppeling add column if not exists sleutels_at    bigint;
+
+do $$
+begin
+  alter table public.exact_koppeling drop constraint if exists exact_koppeling_omgeving_check;
+  alter table public.exact_koppeling add constraint exact_koppeling_omgeving_check
+    check (omgeving is null or omgeving in ('proef', 'echt'));
+exception when others then
+  raise notice 'omgeving-controle niet gezet: %', sqlerrm;
+end $$;
+
+comment on column public.exact_koppeling.client_geheim is
+  'Het clientgeheim van de Exact-app. Staat hier en niet in instellingen: '
+  'instellingen synchroniseert mee naar elk apparaat, deze tabel niet (0052).';
+
+comment on column public.exact_koppeling.omgeving is
+  '"proef" voor een dev-account van Exact, "echt" voor de administratie waar '
+  'de boekhouding in staat. Alleen om het in het dashboard te kunnen tonen; '
+  'de koppeling zelf werkt hetzelfde (0052).';
+
+comment on column public.exact_koppeling.basis_url is
+  'Het adres van Exact, bijvoorbeeld https://start.exactonline.nl. Leeg = '
+  'wat er in de Edge Function als standaard staat. Welke adressen zijn '
+  'toegestaan bepaalt die functie, niet deze tabel: hier langs is niet de '
+  'enige weg naar binnen (0052).';
+
+-- ---------------------------------------------------------------------------
+--  De rij moet bestaan
+--
+--  De functie doet een upsert en redt zich ook zonder, maar een lege rij die
+--  er al staat maakt het scherm eerlijker: "nog niets ingesteld" in plaats
+--  van "geen koppeling gevonden".
+-- ---------------------------------------------------------------------------
+
+insert into public.exact_koppeling (id, status, omgeving)
+values ('exact', 'los', 'proef')
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Geen policy. Met opzet.
+--
+--  RLS staat aan op deze tabel en er hoort er nooit een bij te komen. Wie de
+--  sleutels wil zien of zetten gaat langs de Edge Function, die kijkt wie er
+--  belt. Een policy hier zou betekenen dat het clientgeheim in de gewone
+--  synchronisatie terecht kan komen.
+-- ---------------------------------------------------------------------------
+
+-- ===========================================================================
+--  Exact kent het rekeningschema, en de bon weet waar hij heen ging
+--
+--  De vraag van Casper: "zorg dat ik op een goeie manier een koppeling kan
+--  maken met exact, en vanuit daar ook dingen kan exporteren (personeel,
+--  facturen ect) grootboekrekeningen moeten ook met exact syncen, zodat
+--  alles netjes kan staan".
+--
+--  Waarom het rekeningschema NIET over public.grootboek heen gaat
+--  --------------------------------------------------------------
+--
+--  Dat lijkt de kortste weg en het is de verkeerde. In 0044 staat er met
+--  zoveel woorden bij waarom grootboek klein is: "alleen de rekeningen die
+--  hier werkelijk gebruikt worden. Een compleet rekeningschema overtypen
+--  levert een lijst op waar niemand doorheen komt." Een administratie in
+--  Exact heeft er al gauw een paar honderd. Wie die er allemaal in kiepert,
+--  krijgt bij elke bon een keuzelijst waar de administratie niet meer in
+--  vindt wat ze zoekt -- en de zorgvuldig gekozen namen en trefwoorden zijn
+--  dan bovendien overschreven door de omschrijving uit Exact.
+--
+--  Dus twee lijsten, met een brug ertussen:
+--
+--    public.grootboek        wat WIJ gebruiken, kort en met eigen woorden
+--    public.exact_grootboek  wat EXACT kent, compleet en onaangeraakt
+--
+--  Daarmee kan het scherm de vraag beantwoorden waar het echt om gaat:
+--  bestaat elke code waarop wij boeken ook in Exact, en heet hij daar
+--  hetzelfde? Een code die hier wel bestaat en daar niet, is een boeking die
+--  straks geweigerd wordt -- dat wil je zien vóórdat de factuur weg is, niet
+--  erna. En een rekening uit Exact overnemen is dan één handeling.
+--
+--  Wat er van een bon bijkomt
+--  --------------------------
+--
+--  Drie velden op expenses: waar hij in Exact terechtkwam, wanneer, en wat
+--  er misging als het niet lukte. Zonder dat eerste veld is er geen manier
+--  om te weten of een bon al verstuurd is, en dan staat dezelfde factuur na
+--  een tweede poging twee keer in de boekhouding.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Het rekeningschema zoals Exact het kent
+--
+--  Een kopie, geen bron. Hij wordt in zijn geheel bijgewerkt door de sync en
+--  door niemand anders geschreven. Daarom geen id-kolom met een eigen
+--  naamgeving: de sleutel is de code zoals Exact hem gebruikt.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_grootboek (
+  /* De code uit Exact, bijvoorbeeld 4031. Dit is wat op een boeking staat en
+     waar public.grootboek.code op moet aansluiten. */
+  code         text primary key,
+  omschrijving text not null default '',
+  /* Het interne id van Exact (een guid). Nodig zodra we een boeking maken:
+     Exact wil daar zijn eigen sleutel zien en niet de code. */
+  exact_id     text,
+  /* Wat voor rekening het is volgens Exact (kosten, balans, ...). Als tekst
+     bewaard: de nummers die Exact daarvoor gebruikt zeggen niemand iets. */
+  soort        text,
+  geblokkeerd  boolean not null default false,
+  /* Uit welke administratie deze lijst komt. Wisselt iemand van proef naar
+     echt, dan hoort de oude lijst niet stilletjes te blijven staan. */
+  division     text,
+  updated_at   bigint not null default public.now_ms()
+);
+
+create index if not exists exact_grootboek_division_idx
+  on public.exact_grootboek (division);
+
+comment on table public.exact_grootboek is
+  'Het rekeningschema zoals het in Exact staat (0053). Een kopie die de sync '
+  'bijwerkt; public.grootboek blijft de korte lijst die wij zelf gebruiken.';
+
+-- ---------------------------------------------------------------------------
+--  Wat er wanneer is opgehaald of verstuurd
+--
+--  Eén rij per soort werk. Geen aan/uit-vlag: wat er gesynchroniseerd wordt
+--  bepaalt de knop die je indrukt, en een vlag die standaard aan staat is een
+--  achtergrondproces dat je niet ziet draaien.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_sync (
+  soort      text primary key,
+  laatst_at  bigint,
+  aantal     integer not null default 0,
+  laatste_fout text,
+  door       text,
+  updated_at bigint not null default public.now_ms()
+);
+
+insert into public.exact_sync (soort) values
+  ('grootboek'), ('facturen')
+on conflict (soort) do nothing;
+
+comment on table public.exact_sync is
+  'Wanneer er voor het laatst met Exact is uitgewisseld, per soort (0053).';
+
+-- ---------------------------------------------------------------------------
+--  Waar de bon in Exact terechtkwam
+-- ---------------------------------------------------------------------------
+
+alter table public.expenses add column if not exists exact_id   text;
+alter table public.expenses add column if not exists exact_at   bigint;
+alter table public.expenses add column if not exists exact_fout text;
+
+/* Twee keer dezelfde bon versturen is twee keer dezelfde factuur in de
+   boekhouding. Uniek dus -- en dat vangt ook het geval waarin twee mensen
+   tegelijk op "versturen" drukken, want dan verliest de tweede. */
+create unique index if not exists expenses_exact_id_uniek
+  on public.expenses (exact_id) where exact_id is not null;
+
+comment on column public.expenses.exact_id is
+  'Het id van de boeking in Exact (0053). Gevuld = deze bon is verstuurd en '
+  'gaat niet nog een keer.';
+
+-- ---------------------------------------------------------------------------
+--  Wie mag wat zien
+--
+--  Lezen: iedereen die bij de administratie hoort, want het scherm dat de
+--  twee lijsten naast elkaar zet is een administratiescherm. Schrijven: geen
+--  mens. Deze tabellen worden alleen door de Edge Function bijgewerkt, met de
+--  servicesleutel, en die trekt zich van RLS niets aan.
+--
+--  Er staat dus met opzet geen insert- of update-policy. Dat is niet
+--  vergeten: een kopie die iemand met de hand kan bijwerken is geen kopie
+--  meer, en dan weet je bij een verschil niet meer wie er gelijk heeft.
+-- ---------------------------------------------------------------------------
+
+alter table public.exact_grootboek enable row level security;
+alter table public.exact_sync      enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['exact_grootboek', 'exact_sync'] loop
+    execute format('drop policy if exists %I_select on public.%I', t, t);
+    execute format(
+      'create policy %I_select on public.%I for select to authenticated '
+      'using (public.is_management() or public.heeft_recht(''admin.desk'') '
+      '       or public.heeft_recht(''dev.logs''))',
+      t, t);
+  end loop;
+end $$;
+
+-- ===========================================================================
+--  Exact kent het personeel, en wij weten wie wie is
+--
+--  Casper: "voor personeel mag je alles doen."
+--
+--  Wat er dan niet blijkt te kunnen
+--  --------------------------------
+--
+--  Personeel naar Exact exporteren kan niet. De HRM-kant van de Exact-API is
+--  alleen-lezen: payroll/Employees, Employments, EmploymentContracts en
+--  EmploymentSalaries ondersteunen GET en verder niets. Er is geen POST en
+--  geen PUT -- je kunt via de API geen medewerker aanmaken of wijzigen.
+--
+--  Dat is geen tekortkoming van deze migratie maar van wat Exact aanbiedt, en
+--  het is maar goed ook dat het hier staat: een export bouwen die stilzwijgend
+--  door Exact wordt geweigerd is werk dat er af uitziet en niets doet.
+--
+--  Eén ding is wél te schrijven: payroll/VariableMutations (GET, POST, PUT).
+--  Dat zijn de variabele loonmutaties -- gewerkte uren, verlof, toeslagen per
+--  loonperiode. Precies het werk dat elke maand met de hand gaat. Daar is deze
+--  migratie de voorbereiding voor, want zo'n mutatie wijst naar een
+--  EmployeeHID en die moeten we eerst kennen.
+--
+--  Wat er dus wel gebeurt
+--  ----------------------
+--
+--    exact_personeel   wie Exact kent, opgehaald en verder onaangeraakt
+--    exact_medewerker  wie bij ons wie is daar
+--
+--  Twee tabellen en geen kolom op profiles, met opzet. profiles gaat mee in
+--  de synchronisatie naar elk apparaat; een koppeltabel die alleen de server
+--  leest, blijft op de server.
+--
+--  De vergelijking beantwoordt drie vragen, en de derde is de belangrijkste:
+--  wie staat in Exact uit dienst terwijl hij hier nog actief is? Dat is
+--  iemand die weg is en nog steeds kan inloggen.
+--
+--  Het hele record, en wat dat betekent voor wie erbij mag
+--  -------------------------------------------------------
+--
+--  Casper wil bij een medewerker de bijbehorende Exact-medewerker kunnen
+--  opzoeken "waar dus ook alle dingen bij meekomen". Daarom komt het hele
+--  antwoord van Exact mee, in kolom ruw. Dat is niet luiheid: een vaste
+--  lijst velden opgeven betekent dat je ze allemaal bij naam moet kennen,
+--  en één verzonnen veldnaam in een $select laat Exact het hele verzoek
+--  weigeren. Wat we zeker weten staat in eigen kolommen; de rest blijft
+--  bewaard zoals het binnenkwam.
+--
+--  Daar hangt wel iets aan. In dat hele record kunnen het
+--  burgerservicenummer en de geboortedatum zitten, en dat is precies wat in
+--  0009 achter slot ligt: personnel_private is te lezen door het management
+--  en door jezelf, en door verder niemand. Zou deze tabel ruimer staan --
+--  bijvoorbeeld op staff.view, waar een leidinggevende onder valt -- dan is
+--  het BSN via de achterdeur alsnog breder te zien dan via het dossier.
+--
+--  Vandaar: alleen het management. Dezelfde grens als het dossier zelf,
+--  want het zijn dezelfde gegevens.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Wie Exact kent
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_personeel (
+  /* Het medewerkernummer van Exact. Dit is waar een loonmutatie naar wijst,
+     en daarom de sleutel: het is het enige dat straks nog meetelt. */
+  employee_hid   integer primary key,
+  /* Het interne id (een guid). Sommige aanroepen willen die in plaats van
+     het nummer. */
+  exact_id       text,
+  volledige_naam text not null default '',
+  voornaam       text,
+  achternaam     text,
+  email          text,
+  prive_email    text,
+  in_dienst_per  bigint,
+  uit_dienst_per bigint,
+  actief         boolean not null default true,
+  /* Alles wat Exact meestuurde, onaangeraakt. Hierin kan een BSN zitten;
+     zie de kop voor waarom deze tabel daarom management-only is. */
+  ruw            jsonb,
+  division       text,
+  updated_at     bigint not null default public.now_ms()
+);
+
+/* Voor wie de migratie al eens draaide toen deze kolom er nog niet was. */
+alter table public.exact_personeel add column if not exists ruw jsonb;
+
+create index if not exists exact_personeel_email_idx
+  on public.exact_personeel (lower(email));
+
+comment on table public.exact_personeel is
+  'Het personeel zoals Exact het kent (0054). Alleen-lezen aan de kant van '
+  'Exact: er is geen POST of PUT op payroll/Employees. Kolom ruw bevat het '
+  'volledige antwoord en kan een BSN bevatten -- daarom management-only, '
+  'dezelfde grens als personnel_private (0009).';
+
+-- ---------------------------------------------------------------------------
+--  Wie bij ons wie is daar
+--
+--  Los van profiles gehouden: die tabel synchroniseert mee naar elke tablet,
+--  en dit is serverwerk.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_medewerker (
+  /* profiles.id, als tekst. De rest van dit schema doet hetzelfde. */
+  user_id      text primary key,
+  employee_hid integer not null,
+  /* Hoe de koppeling tot stand kwam: 'email', 'naam' of 'handmatig'. Bij een
+     verschil van mening wil je weten of een mens het zei of een regel. */
+  bron         text not null default 'handmatig'
+               check (bron in ('email', 'naam', 'handmatig')),
+  door         text,
+  updated_at   bigint not null default public.now_ms()
+);
+
+/* Eén iemand hier hoort bij één iemand daar, en andersom. Zonder dit kunnen
+   twee medewerkers aan hetzelfde loonnummer hangen, en dan komen de uren van
+   twee mensen op één loonstrook terecht. */
+create unique index if not exists exact_medewerker_hid_uniek
+  on public.exact_medewerker (employee_hid);
+
+comment on table public.exact_medewerker is
+  'Welke medewerker hier welk medewerkernummer in Exact heeft (0054). Nodig '
+  'voordat er loonmutaties heen kunnen.';
+
+-- ---------------------------------------------------------------------------
+--  Wat er wanneer is opgehaald
+-- ---------------------------------------------------------------------------
+
+insert into public.exact_sync (soort) values ('personeel')
+on conflict (soort) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Wie mag dit zien
+--
+--  Alleen het management, en dat is strenger dan bij het rekeningschema
+--  (waar ontwikkeling meekijkt) én strenger dan staff.view. De reden staat
+--  in de kop: in kolom ruw kan een BSN zitten, en dat is in 0009 met opzet
+--  beperkt tot het management en de medewerker zelf. Een tabel ernaast die
+--  hetzelfde bevat maar ruimer openstaat, maakt die afspraak waardeloos.
+--
+--  Schrijven doet geen mens: de Edge Function werkt met de servicesleutel.
+-- ---------------------------------------------------------------------------
+
+alter table public.exact_personeel  enable row level security;
+alter table public.exact_medewerker enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['exact_personeel', 'exact_medewerker'] loop
+    execute format('drop policy if exists %I_select on public.%I', t, t);
+    execute format(
+      'create policy %I_select on public.%I for select to authenticated '
+      'using (public.is_management())',
+      t, t);
+  end loop;
+end $$;
+
+-- ===========================================================================
+--  Terugkomen in de app na het koppelen
+--
+--  Casper: "zodat ik erop kan klikken, en erop terug kom, evt dat je
+--  webbrowser opent ervoor?"
+--
+--  Wat er nu gebeurt is een halve rondgang. Je klikt op Koppelen, je browser
+--  opent, je logt in bij Exact, en dan kom je uit op een kaal pagina'tje van
+--  de serverfunctie: "Gekoppeld. Je kunt dit venster sluiten." Daarna moet je
+--  zelf terug naar de app en zelf op het pijltje drukken om te zien of het
+--  gelukt is. Dat is drie handelingen te veel, en het ergste is dat je bij
+--  twijfel niet weet of het nou wel of niet gelukt is.
+--
+--  Waarom dit een instelling is en geen vaste waarde
+--  -------------------------------------------------
+--
+--  De serverfunctie moet weten waar hij je heen moet sturen, en dat adres
+--  staat nergens in de database. Het hoort ook niet in de code: er is een
+--  proefomgeving, er is de echte, en het uitroldomein is al een keer
+--  verhuisd. Een verhuizing zou anders betekenen dat de koppeling stilvalt
+--  tot er iemand een nieuwe versie uitbrengt.
+--
+--  Let op wat het NIET is. Er staat al een APP_LINK op de server, en die
+--  wijst naar de releasepagina op GitHub -- dat is de plek waar je de app
+--  ophaalt, en dat is iets anders dan de plek waar de app draait. Casper
+--  wilde juist van dat GitHub-adres af, dus die twee blijven gescheiden.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+insert into public.instellingen (id, sleutel, waarde, omschrijving) values
+  ('in_app_url', 'app_url', 'https://truckwash-workspace.com/app/',
+   'Waar de app draait. Hier komt iemand terug nadat hij bij Exact op '
+   'toestaan heeft geklikt. Moet https zijn; leeg laten betekent dat de '
+   'serverfunctie zijn eigen pagina toont in plaats van je terug te sturen.')
+on conflict (id) do nothing;
+
+-- ===========================================================================
+--  Het dossier valt uiteen: identiteit apart van geld
+--
+--  Casper: "maar als leidinggevende een medewerker aanmaken, moeten hun ook
+--  gewoon een BSN zien."
+--
+--  Dat kon niet, en niet omdat het dichtgezet was: personnel_private staat
+--  sinds 0009 op "jezelf of het management", en een leidinggevende is geen
+--  van beide. Wie iemand aanneemt kon dus zijn identiteitsgegevens niet
+--  invullen.
+--
+--  Waarom de deur niet gewoon opengaat
+--  -----------------------------------
+--
+--  In diezelfde tabel staan het rekeningnummer, het uurloon en de interne
+--  notities van het management over die persoon. RLS werkt per rij en niet
+--  per kolom: één policy verruimen betekent dat een leidinggevende ook ziet
+--  wat zijn team verdient en wat er over hem is opgeschreven. Dat is niet
+--  gevraagd, en het is precies het soort ding dat je pas merkt als iemand
+--  het al gelezen heeft.
+--
+--  Dus valt het dossier uiteen langs de lijn die er altijd al in zat:
+--
+--    personnel_private   wie iemand is -- geboorte, document, BSN, noodgeval
+--    personnel_loon      wat hij kost -- rekeningnummer, uurloon, notities
+--
+--  De eerste gaat open voor wie personeel mag inzien. De tweede houdt exact
+--  de grens die het hele dossier had: jezelf, of het management.
+--
+--  Waarom op de ROL en niet op een recht
+--  -------------------------------------
+--
+--  Voor de hand liggend zou heeft_recht('staff.view') zijn. Dat werkt niet,
+--  en het werkt op een manier die je pas merkt als je het probeert: die
+--  functie kijkt alleen naar de kolom grants -- de rechten die iemand LOS
+--  heeft gekregen. Wat een rol standaard meebrengt staat in permissions.ts,
+--  in de app, en daar weet de database niets van. Een leidinggevende heeft
+--  staff.view via zijn rol, dus heeft_recht('staff.view') is voor hem
+--  gewoon false.
+--
+--  Dus: is_supervisor() of is_management(), plus heeft_recht('staff.view')
+--  voor wie het los toegekend kreeg. Niet is_lead(), want daar zit de
+--  technische dienst in en die neemt geen mensen aan.
+--
+--  Het gevolg is wel dat een leidinggevende het dossier van een collega ook
+--  kan wijzigen, niet alleen lezen. Dat volgt uit "een medewerker aanmaken":
+--  wie het invult moet een typefout kunnen herstellen.
+--
+--  Wat dit betekent voor het apparaat
+--  ----------------------------------
+--
+--  personnel_private synchroniseert mee. Leidinggevenden erbij laten betekent
+--  dat er BSN's in de lokale opslag van hun tablet komen te staan. Dat is
+--  bewust zo besloten; het staat hier zodat het een besluit blijft en geen
+--  bijverschijnsel.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Wat iemand kost
+--
+--  De sleutel heet id, net als overal: de synchronisatie vergelijkt elke
+--  binnengehaalde rij met de wachtrij op rij.id, voor alle tabellen zonder
+--  uitzondering (zie 0044). Hij draagt dezelfde waarde als het dossier-id,
+--  zodat de twee helften op elkaar aansluiten.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.personnel_loon (
+  id             text primary key,
+  user_id        text not null,
+  iban           text,
+  hourly_rate    numeric,
+  /* Notities van het management. De medewerker ziet deze nooit -- daarom
+     stonden ze niet in profiles.notes, en daarom staan ze nu hier en niet
+     bij de identiteitsgegevens. */
+  internal_notes text,
+  updated_at     bigint not null default public.now_ms()
+);
+
+create index if not exists loon_user_idx on public.personnel_loon (user_id);
+
+comment on table public.personnel_loon is
+  'De geldkant van het personeelsdossier (0056): rekeningnummer, uurloon en '
+  'interne notities. Apart van personnel_private omdat die sinds 0056 ook '
+  'voor leidinggevenden te lezen is en dit niet.';
+
+-- ---------------------------------------------------------------------------
+--  Verhuizen wat er staat
+--
+--  Alleen als de kolommen er nog zijn. Wie deze migratie twee keer draait,
+--  vindt ze de tweede keer niet meer -- en dan is er niets te verhuizen en
+--  ook niets kapot te maken.
+-- ---------------------------------------------------------------------------
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_private'
+       and column_name = 'iban'
+  ) then
+    execute $v$
+      insert into public.personnel_loon (id, user_id, iban, hourly_rate, internal_notes, updated_at)
+      select p.id, p.user_id, p.iban, p.hourly_rate, p.internal_notes, p.updated_at
+        from public.personnel_private p
+       where p.iban is not null or p.hourly_rate is not null or p.internal_notes is not null
+      on conflict (id) do nothing
+    $v$;
+    raise notice 'personnel_loon gevuld vanuit personnel_private';
+  end if;
+end $$;
+
+/* En weg uit de oude tabel. Dit moet: zolang ze daar staan, ziet iedereen
+   die het dossier mag lezen ze ook -- en dat is straks een grotere groep. */
+alter table public.personnel_private drop column if exists iban;
+alter table public.personnel_private drop column if exists hourly_rate;
+alter table public.personnel_private drop column if exists internal_notes;
+
+comment on table public.personnel_private is
+  'De identiteitskant van het personeelsdossier: geboorte, document, BSN en '
+  'noodcontact. Sinds 0056 ook te lezen en in te vullen door wie personeel '
+  'mag inzien, zodat een leidinggevende iemand kan aannemen. Het geld staat '
+  'in personnel_loon.';
+
+-- ---------------------------------------------------------------------------
+--  Wie mag wat
+-- ---------------------------------------------------------------------------
+
+alter table public.personnel_loon enable row level security;
+
+/* De geldkant houdt exact de grens die het hele dossier had. */
+drop policy if exists loon_select on public.personnel_loon;
+create policy loon_select on public.personnel_loon for select to authenticated
+  using (user_id = public.my_id() or public.is_management());
+
+drop policy if exists loon_write on public.personnel_loon;
+create policy loon_write on public.personnel_loon for all to authenticated
+  using (public.is_management()) with check (public.is_management());
+
+/* En de identiteitskant gaat open voor wie personeel mag inzien. */
+drop policy if exists prive_select on public.personnel_private;
+create policy prive_select on public.personnel_private for select to authenticated
+  using (user_id = public.my_id()
+         or public.is_management()
+         or public.is_supervisor()
+         or public.heeft_recht('staff.view'));
+
+drop policy if exists prive_write on public.personnel_private;
+create policy prive_write on public.personnel_private for all to authenticated
+  using (public.is_management() or public.is_supervisor()
+         or public.heeft_recht('staff.view'))
+  with check (public.is_management() or public.is_supervisor()
+              or public.heeft_recht('staff.view'));

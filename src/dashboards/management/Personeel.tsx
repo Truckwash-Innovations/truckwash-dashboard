@@ -57,7 +57,10 @@ export default function Personeel({ days, openId }: { days: number; openId?: str
   /* De uurtarieven staan in het afgeschermde deel van het dossier. Wie daar
      niet bij mag krijgt niets binnen, en ziet dus loonkosten van nul. */
   const tarieven = useLiveQuery(async () => {
-    const rijen = await db.personnelPrivate.toArray()
+    /* Sinds 0056 staat het uurtarief in personnel_loon en niet meer bij de
+       identiteitsgegevens: die zijn opengegaan voor leidinggevenden, het
+       geld niet. */
+    const rijen = await db.personnelLoon.toArray()
     return new Map(rijen.filter((r) => r.hourlyRate).map((r) => [r.userId, r.hourlyRate!]))
   }, [], new Map<string, number>())
 

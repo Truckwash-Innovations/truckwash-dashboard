@@ -5,7 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
-  PersonnelPrivate, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
+  PersonnelPrivate, PersonnelLoon, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
   PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove, LocationPhoto,
 } from '../types'
@@ -61,6 +61,7 @@ class MockServerDB extends Dexie {
   channelReads!: Table<ChannelRead, string>
   emailLog!: Table<EmailLog, string>
   personnelPrivate!: Table<PersonnelPrivate, string>
+  personnelLoon!: Table<PersonnelLoon, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
   changeRequests!: Table<DossierWijziging, string>
@@ -114,6 +115,7 @@ class MockServerDB extends Dexie {
       channelReads: 'id, updatedAt',
       emailLog: 'id, updatedAt',
       personnelPrivate: 'id, updatedAt',
+      personnelLoon: 'id, updatedAt',
       documents: 'id, userId, updatedAt',
       mailbox: 'id, updatedAt',
       changeRequests: 'id, updatedAt',
@@ -170,6 +172,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   channelReads: () => server.channelReads,
   emailLog: () => server.emailLog,
   personnelPrivate: () => server.personnelPrivate,
+  personnelLoon: () => server.personnelLoon,
   documents: () => server.documents,
   mailbox: () => server.mailbox,
   changeRequests: () => server.changeRequests,

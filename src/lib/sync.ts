@@ -194,7 +194,8 @@ export async function ensureBackendMatches(): Promise<boolean> {
     db.posSafes.clear(), db.posSafeMoves.clear(), db.locationPhotos.clear(),
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
-    db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
+    db.personnelPrivate.clear(), db.personnelLoon.clear(),
+    db.documents.clear(), db.mailbox.clear(),
     db.changeRequests.clear(), db.agendaItems.clear(),
     db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
     db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
@@ -236,7 +237,8 @@ export async function haalAllesOpnieuw(): Promise<void> {
     db.posSafes.clear(), db.posSafeMoves.clear(), db.locationPhotos.clear(),
     db.signups.clear(), db.channels.clear(),
     db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
-    db.personnelPrivate.clear(), db.documents.clear(), db.mailbox.clear(),
+    db.personnelPrivate.clear(), db.personnelLoon.clear(),
+    db.documents.clear(), db.mailbox.clear(),
     db.changeRequests.clear(), db.agendaItems.clear(),
     db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
     db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
@@ -306,7 +308,7 @@ export async function enqueue(
  * Daarom leggen we hem hier expliciet vast: ouders eerst.
  */
 export const PUSH_ORDER: EntityName[] = [
-  'locations', 'companies', 'users', 'personnelPrivate', 'employers',
+  'locations', 'companies', 'users', 'personnelPrivate', 'personnelLoon', 'employers',
   'channels', 'courses', 'assets',
   'washJobs', 'inventory', 'maintenancePlans', 'tickets',
   'faults', 'shifts', 'expenses', 'timeEntries', 'stockMovements',
@@ -502,6 +504,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   channelReads: () => db.channelReads,
   emailLog: () => db.emailLog,
   personnelPrivate: () => db.personnelPrivate,
+  personnelLoon: () => db.personnelLoon,
   documents: () => db.documents,
   mailbox: () => db.mailbox,
   changeRequests: () => db.changeRequests,

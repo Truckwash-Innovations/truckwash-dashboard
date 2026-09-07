@@ -611,6 +611,8 @@ export interface FactuurLezing {
   /** Epoch ms. */
   datum?: number
   vervaldatum?: number
+  /** @deprecated Sinds 0056 in PersonnelLoon. Blijft staan zodat oude rijen
+   *  in de plaatselijke opslag nog te lezen zijn; nieuw werk hoort hier niet. */
   iban?: string
   betalingskenmerk?: string
   btwNummer?: string
@@ -1530,6 +1532,7 @@ export interface PersonnelPrivate {
   bsn?: string
   iban?: string
   /** Uurtarief hoort hier: je collega's loon gaat niemand anders aan. */
+  /** @deprecated Sinds 0056 in PersonnelLoon. */
   hourlyRate?: number
 
   /* --- noodgeval --- */
@@ -1538,10 +1541,34 @@ export interface PersonnelPrivate {
   emergencyRelation?: string
 
   /** Notities van het management. De medewerker ziet deze nooit. */
+  /** @deprecated Sinds 0056 in PersonnelLoon. */
   internalNotes?: string
 
   updatedAt: number
 }
+
+/**
+ * De geldkant van het personeelsdossier.
+ *
+ * Apart van PersonnelPrivate sinds migratie 0056. De identiteitskant is
+ * daar opengegaan voor leidinggevenden -- die moeten een BSN kunnen invullen
+ * als ze iemand aannemen -- en RLS werkt per rij, niet per kolom. Zou dit in
+ * dezelfde tabel blijven staan, dan zag een leidinggevende meteen ook wat
+ * zijn team verdient en wat het management over hem heeft opgeschreven.
+ *
+ * Grens: jezelf, of het management. Precies wat het hele dossier had.
+ */
+export interface PersonnelLoon {
+  /** Gelijk aan het dossier-id, dus aan PersonnelPrivate.id */
+  id: string
+  userId: string
+  iban?: string
+  hourlyRate?: number
+  /** Notities van het management. De medewerker ziet deze nooit. */
+  internalNotes?: string
+  updatedAt: number
+}
+
 
 /* ------------------------------------------------------------------ *
  *  Documenten
@@ -1997,7 +2024,7 @@ export type EntityName =
   | 'tickets' | 'ticketMessages' | 'logEvents' | 'devPlans'
   | 'hourRequests' | 'trips'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
-  | 'personnelPrivate' | 'documents' | 'mailbox' | 'changeRequests'
+  | 'personnelPrivate' | 'personnelLoon' | 'documents' | 'mailbox' | 'changeRequests'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'

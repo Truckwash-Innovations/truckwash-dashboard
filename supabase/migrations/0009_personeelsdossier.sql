@@ -126,38 +126,80 @@ end $$;
 --  weggooien zou een oudere versie van de app breken die nog draait.
 -- ---------------------------------------------------------------------------
 
-insert into public.personnel_private (id, user_id, hourly_rate)
-select p.id, p.id, p.hourly_rate
-  from public.profiles p
- where p.hourly_rate is not null
-   and p.hourly_rate <> 0
-   and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
-on conflict (id) do nothing;
+/*
+ * Het uurloon dat in profiles stond hierheen halen -- eenmalig, bij de
+ * invoering van het dossier.
+ *
+ * Sinds 0056 staat het uurloon niet meer in deze tabel maar in
+ * personnel_loon, en dan bestaat de kolom hier niet meer. Zonder deze
+ * controle valt 0009 daarna om, en dat is precies wat er niet mag: elke
+ * migratie in dit project belooft dat je hem opnieuw mag draaien.
+ *
+ * Merk op dat er NIET "add column if not exists" staat. Dat zou de kolom
+ * terugzetten, en daarmee zouden het uurloon en het rekeningnummer weer
+ * zichtbaar worden voor iedereen die de identiteitsgegevens mag lezen --
+ * sinds 0056 ook de leidinggevende. Niets doen is hier het goede antwoord.
+ */
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_private'
+       and column_name = 'hourly_rate'
+  ) then
+    execute $v$
+      insert into public.personnel_private (id, user_id, hourly_rate)
+      select p.id, p.id, p.hourly_rate
+        from public.profiles p
+       where p.hourly_rate is not null
+         and p.hourly_rate <> 0
+         and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
+      on conflict (id) do nothing;
 
-update public.personnel_private pp
-   set hourly_rate = p.hourly_rate
-  from public.profiles p
- where pp.id = p.id
-   and pp.hourly_rate is null
-   and p.hourly_rate is not null;
+      update public.personnel_private pp
+         set hourly_rate = p.hourly_rate
+        from public.profiles p
+       where pp.id = p.id
+         and pp.hourly_rate is null
+         and p.hourly_rate is not null;
+    $v$;
+  end if;
+end $$;
 
 update public.profiles set hourly_rate = null where hourly_rate is not null;
 
 -- Interne notities gaan dezelfde kant op.
-insert into public.personnel_private (id, user_id, internal_notes)
-select p.id, p.id, p.notes
-  from public.profiles p
- where coalesce(trim(p.notes), '') <> ''
-   and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
-on conflict (id) do nothing;
+--
+-- Sinds 0056 staan ze in personnel_loon en bestaat internal_notes hier niet
+-- meer. Zelfde reden als hierboven: elke migratie belooft dat je hem opnieuw
+-- mag draaien, en zonder deze controle valt 0009 na 0056 om. De kolom
+-- terugzetten zou erger zijn -- dan zijn de notities weer zichtbaar voor
+-- iedereen die de identiteitsgegevens mag lezen.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_private'
+       and column_name = 'internal_notes'
+  ) then
+    execute $v$
+      insert into public.personnel_private (id, user_id, internal_notes)
+      select p.id, p.id, p.notes
+        from public.profiles p
+       where coalesce(trim(p.notes), '') <> ''
+         and not exists (select 1 from public.personnel_private pp where pp.id = p.id)
+      on conflict (id) do nothing;
 
-update public.personnel_private pp
-   set internal_notes = coalesce(pp.internal_notes, p.notes)
-  from public.profiles p
- where pp.id = p.id
-   and coalesce(trim(p.notes), '') <> '';
+      update public.personnel_private pp
+         set internal_notes = coalesce(pp.internal_notes, p.notes)
+        from public.profiles p
+       where pp.id = p.id
+         and coalesce(trim(p.notes), '') <> '';
 
-update public.profiles set notes = null where coalesce(trim(notes), '') <> '';
+      update public.profiles set notes = null where coalesce(trim(notes), '') <> '';
+    $v$;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 --  4. Beveiliging op de gegevens

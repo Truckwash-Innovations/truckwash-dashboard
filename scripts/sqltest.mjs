@@ -186,6 +186,7 @@ await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sql
 await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
+await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -243,6 +244,7 @@ await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleute
 await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
+await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 
 
 
@@ -759,36 +761,84 @@ check('intrekken wint van toekennen',
 
 console.log('\n13. Het dossier: wat een collega niet mag zien')
 
+/*
+ * Sinds 0056 valt dit dossier uiteen, en dat verandert een van de regels
+ * hieronder met opzet.
+ *
+ * Casper: "als leidinggevende een medewerker aanmaken, moeten hun ook gewoon
+ * een BSN zien." Een leidinggevende die iemand aanneemt moet zijn papieren
+ * kunnen invullen, dus de identiteitskant gaat voor hem open. Hier stond nog
+ * "een leidinggevende ziet die van zijn team ook niet"; dat is nu juist wél
+ * de bedoeling en die regel is omgedraaid.
+ *
+ * Wat er NIET verandert is het geld. Dat is de reden dat het dossier is
+ * gesplitst in plaats van dat de deur gewoon openging: een leidinggevende
+ * hoort niet te zien wat zijn team verdient, en niet te lezen wat het
+ * management over hem heeft opgeschreven. Die twee dingen staan hieronder
+ * naast elkaar, want ze horen bij elkaar.
+ */
+
 const wasserId = wasserRow.id
 const voormanId = voormanRow.id
 
 await db.exec(`
-  insert into public.personnel_private (id, user_id, bsn, iban, hourly_rate, internal_notes)
-  values ('${wasserId}', '${wasserId}', '123456782', 'NL91ABNA0417164300', 22,
+  insert into public.personnel_private (id, user_id, bsn)
+  values ('${wasserId}', '${wasserId}', '123456782'),
+         ('${voormanId}', '${voormanId}', '111222333');
+
+  insert into public.personnel_loon (id, user_id, iban, hourly_rate, internal_notes)
+  values ('${wasserId}', '${wasserId}', 'NL91ABNA0417164300', 22,
           'Komt regelmatig te laat, besproken in mei.'),
-         ('${voormanId}', '${voormanId}', '111222333', 'NL02ABNA0123456789', 26, null);
+         ('${voormanId}', '${voormanId}', 'NL02ABNA0123456789', 26, null);
 
   alter table public.personnel_private force row level security;
+  alter table public.personnel_loon    force row level security;
   alter table public.documents         force row level security;
   grant select, insert, update, delete on all tables in schema public to authenticated;
 `)
+
+/* ---- de identiteitskant ---- */
 
 check('je ziet je eigen regel',
   (await countAs(wasser, 'select count(*)::int as n from public.personnel_private')) === 1)
 check('en die van je collega niet',
   (await countAs(wasser,
     `select count(*)::int as n from public.personnel_private where user_id = '${voormanId}'`)) === 0)
-check('een leidinggevende ziet die van zijn team ook niet',
+check('een leidinggevende ziet die van zijn team nu wel',
   (await countAs(voorman,
-    `select count(*)::int as n from public.personnel_private where user_id = '${wasserId}'`)) === 0)
+    `select count(*)::int as n from public.personnel_private where user_id = '${wasserId}'`)) === 1)
 check('het management ziet alles',
   (await countAs(baas, 'select count(*)::int as n from public.personnel_private')) === 2)
 
+/* ---- en de geldkant, die dicht blijft ---- */
+
+check('maar het rekeningnummer van zijn team ziet hij niet',
+  (await countAs(voorman,
+    `select count(*)::int as n from public.personnel_loon where user_id = '${wasserId}'`)) === 0)
+check('en zijn eigen loonregel wel',
+  (await countAs(voorman,
+    `select count(*)::int as n from public.personnel_loon where user_id = '${voormanId}'`)) === 1)
+check('een wasser ziet zijn eigen rekeningnummer',
+  (await countAs(wasser, 'select count(*)::int as n from public.personnel_loon')) === 1)
+check('en het management alles',
+  (await countAs(baas, 'select count(*)::int as n from public.personnel_loon')) === 2)
+
 check('je eigen uurloon aanpassen kan niet',
   !(await magSchrijven(wasser,
-    `update public.personnel_private set hourly_rate = 99 where user_id = '${wasserId}';`))
-  || (await db.query(`select hourly_rate from public.personnel_private where user_id = '${wasserId}'`))
+    `update public.personnel_loon set hourly_rate = 99 where user_id = '${wasserId}';`))
+  || (await db.query(`select hourly_rate from public.personnel_loon where user_id = '${wasserId}'`))
        .rows[0].hourly_rate == 22)
+
+check('en een leidinggevende kan dat ook niet',
+  !(await magSchrijven(voorman,
+    `update public.personnel_loon set hourly_rate = 99 where user_id = '${wasserId}';`))
+  || (await db.query(`select hourly_rate from public.personnel_loon where user_id = '${wasserId}'`))
+       .rows[0].hourly_rate == 22)
+
+/* Wel invullen, want dat is waar dit allemaal om begonnen was. */
+check('een leidinggevende mag het BSN van zijn team wel invullen',
+  await magSchrijven(voorman,
+    `update public.personnel_private set bsn = '123456782' where user_id = '${wasserId}';`))
 
 console.log('\n14. Documenten: het slot op ongezien')
 
@@ -4962,6 +5012,82 @@ check('en dat is https', String(exApp?.waarde ?? '').startsWith('https://'),
    betekent dat je na het koppelen op een downloadpagina uitkomt. */
 check('en niet de releasepagina op GitHub',
   !/github\.com/i.test(String(exApp?.waarde ?? '')))
+
+/* ==================================================================== *
+ *  Het dossier valt uiteen (0056)
+ *
+ *  Casper: "als leidinggevende een medewerker aanmaken, moeten hun ook
+ *  gewoon een BSN zien."
+ *
+ *  De hele migratie draait om één ding: de identiteitskant gaat open, de
+ *  geldkant niet. Zou het rekeningnummer of het uurloon ooit terugkruipen
+ *  naar personnel_private, dan ziet elke leidinggevende meteen wat zijn team
+ *  verdient -- en dat merk je pas als iemand het al gelezen heeft.
+ *
+ *  Daarom staat hier niet alleen dat de nieuwe tabel bestaat, maar ook dat
+ *  die drie kolommen wég zijn uit de oude.
+ * ==================================================================== */
+
+console.log('\n40. Het dossier valt uiteen (0056)')
+
+check('personnel_loon bestaat',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public' and table_name = 'personnel_loon'`)).rows[0].n === 1)
+
+const dosWeg = (await db.query(`
+  select count(*)::int as n from information_schema.columns
+   where table_schema = 'public' and table_name = 'personnel_private'
+     and column_name in ('iban', 'hourly_rate', 'internal_notes')`)).rows[0].n
+check('en het geld staat niet meer bij de identiteit', dosWeg === 0, `${dosWeg} kolommen over`)
+
+check('de sleutel heet id, net als overal',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'personnel_loon'
+       and column_name = 'id'`)).rows[0].n === 1)
+
+/* ---- wie mag waarbij ---- */
+
+const dosPrive = (await db.query(`
+  select cmd, coalesce(qual, '') as qual, coalesce(with_check, '') as wc
+    from pg_policies where schemaname = 'public' and tablename = 'personnel_private'`)).rows
+
+/*
+ * Let op dat hier op de ROL wordt gecontroleerd en niet alleen op het recht.
+ * heeft_recht() kijkt namelijk uitsluitend naar losse toekenningen; wat een
+ * rol standaard meebrengt staat in permissions.ts en daar weet de database
+ * niets van. Een policy die alleen op heeft_recht('staff.view') leunt, laat
+ * geen enkele leidinggevende binnen -- en dat is precies de fout die deze
+ * migratie moest oplossen.
+ */
+check('de identiteitskant is open voor de leidinggevende',
+  dosPrive.length === 2 && dosPrive.every((r) => /is_supervisor/.test(r.qual)),
+  JSON.stringify(dosPrive.map((r) => `${r.cmd}:${r.qual}`)))
+
+check('en je eigen regel blijft van jezelf',
+  dosPrive.some((r) => r.cmd === 'SELECT' && /my_id/.test(r.qual)))
+
+const dosLoon = (await db.query(`
+  select cmd, coalesce(qual, '') as qual from pg_policies
+   where schemaname = 'public' and tablename = 'personnel_loon'`)).rows
+
+check('de geldkant blijft bij het management',
+  dosLoon.length === 2
+  && dosLoon.every((r) => !/staff\.view|heeft_recht|is_supervisor|is_lead|is_staff/.test(r.qual)),
+  JSON.stringify(dosLoon.map((r) => `${r.cmd}:${r.qual}`)))
+
+check('en je ziet je eigen rekeningnummer nog wel',
+  dosLoon.some((r) => r.cmd === 'SELECT' && /my_id/.test(r.qual)))
+
+check('schrijven aan de geldkant kan alleen het management',
+  dosLoon.some((r) => r.cmd === 'ALL' && /is_management/.test(r.qual) && !/my_id/.test(r.qual)))
+
+check('RLS staat aan op personnel_loon',
+  (await db.query(`
+    select c.relrowsecurity as rls from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+     where ns.nspname = 'public' and c.relname = 'personnel_loon'`)).rows[0].rls === true)
 
 await db.close()
 

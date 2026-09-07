@@ -5,7 +5,7 @@ import { bestandsVingerafdruk } from './identiteit'
 import { deviceInfo } from './trail'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type {
-  DocumentKind, PersonnelDocument, PersonnelPrivate, User,
+  DocumentKind, PersonnelDocument, PersonnelPrivate, PersonnelLoon, User,
 } from './types'
 import { DOCUMENT_KINDS } from './types'
 
@@ -65,6 +65,33 @@ export const dossier = {
       updatedAt: Date.now(),
     }
     return put('personnelPrivate', db.personnelPrivate, rij)
+  },
+
+  /**
+   * De geldkant, apart bewaard.
+   *
+   * Sinds 0056 staan rekeningnummer, uurloon en interne notities in een eigen
+   * tabel. Reden: de identiteitskant is opengegaan voor leidinggevenden --
+   * die moeten een BSN kunnen invullen als ze iemand aannemen -- en RLS werkt
+   * per rij, niet per kolom. Zou dit ernaast blijven staan, dan zag elke
+   * leidinggevende meteen ook wat zijn team verdient.
+   *
+   * Een aparte functie en geen extra veld in save(): wie dit aanroept zonder
+   * het recht ervoor, krijgt een afwijzing van de database. Dat is precies
+   * de bedoeling, maar dan moet het wel een losse handeling zijn -- anders
+   * mislukt het opslaan van een geboortedatum omdat er een uurloon in
+   * dezelfde rij zat.
+   */
+  async saveLoon(userId: string, patch: Partial<PersonnelLoon>) {
+    const bestaand = await db.personnelLoon.get(userId)
+    const rij: PersonnelLoon = {
+      ...(bestaand ?? { id: userId, userId, updatedAt: Date.now() }),
+      ...patch,
+      id: userId,
+      userId,
+      updatedAt: Date.now(),
+    }
+    return put('personnelLoon', db.personnelLoon, rij)
   },
 }
 
