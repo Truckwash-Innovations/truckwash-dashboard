@@ -2,7 +2,7 @@ import { db, uid } from './db'
 import { enqueue } from './sync'
 import {
   SERVICES,
-  type AppNotification, type Course, type CourseProgress, type Expense, ExpenseGebeurtenis,
+  type AppNotification, type Course, type CourseProgress, type Expense, ExpenseGebeurtenis, ExpenseRegel,
   type ExpenseStatus, type InventoryItem, type NotificationKind, type Permission,
   SHIFT_KINDS,
   type Role, type ServiceKind, type Shift, type ShiftKind, type TimeEntry,
@@ -258,6 +258,40 @@ export const expenses = {
       updatedAt: Date.now(),
     }
     return put('expenseGebeurtenissen', db.expenseGebeurtenissen, rij)
+  },
+
+  /* --- splitsen (0062) --- */
+
+  /**
+   * Een regel bij een factuur zetten of bijwerken.
+   *
+   * Er wordt hier niets gecontroleerd op optellen. Dat gebeurt bij het
+   * goedkeuren, en met opzet: een splitsing bouw je op, en zou de eis op
+   * elke regel gelden dan is er nooit een moment waarop je een tweede regel
+   * kunt toevoegen.
+   */
+  async zetRegel(regel: Omit<ExpenseRegel, 'updatedAt'>) {
+    return put('expenseRegels', db.expenseRegels, { ...regel, updatedAt: Date.now() })
+  },
+
+  async wisRegel(id: string) {
+    const rij = await db.expenseRegels.get(id)
+    if (!rij) return
+    await db.expenseRegels.delete(id)
+    await enqueue('expenseRegels', 'delete', id, rij)
+  },
+
+  /**
+   * Wat er nog aan ontbreekt: de optelsom van de regels min het bedrag op de
+   * bon. Nul betekent dat het sluit; null betekent dat er geen regels zijn en
+   * er dus niets te sluiten valt -- en dat is iets anders dan nul.
+   */
+  async regelVerschil(expenseId: string): Promise<number | null> {
+    const regels = await db.expenseRegels.where('expenseId').equals(expenseId).toArray()
+    if (regels.length === 0) return null
+    const bon = await db.expenses.get(expenseId)
+    const som = regels.reduce((t, r) => t + (Number(r.bedragExcl) || 0), 0)
+    return Math.round((som - (bon?.amountExcl ?? 0)) * 100) / 100
   },
 
   async reopen(id: string) {

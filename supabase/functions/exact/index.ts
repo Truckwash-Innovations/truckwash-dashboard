@@ -1226,18 +1226,64 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
        */
       if (!bon.administratie) throw new Error('geen administratie bekend voor deze bon')
 
+      /*
+       * Gesplitst of niet (0062).
+       *
+       * Geen regels = één boekingsregel, zoals het was. Wél regels = elke
+       * regel wordt er een, met zijn eigen rekening en btw-tarief. De
+       * rekening van die regel moet in DEZE bv bestaan; daarom wordt hij per
+       * regel opgezocht en niet één keer voor de hele bon.
+       *
+       * Dat de regels optellen tot het factuurbedrag is hier geen zorg meer:
+       * de database laat een bon met een verschil niet eens goedkeuren
+       * (0062), en alleen goedgekeurde bonnen komen hier langs.
+       */
+      const { data: regels } = await admin.from('expense_regel')
+        .select('omschrijving, bedrag_excl, btw_pct, grootboek_code')
+        .eq('expense_id', bon.id).order('volgorde')
+
+      let lijnen: Record<string, unknown>[]
+
+      if ((regels ?? []).length === 0) {
+        lijnen = [{
+          AmountFC: bon.bedrag,
+          GLAccount: bon.grootboekId,
+          VATCode: btwCode,
+          Description: (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
+        }]
+      } else {
+        lijnen = []
+        for (const r of (regels ?? [])) {
+          const code = String(r.grootboek_code ?? '').trim()
+          if (!code) throw new Error('een regel van de verdeling heeft geen grootboekrekening')
+
+          const { data: rek } = await admin.from('exact_grootboek')
+            .select('exact_id').eq('code', code).eq('division', bon.administratie).maybeSingle()
+          if (!rek?.exact_id) {
+            throw new Error(`rekening ${code} bestaat niet in administratie ${bon.administratie}`)
+          }
+
+          const pct = Number(r.btw_pct)
+          const regelBtw = inst.btw[(pct === 9 || pct === 0 ? pct : 21) as 21 | 9 | 0] ?? btwCode
+          if (!regelBtw) throw new Error(`geen btw-code ingesteld voor ${pct}%`)
+
+          lijnen.push({
+            AmountFC: Number(r.bedrag_excl) || 0,
+            GLAccount: rek.exact_id,
+            VATCode: regelBtw,
+            Description: String(r.omschrijving ?? '').trim().slice(0, 60)
+              || (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
+          })
+        }
+      }
+
       const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
         Journal: inst.dagboek,
         Supplier: bon.crediteurId,
         EntryDate: exactDatum(bon.datum || Date.now()),
         Description: `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`.slice(0, 60),
         YourRef: (bon.factuurnummer ?? '').slice(0, 50),
-        PurchaseEntryLines: [{
-          AmountFC: bon.bedrag,
-          GLAccount: bon.grootboekId,
-          VATCode: btwCode,
-          Description: (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
-        }],
+        PurchaseEntryLines: lijnen,
       }, bon.administratie)
 
       const id = uit.EntryID ?? (uit.EntryNumber != null ? String(uit.EntryNumber) : null)

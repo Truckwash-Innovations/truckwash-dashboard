@@ -3,12 +3,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
-  History, MessageSquarePlus, Receipt, RotateCcw, ScanText, Sparkles, Wallet, X,
+  History, MessageSquarePlus, Plus, Receipt, RotateCcw, ScanText, Sparkles,
+  Split, Wallet, X,
 } from 'lucide-react'
-import { db } from '../../lib/db'
+import { db, uid } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
 import type {
-  Expense, ExpenseGebeurtenis, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
+  Expense, ExpenseGebeurtenis, ExpenseRegel, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
 } from '../../lib/types'
 import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
@@ -444,6 +445,7 @@ function BonDetail({
           {fout && <p className="waarschuwing">{fout}</p>}
 
           <Overzicht bon={bon} />
+          <Splitsen bon={bon} />
           <Verloop bon={bon} />
           <Boeking bon={bon} />
           <Historie bon={bon} />
@@ -614,6 +616,221 @@ function Historie({ bon }: { bon: Expense }) {
           </tbody>
         </table>
       </div>
+    </Card>
+  )
+}
+
+/* --------------------------- Splitsen ----------------------------- */
+
+/**
+ * Eén factuur over meerdere rekeningen en vestigingen.
+ *
+ * De rekening van Enexis is voor drie vestigingen; de bon van de groothandel
+ * staat half op wasmiddelen en half op klein materiaal. Dat kon tot nu toe
+ * niet -- je moest hem twee keer invoeren, met twee keer hetzelfde
+ * factuurnummer, wat de dubbelcontrole juist tegenhoudt.
+ *
+ * Geen regels betekent: het bedrag en de rekening op de bon zelf zijn de
+ * boeking. Dat is verreweg het meeste, dus dit blok blijft dicht tot je hem
+ * opent.
+ *
+ * Het optellen wordt niet per regel afgedwongen maar bij het goedkeuren. Een
+ * splitsing bouw je op; zou de eis op elke regel gelden, dan is er nooit een
+ * moment waarop je een tweede regel kunt toevoegen. Wel staat het verschil
+ * hier de hele tijd in beeld, want dat is wat je uiteindelijk op nul wilt
+ * hebben.
+ */
+function Splitsen({ bon }: { bon: Expense }) {
+  const perms = usePerms()
+  const mag = perms.can('expenses.approve') && !bon.exactId
+  const [open, setOpen] = useState(false)
+
+  const regels = useLiveQuery(
+    () => db.expenseRegels.where('expenseId').equals(bon.id).toArray(),
+    [bon.id], [] as ExpenseRegel[])
+  const rekeningen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
+  const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+
+  const opVolgorde = useMemo(
+    () => [...regels].sort((a, b) => a.volgorde - b.volgorde), [regels])
+
+  const som = opVolgorde.reduce((t, r) => t + (Number(r.bedragExcl) || 0), 0)
+  const verschil = Math.round((som - bon.amountExcl) * 100) / 100
+
+  async function voegToe() {
+    /* De eerste regel krijgt meteen wat er nog open staat. Negen van de tien
+       keer splits je in tweeën, en dan hoef je maar één bedrag te typen. */
+    await expRepo.zetRegel({
+      id: uid('er'),
+      expenseId: bon.id,
+      volgorde: opVolgorde.length,
+      omschrijving: '',
+      bedragExcl: Math.max(0, Math.round((bon.amountExcl - som) * 100) / 100),
+      btwPct: bon.vatPct ?? 21,
+      grootboekCode: opVolgorde.length === 0 ? bon.grootboekCode : undefined,
+      locationId: opVolgorde.length === 0 ? bon.locationId : undefined,
+    })
+  }
+
+  async function pas(r: ExpenseRegel, patch: Partial<ExpenseRegel>) {
+    try {
+      await expRepo.zetRegel({ ...r, ...patch })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    }
+  }
+
+  if (!open && opVolgorde.length === 0) {
+    return (
+      <Card title="Verdeling" hint="Deze factuur staat op één rekening" className="mb">
+        <div className="row">
+          <span className="help" style={{ flex: 1, margin: 0 }}>
+            {mag
+              ? 'Hoort deze factuur bij meerdere rekeningen of vestigingen? Dan kun je hem verdelen.'
+              : bon.exactId
+                ? 'Deze factuur staat al in Exact; de verdeling kan niet meer wijzigen.'
+                : 'Je mag de verdeling niet wijzigen.'}
+          </span>
+          {mag && (
+            <button className="btn sm" onClick={() => { setOpen(true); void voegToe() }}>
+              <Split size={14} /> Splitsen
+            </button>
+          )}
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <Card
+      title="Verdeling"
+      hint={`${opVolgorde.length} regel${opVolgorde.length === 1 ? '' : 's'}`}
+      className="mb"
+      action={mag ? (
+        <button className="btn ghost sm" onClick={() => void voegToe()}>
+          <Plus size={14} /> Regel
+        </button>
+      ) : undefined}
+    >
+      {bon.exactId && (
+        <div className="waarschuwing zacht mb">
+          <span>Deze factuur staat in Exact. De verdeling ligt vast.</span>
+        </div>
+      )}
+
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              <th>Omschrijving</th>
+              <th className="num">Excl. btw</th>
+              <th>Btw</th>
+              <th>Rekening</th>
+              <th>Vestiging</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {opVolgorde.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <input
+                    className="input" style={{ minWidth: 140 }}
+                    defaultValue={r.omschrijving}
+                    disabled={!mag}
+                    placeholder="waarvoor"
+                    onBlur={(e) => { if (e.currentTarget.value !== r.omschrijving) void pas(r, { omschrijving: e.currentTarget.value }) }}
+                  />
+                </td>
+                <td className="num">
+                  <input
+                    className="input num" style={{ width: 100 }}
+                    inputMode="decimal"
+                    defaultValue={String(r.bedragExcl ?? '')}
+                    disabled={!mag}
+                    onBlur={(e) => {
+                      const v = Number(e.currentTarget.value.replace(',', '.'))
+                      if (!Number.isFinite(v)) { e.currentTarget.value = String(r.bedragExcl); return }
+                      if (v !== r.bedragExcl) void pas(r, { bedragExcl: v })
+                    }}
+                  />
+                </td>
+                <td>
+                  <select
+                    className="input" style={{ width: 78 }}
+                    value={String(r.btwPct ?? 21)}
+                    disabled={!mag}
+                    onChange={(e) => void pas(r, { btwPct: Number(e.currentTarget.value) })}
+                  >
+                    {[21, 9, 0].map((p) => <option key={p} value={p}>{p}%</option>)}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    className="input" style={{ minWidth: 120 }}
+                    value={r.grootboekCode ?? ''}
+                    disabled={!mag}
+                    onChange={(e) => void pas(r, { grootboekCode: e.currentTarget.value || undefined })}
+                  >
+                    <option value="">— kies —</option>
+                    {rekeningen.filter((g) => g.actief || g.code === r.grootboekCode)
+                      .sort((a, b) => a.code.localeCompare(b.code))
+                      .map((g) => (
+                        <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
+                      ))}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    className="input" style={{ minWidth: 120 }}
+                    value={r.locationId ?? ''}
+                    disabled={!mag}
+                    onChange={(e) => void pas(r, { locationId: e.currentTarget.value || undefined })}
+                  >
+                    <option value="">— van de bon —</option>
+                    {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name)).map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  {mag && (
+                    <button
+                      className="btn ghost sm"
+                      title="Deze regel weghalen"
+                      onClick={() => void expRepo.wisRegel(r.id)}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ---- wat er nog aan ontbreekt ---- */}
+
+      <div className="row" style={{ marginTop: 12 }}>
+        <span className="ts-sub" style={{ flex: 1 }}>
+          Regels samen {money(som)} · op de factuur {money(bon.amountExcl)}
+        </span>
+        {Math.abs(verschil) < 0.005
+          ? <Badge tone="ok" dot>sluit</Badge>
+          : (
+            <Badge tone="danger" dot>
+              {verschil > 0 ? 'te veel' : 'te weinig'}: {money(Math.abs(verschil))}
+            </Badge>
+          )}
+      </div>
+
+      {Math.abs(verschil) >= 0.005 && (
+        <p className="help" style={{ marginBottom: 0 }}>
+          Zolang dit niet op nul staat kan de factuur niet worden goedgekeurd — dan zou er een
+          ander bedrag naar de boekhouding gaan dan er op de factuur staat.
+        </p>
+      )}
     </Card>
   )
 }

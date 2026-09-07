@@ -137,6 +137,7 @@ const TABLES: Record<EntityName, string> = {
   personnelPrivate: 'personnel_private',
   personnelLoon: 'personnel_loon',
   expenseGebeurtenissen: 'expense_gebeurtenis',
+  expenseRegels: 'expense_regel',
   documents: 'documents',
   mailbox: 'mailbox',
   changeRequests: 'change_requests',

@@ -192,6 +192,7 @@ await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supab
 await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
+await run(db, '0062_een_factuur_splitsen.sql draait', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -255,6 +256,7 @@ await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_fa
 await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
 await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
+await run(db, '0062 nogmaals', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 
 
 
@@ -5442,6 +5444,95 @@ check('onder de drempel hoeft het niet',
 check('en erboven wel',
   (await db.query(`select public.vier_ogen_nodig(900) as n`)).rows[0].n === true)
 await db.exec(`update public.instellingen set waarde = '0' where sleutel = 'vier_ogen_vanaf'`)
+
+/* ==================================================================== *
+ *  Een factuur splitsen (0062)
+ *
+ *  Waar het op staat: een splitsing die niet optelt tot het factuurbedrag
+ *  mag niet worden goedgekeurd. Dan zou er een ander bedrag naar de
+ *  boekhouding gaan dan er op de factuur staat -- en dat merk je pas bij het
+ *  aansluiten, als niemand meer weet welke bon het was.
+ *
+ *  En het tweede: bij het opbouwen mag het juist NIET afgedwongen worden.
+ *  Zou dat wel zo zijn, dan is er nooit een moment waarop je een tweede regel
+ *  kunt toevoegen -- de eerste klopt per definitie niet.
+ * ==================================================================== */
+
+console.log('\n45. Een factuur splitsen (0062)')
+
+check('expense_regel bestaat',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public' and table_name = 'expense_regel'`)).rows[0].n === 1)
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_sp_1', public.now_ms(), 'overig', 'Enexis', 'Energie', 300, 21, 'open', 'app')
+  on conflict (id) do update set status = 'open', amount_excl = 300,
+                                 exact_id = null, eerste_door = null, approved_by = null;`)
+
+check('zonder regels valt er niets te sluiten',
+  (await db.query(`select public.expense_regels_verschil('exp_sp_1') as v`)).rows[0].v === null)
+
+/* Een halve splitsing mag gewoon blijven staan -- je bent aan het opbouwen. */
+await db.exec(`
+  insert into public.expense_regel (id, expense_id, volgorde, omschrijving, bedrag_excl, grootboek_code)
+  values ('er_1', 'exp_sp_1', 0, 'Utrecht', 100, '4010')
+  on conflict (id) do update set bedrag_excl = 100;`)
+
+check('een halve splitsing mag blijven staan',
+  Number((await db.query(`select public.expense_regels_verschil('exp_sp_1') as v`)).rows[0].v) === -200)
+
+let spNiet = false
+try {
+  await db.exec(`update public.expenses set status = 'eerste_akkoord', eerste_door = 'u_een'
+                  where id = 'exp_sp_1'`)
+} catch { spNiet = true }
+check('maar goedkeuren kan dan niet', spNiet)
+
+/* Aanvullen tot het klopt. */
+await db.exec(`
+  insert into public.expense_regel (id, expense_id, volgorde, omschrijving, bedrag_excl, grootboek_code)
+  values ('er_2', 'exp_sp_1', 1, 'Amsterdam', 200, '4010')
+  on conflict (id) do update set bedrag_excl = 200;`)
+
+check('en als het optelt sluit hij',
+  Number((await db.query(`select public.expense_regels_verschil('exp_sp_1') as v`)).rows[0].v) === 0)
+
+let spWel = true
+try {
+  await db.exec(`update public.expenses set status = 'eerste_akkoord', eerste_door = 'u_een'
+                  where id = 'exp_sp_1'`)
+} catch { spWel = false }
+check('en dan mag hij wel door', spWel)
+
+/* ---- een cent verschil is ook verschil ---- */
+
+await db.exec(`update public.expense_regel set bedrag_excl = 199.99 where id = 'er_2'`)
+let spCent = false
+try {
+  await db.exec(`update public.expenses set status = 'goedgekeurd', approved_by = 'u_twee'
+                  where id = 'exp_sp_1'`)
+} catch { spCent = true }
+check('een cent te weinig is ook niet sluitend', spCent)
+await db.exec(`update public.expense_regel set bedrag_excl = 200 where id = 'er_2'`)
+
+/* ---- geboekt is op slot ---- */
+
+await db.exec(`update public.expenses set exact_id = 'EX-SP-1' where id = 'exp_sp_1'`)
+
+let spSlot = false
+try {
+  await db.exec(`update public.expense_regel set bedrag_excl = 250 where id = 'er_2'`)
+} catch { spSlot = true }
+check('een geboekte factuur splitst niet meer', spSlot)
+
+let spWeg = false
+try {
+  await db.exec(`delete from public.expense_regel where id = 'er_2'`)
+} catch { spWeg = true }
+check('en er gaat ook geen regel meer af', spWeg)
 
 await db.close()
 

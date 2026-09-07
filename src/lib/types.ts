@@ -493,6 +493,27 @@ export interface ExpenseGebeurtenis {
   updatedAt: number
 }
 
+/**
+ * Eén regel van een gesplitste factuur (0062).
+ *
+ * Géén regels betekent: het bedrag en de rekening op de bon zelf zijn de
+ * boeking. Dat is verreweg het meeste en moet simpel blijven. Wél regels
+ * betekent dat de bon de optelsom is -- en die moet kloppen voordat hij
+ * goedgekeurd kan worden.
+ */
+export interface ExpenseRegel {
+  id: string
+  expenseId: string
+  volgorde: number
+  omschrijving: string
+  bedragExcl: number
+  btwPct: number
+  grootboekCode?: string
+  /** Welke vestiging deze regel draagt. Leeg = die van de bon. */
+  locationId?: string
+  updatedAt: number
+}
+
 export interface Expense {
   id: string
   locationId: string
@@ -2090,7 +2111,7 @@ export type EntityName =
   | 'hourRequests' | 'trips'
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'personnelLoon' | 'documents' | 'mailbox' | 'changeRequests'
-  | 'expenseGebeurtenissen'
+  | 'expenseGebeurtenissen' | 'expenseRegels'
   | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
