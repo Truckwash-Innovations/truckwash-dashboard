@@ -24,6 +24,12 @@ import type { Instelling } from './types'
 
 /** De sleutels die dit systeem kent, zodat een typefout niet stilletjes werkt. */
 export const SLEUTELS = {
+  /*
+   * Waar de app draait. De serverfunctie stuurt je hierheen terug nadat je
+   * bij Exact op toestaan hebt geklikt (0055). Let op het verschil met
+   * APP_LINK op de server: dat is de plek waar je de app OPHAALT.
+   */
+  appUrl: 'app_url',
   truckyContactAdres: 'trucky_contact_adres',
   inkoopDomein: 'inkoop_domein',
   inkoopVoorvoegsel: 'inkoop_voorvoegsel',

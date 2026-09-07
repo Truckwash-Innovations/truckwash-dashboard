@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0054
+--  Bijwerken: migratie 0017 tot en met 0055
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -45,6 +45,7 @@
 --    0052  de Exact-sleutels staan in de database, te zetten bij Ontwikkeling
 --    0053  Exact kent het rekeningschema, en de bon weet waar hij heen ging
 --    0054  Exact kent het personeel (alleen-lezen; koppelen aan onze mensen)
+--    0055  na het koppelen met Exact kom je terug in de app
 -- ===========================================================================
 
 -- ===========================================================================
@@ -6703,3 +6704,24 @@ begin
       t, t);
   end loop;
 end $$;
+
+
+-- ===========================================================================
+--  Terugkomen in de app na het koppelen  (0055)
+--
+--  Na het toestaan bij Exact kwam je uit op een kaal pagina'tje van de
+--  serverfunctie, en moest je zelf terug naar de app en zelf verversen. Nu
+--  stuurt hij je terug naar de app, die meteen zegt wat er gebeurd is.
+--
+--  Let op het verschil met APP_LINK op de server: dat is waar je de app
+--  OPHAALT (de releasepagina), dit is waar de app DRAAIT.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+insert into public.instellingen (id, sleutel, waarde, omschrijving) values
+  ('in_app_url', 'app_url', 'https://truckwash-workspace.com/app/',
+   'Waar de app draait. Hier komt iemand terug nadat hij bij Exact op '
+   'toestaan heeft geklikt. Moet https zijn; leeg laten betekent dat de '
+   'serverfunctie zijn eigen pagina toont in plaats van je terug te sturen.')
+on conflict (id) do nothing;

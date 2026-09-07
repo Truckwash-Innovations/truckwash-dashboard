@@ -185,6 +185,7 @@ await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase
 await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
+await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -241,6 +242,7 @@ await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag
 await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
+await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 
 
 
@@ -4942,6 +4944,24 @@ check('een verzonnen koppelbron wordt geweigerd', exBronFout)
 check('personeel staat als soort werk klaar',
   (await db.query(`select count(*)::int as n from public.exact_sync
                     where soort = 'personeel'`)).rows[0].n === 1)
+
+/* ==================================================================== *
+ *  Terugkomen in de app (0055)
+ * ==================================================================== */
+
+console.log('\n39. Terugkomen in de app (0055)')
+
+const exApp = (await db.query(
+  `select waarde from public.instellingen where sleutel = 'app_url'`)).rows[0]
+
+check('er staat een adres waar je terugkomt', Boolean(exApp?.waarde), String(exApp?.waarde))
+check('en dat is https', String(exApp?.waarde ?? '').startsWith('https://'),
+  String(exApp?.waarde))
+
+/* Het is niet de plek waar je de app OPHAALT. Die twee door elkaar halen
+   betekent dat je na het koppelen op een downloadpagina uitkomt. */
+check('en niet de releasepagina op GitHub',
+  !/github\.com/i.test(String(exApp?.waarde ?? '')))
 
 await db.close()
 

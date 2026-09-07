@@ -40,6 +40,7 @@ import {
   Check, Download, ExternalLink, Link2, Link2Off, Loader2, RefreshCw, Save,
   Search, TriangleAlert, Unlink, Users, X,
 } from 'lucide-react'
+import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
@@ -65,6 +66,8 @@ export default function Exact() {
   const [stand, setStand] = useState<ExactStatus | null>(null)
   const [fout, setFout] = useState<string | null>(null)
   const [bezig, setBezig] = useState<string | null>(null)
+  /** Loopt er een koppelpoging waar we op wachten. */
+  const [wachten, setWachten] = useState(false)
 
   /* De velden van het formulier. */
   const [clientId, setClientId] = useState('')
@@ -72,6 +75,8 @@ export default function Exact() {
   const [basis, setBasis] = useState('')
   const [redirect, setRedirect] = useState('')
   const [omgeving, setOmgeving] = useState<'proef' | 'echt'>('proef')
+  /** Waar de serverfunctie je heen stuurt als je klaar bent bij Exact. */
+  const [appUrl, setAppUrl] = useState('')
 
   async function laad(velden = true) {
     try {
@@ -91,12 +96,84 @@ export default function Exact() {
       }
       /* Het geheim komt nooit terug, dus het veld blijft leeg. */
       setGeheim('')
+      if (velden) setAppUrl(await leesInstelling(SLEUTELS.appUrl, ''))
     } catch (e) {
       setFout(e instanceof Error ? e.message : 'De status is niet op te halen.')
     }
   }
 
   useEffect(() => { void laad() }, [])
+
+  /*
+   * Terugkomen uit Exact.
+   *
+   * De serverfunctie stuurt je hierheen terug met ?exact=<woord> (0055). Dat
+   * woord komt uit een vast rijtje in die functie en nooit uit een verzoek,
+   * dus het is veilig om er een melding aan te hangen. Daarna gaat hij uit de
+   * URL: blijft hij staan, dan krijg je bij elke verversing dezelfde melding
+   * opnieuw, en na een herstart zelfs een melding over iets van vorige week.
+   */
+  useEffect(() => {
+    let woord: string | null = null
+    try {
+      woord = new URL(window.location.href).searchParams.get('exact')
+    } catch {
+      return
+    }
+    if (!woord) return
+
+    const meldingen: Record<string, () => void> = {
+      ok: () => toast.ok('Gekoppeld met Exact.'),
+      geweigerd: () => toast.warn('Exact heeft de koppeling niet toegestaan.'),
+      verlopen: () => toast.warn('Die koppelpoging was verlopen. Probeer het opnieuw.'),
+      sleutels: () => toast.error('De sleutels van de Exact-app ontbreken.'),
+      token: () => toast.error('Het inwisselen van de code bij Exact is mislukt.'),
+    }
+    ;(meldingen[woord] ?? (() => toast.warn('Onbekend antwoord van Exact.')))()
+
+    try {
+      const u = new URL(window.location.href)
+      u.searchParams.delete('exact')
+      window.history.replaceState({}, '', u.toString())
+    } catch { /* geen ramp; de melding is al geweest */ }
+
+    void laad(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /*
+   * Wachten terwijl jij bij Exact bezig bent.
+   *
+   * In de browser kom je vanzelf terug op deze pagina en vangt het blokje
+   * hierboven het op. In de Windows-app niet: die opent je gewone browser, en
+   * die kan het app-venster niet weer naar voren halen. Dan zou je hier naar
+   * "niet gekoppeld" zitten kijken terwijl het allang gelukt is.
+   *
+   * Dus vragen we het gewoon: elke drie seconden, hooguit drie minuten. Dat
+   * is ruim voor inloggen bij Exact, en het stopt vanzelf -- een scherm dat
+   * de hele dag blijft vragen is een scherm dat je vergeet.
+   */
+  useEffect(() => {
+    if (!wachten) return
+    const tot = Date.now() + 3 * 60_000
+    const t = setInterval(() => {
+      if (Date.now() > tot) {
+        setWachten(false)
+        return
+      }
+      void (async () => {
+        try {
+          const s = await exactStatus()
+          setStand(s)
+          if (s.verbonden) {
+            setWachten(false)
+            toast.ok('Gekoppeld met Exact.')
+          }
+        } catch { /* een misser tussendoor is geen reden om te stoppen */ }
+      })()
+    }, 3000)
+    return () => clearInterval(t)
+  }, [wachten])
 
   const mag = stand !== null && stand.opgeslagen !== undefined
 
@@ -111,6 +188,7 @@ export default function Exact() {
         redirect: redirect.trim(),
         omgeving,
       })
+      await zetInstelling(SLEUTELS.appUrl, appUrl.trim())
       await laad()
       toast.ok(losgekoppeld
         ? 'Opgeslagen. De koppeling is losgegaan, want de sleutels zijn gewijzigd — koppel opnieuw.'
@@ -239,6 +317,19 @@ export default function Exact() {
               />
             </Field>
 
+            <Field
+              label="Waar kom je terug"
+              help="Nadat je bij Exact op toestaan klikt, stuurt de server je hierheen. Leeg laten geeft een kaal pagina'tje dat je zelf moet sluiten."
+            >
+              <input
+                className="input mono"
+                value={appUrl}
+                onChange={(e) => setAppUrl(e.target.value)}
+                placeholder="https://truckwash-workspace.com/app/"
+                spellCheck={false}
+              />
+            </Field>
+
             <div className="row">
               <button className="btn primary sm" disabled={bezig !== null} onClick={() => void bewaar()}>
                 {bezig === 'opslaan' ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Opslaan
@@ -265,6 +356,17 @@ export default function Exact() {
             {stand?.division && <span className="ts-sub">administratie {stand.division}</span>}
             {stand?.verlooptAt && <span className="ts-sub">token tot {dateTime(stand.verlooptAt)}</span>}
           </div>
+
+          {wachten && (
+            <div className="waarschuwing zacht mb">
+              <Loader2 size={14} className="spin" />
+              <span>
+                Wachten tot je bij Exact op toestaan hebt geklikt. Dit scherm springt vanzelf
+                om — je hoeft niets te verversen.{' '}
+                <button className="btn ghost sm" onClick={() => setWachten(false)}>Stoppen</button>
+              </span>
+            </div>
+          )}
 
           {stand?.laatsteFout && (
             <div className="waarschuwing zacht mb"><span>Laatste fout: {stand.laatsteFout}</span></div>
@@ -306,7 +408,14 @@ export default function Exact() {
                   try {
                     const url = await exactVerbindUrl()
                     const venster = window.open(url, '_blank', 'noopener')
-                    if (!venster) toast.warn('Het venster werd geblokkeerd. Sta pop-ups toe en probeer opnieuw.')
+                    if (!venster) {
+                      toast.warn('Het venster werd geblokkeerd. Sta pop-ups toe en probeer opnieuw.')
+                    } else {
+                      /* In de Windows-app opent dit je gewone browser, en die
+                         kan dit venster niet terugroepen. Daarom vragen we het
+                         zelf na. */
+                      setWachten(true)
+                    }
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : 'Het koppelen lukte niet.')
                   } finally {

@@ -103,6 +103,62 @@ p{color:#9ca3af;line-height:1.5}</style></head>
 }
 
 /* ------------------------------------------------------------------ *
+ *  Terug naar de app
+ *
+ *  Casper: "zodat ik erop kan klikken, en erop terug kom."
+ *
+ *  Hier eindigde de rondgang op een kaal pagina'tje dat je zelf moest
+ *  sluiten, waarna je in de app zelf op verversen moest drukken. Nu stuurt
+ *  hij je terug naar de app met een woord in de URL, zodat het scherm meteen
+ *  kan zeggen wat er gebeurd is.
+ *
+ *  Waarom er een vast rijtje woorden gaat en geen foutmelding
+ *  ---------------------------------------------------------
+ *
+ *  De tekst van Exact komt uit een URL die iedereen kan sturen. Die
+ *  doorgeven aan de app betekent dat een vreemde bepaalt wat er in jouw
+ *  scherm staat. Dus: alleen woorden die hier in de code staan, en de echte
+ *  foutmelding gaat naar laatste_fout, waar het scherm hem los ophaalt.
+ *
+ *  En het adres zelf wordt nagekeken. Een adres dat van buiten komt en
+ *  ongezien in een 302 belandt, is een open doorstuurluik op ons eigen
+ *  domein -- precies wat je in een phishingmail wil hebben. Alleen https,
+ *  en zonder inlognaam in het adres.
+ * ------------------------------------------------------------------ */
+
+/** Waar de app draait, of null als er niets bruikbaars is ingesteld. */
+async function appAdres(): Promise<URL | null> {
+  const { data } = await admin.from('instellingen')
+    .select('waarde').eq('sleutel', 'app_url').maybeSingle()
+  const ruw = String(data?.waarde ?? '').trim()
+  if (!ruw) return null
+  try {
+    const u = new URL(ruw)
+    if (u.protocol !== 'https:' || u.username || u.password) return null
+    return u
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Terug naar de app, of anders de pagina die er altijd al was.
+ *
+ * `hoe` is een van onze eigen woorden: ok, geweigerd, verlopen, sleutels,
+ * token. Nooit iets wat uit een verzoek komt.
+ */
+async function terugNaarApp(hoe: string, titel: string, tekst: string, status = 200) {
+  const app = await appAdres()
+  if (!app) return pagina(titel, tekst, status)
+
+  app.searchParams.set('exact', hoe)
+  return new Response(null, {
+    status: 302,
+    headers: { Location: app.toString(), 'Cache-Control': 'no-store' },
+  })
+}
+
+/* ------------------------------------------------------------------ *
  *  De ene rij
  * ------------------------------------------------------------------ */
 
@@ -321,7 +377,7 @@ async function terug(url: URL): Promise<Response> {
   const huidig = await koppeling()
   const verlopen = !huidig?.state_at || Date.now() - huidig.state_at > STATE_GELDIG_MS
   if (!state || !huidig?.state || state !== huidig.state || verlopen) {
-    return pagina('Niet gekoppeld',
+    return await terugNaarApp('verlopen', 'Niet gekoppeld',
       'Deze koppelpoging is niet herkend of verlopen. Begin opnieuw vanuit het dashboard, bij Instellingen.', 400)
   }
 
@@ -329,7 +385,7 @@ async function terug(url: URL): Promise<Response> {
     /* De state klopt, dus dit is echt Exact: iemand heeft daar op "weigeren"
        gedrukt, of Exact kwam zonder code terug. Nu mag de poging dicht. */
     await bewaar({ state: null, state_at: null, laatste_fout: fout ? `Exact: ${fout.slice(0, 200)}` : 'Teruggekomen zonder code' })
-    return pagina('Niet gekoppeld',
+    return await terugNaarApp('geweigerd', 'Niet gekoppeld',
       'Exact heeft de koppeling niet toegestaan. Je kunt dit venster sluiten en het in het dashboard opnieuw proberen.')
   }
 
@@ -343,7 +399,7 @@ async function terug(url: URL): Promise<Response> {
 
   if (!sleutels.clientId || !sleutels.geheim) {
     await bewaar({ state: null, state_at: null, laatste_fout: 'Client-id of clientgeheim van Exact ontbreekt' })
-    return pagina('Niet gekoppeld',
+    return await terugNaarApp('sleutels', 'Niet gekoppeld',
       'De sleutels van de Exact-app ontbreken. Zet ze in het dashboard bij Ontwikkeling, Exact.', 500)
   }
 
@@ -366,7 +422,7 @@ async function terug(url: URL): Promise<Response> {
     const reden = `token ${res.status}: ${antwoord.error ?? 'geen tokens in het antwoord'}`
     console.error('[exact] inwisselen', reden, antwoord.error_description ?? '')
     await bewaar({ state: null, state_at: null, laatste_fout: reden.slice(0, 300) })
-    return pagina('Niet gekoppeld',
+    return await terugNaarApp('token', 'Niet gekoppeld',
       'Het inwisselen van de code bij Exact is mislukt. Probeer het vanuit het dashboard opnieuw.', 502)
   }
 
@@ -408,7 +464,7 @@ async function terug(url: URL): Promise<Response> {
     state_at: null,
   })
 
-  return pagina('Gekoppeld', 'Exact Online is gekoppeld. Je kunt dit venster sluiten.')
+  return await terugNaarApp('ok', 'Gekoppeld', 'Exact Online is gekoppeld. Je kunt dit venster sluiten.')
 }
 
 /* ------------------------------------------------------------------ *

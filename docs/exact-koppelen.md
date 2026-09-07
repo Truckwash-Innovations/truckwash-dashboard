@@ -35,8 +35,15 @@ terugkeeradres over uit je hoofd en dat is waar het meestal misgaat.
 4. **Klik op Koppelen met Exact.** Er opent een venster waarin je bij Exact
    inlogt en toestemming geeft. Daarna mag je dat venster sluiten.
 
-5. **Ververs de status** met het pijltje rechtsboven in "De koppeling". Er
-   hoort nu *gekoppeld* te staan, met het administratienummer erachter.
+5. **Je komt vanzelf terug.** Na het toestaan stuurt de server je terug naar
+   de app, met een melding of het gelukt is. Zit je in de Windows-app, dan
+   opent stap 4 je gewone browser en kan die het app-venster niet terugroepen
+   — daarom vraagt het scherm het zelf na, elke drie seconden, tot drie
+   minuten. Je hoeft dus niets te verversen.
+
+   Waar je terugkomt staat bij **Waar kom je terug** in het scherm; standaard
+   `https://truckwash-workspace.com/app/`. Laat je dat leeg, dan krijg je het
+   kale pagina'tje van vroeger en moet je zelf terug.
 
 ## Als het misgaat
 

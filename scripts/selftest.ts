@@ -5124,5 +5124,73 @@ console.log('\n39. De stijlbladen sluiten zichzelf')
   }
 }
 
+/* ==================================================================== *
+ *  Terugkomen uit Exact
+ *
+ *  Casper: "zodat ik erop kan klikken, en erop terug kom."
+ *
+ *  Twee dingen kunnen hier stil misgaan, en allebei zijn ze niet met het
+ *  oog te zien.
+ *
+ *  Het eerste is een open doorstuurluik. De serverfunctie stuurt je na het
+ *  koppelen door naar een adres uit de instellingen. Wordt dat adres niet
+ *  nagekeken, dan staat er op ons eigen domein een link die iedereen ergens
+ *  anders heen stuurt -- precies wat je in een phishingmail wil hebben.
+ *
+ *  Het tweede is de tekst van Exact doorgeven aan het scherm. Die komt uit
+ *  een URL die iedereen kan sturen; hem tonen betekent dat een vreemde
+ *  bepaalt wat er in het dashboard staat. Daarom een vast rijtje woorden.
+ * ==================================================================== */
+
+console.log('\n40. Terugkomen uit Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  check('er wordt teruggestuurd naar de app', bron.includes('async function terugNaarApp'))
+  check('het adres komt uit de instellingen', bron.includes("eq('sleutel', 'app_url')"))
+
+  /* Alleen https, en zonder inlognaam in het adres. */
+  check('een adres dat geen https is wordt niet gebruikt',
+    bron.includes("if (u.protocol !== 'https:' || u.username || u.password) return null"))
+  check('en bij twijfel blijft de oude pagina staan',
+    bron.includes('if (!app) return pagina(titel, tekst, status)'))
+
+  /*
+   * Wat er in de URL belandt is een van onze eigen woorden. Zou hier de
+   * foutmelding van Exact staan, dan schrijft een vreemde mee in het scherm.
+   */
+  const woorden = ['ok', 'geweigerd', 'verlopen', 'sleutels', 'token']
+  check('er gaat een vast woord mee terug, geen foutmelding',
+    woorden.every((w) => bron.includes(`terugNaarApp('${w}'`)))
+  check('en de tekst van Exact gaat niet mee in de URL',
+    !/searchParams\.set\('exact',\s*(fout|reden|antwoord)/.test(bron))
+
+  /* --- het scherm --- */
+
+  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  check('het scherm vangt de terugkeer op',
+    scherm.includes("searchParams.get('exact')"))
+  /*
+   * En haalt hem daarna uit de URL. Blijft hij staan, dan krijg je bij elke
+   * verversing dezelfde melding, en na een herstart een melding over iets
+   * van vorige week.
+   */
+  check('en haalt het woord daarna uit de URL',
+    scherm.includes("u.searchParams.delete('exact')")
+    && scherm.includes('window.history.replaceState'))
+
+  /*
+   * De Windows-app opent je gewone browser, en die kan het app-venster niet
+   * terugroepen. Zonder navragen zou je naar "niet gekoppeld" zitten kijken
+   * terwijl het allang gelukt is.
+   */
+  check('en vraagt zelf na terwijl je bij Exact bent',
+    scherm.includes('if (!wachten) return') && scherm.includes('setWachten(true)'))
+  check('dat navragen stopt vanzelf',
+    scherm.includes('const tot = Date.now() + 3 * 60_000'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
