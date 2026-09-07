@@ -70,7 +70,7 @@
   font-size: .72rem; text-transform: uppercase; letter-spacing: .07em;
   color: var(--text-3); margin-bottom: 9px;
 }
-.demo-account {
+  .demo-account {
   display: flex; align-items: center; gap: 10px;
   width: 100%; text-align: left;
   min-height: 40px;
@@ -78,7 +78,7 @@
   background: transparent; border: 1px solid var(--line-soft);
   border-radius: var(--radius-sm);
   cursor: pointer; font-size: .8rem; color: var(--text-2);
-  transition: background .16s var(--ease), border-color .16s var(--ease);
+   transition: background var(--anim-duration) var(--anim-ease), border-color var(--anim-duration) var(--anim-ease);
 }
 .demo-account:hover { background: var(--surface-2); border-color: var(--line); color: var(--text); }
 .demo-account .who { font-weight: 600; }
@@ -143,14 +143,13 @@
   gap: 7px; flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.wash-stappen .stap {
+  .wash-stappen .stap {
   font-size: .68rem; letter-spacing: .04em; text-transform: uppercase;
   color: var(--text-3);
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid transparent;
-  transition: color .3s var(--ease), background .3s var(--ease),
-              border-color .3s var(--ease);
+   transition: color var(--anim-duration) var(--anim-ease), background var(--anim-duration) var(--anim-ease), border-color var(--anim-duration) var(--anim-ease);
 }
 .wash-stappen .stap.klaar { color: var(--text-2); }
 .wash-stappen .stap.nu {

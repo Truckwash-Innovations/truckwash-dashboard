@@ -125,7 +125,7 @@
   background: linear-gradient(180deg, var(--surface), var(--bg-2));
   color: var(--text);
   font: inherit;
-  transition: border-color .16s var(--ease), transform .16s var(--ease), box-shadow .16s var(--ease);
+  transition: border-color var(--anim-duration) var(--anim-ease), transform var(--anim-duration) var(--anim-ease), box-shadow var(--anim-duration) var(--anim-ease);
 }
 .ts-vest { cursor: pointer; }
 .ts-vest:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); border-color: var(--line); }

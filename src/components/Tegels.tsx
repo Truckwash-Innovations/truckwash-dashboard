@@ -124,7 +124,7 @@ export function Start({
       <div className="start-head">
         <div>
           <h2>{groet}, {user?.name.split(' ')[0]}</h2>
-          <p>{onderschrift ?? dateFull(Date.now())}</p>
+          <p>{onderschrift ?? 'Wash Your Truck – Professional Cleaning'}</p>
         </div>
         {snel && <div className="row" style={{ gap: 7 }}>{snel}</div>}
       </div>

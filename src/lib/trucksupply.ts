@@ -956,3 +956,59 @@ export async function exactVerbindUrl(): Promise<string> {
 export async function exactLos(): Promise<void> {
   await roepFunctie<{ ok: boolean }>('exact', { actie: 'los' })
 }
+
+/* ------------------------------------------------------------------ *
+ *  Het rekeningschema
+ *
+ *  Twee lijsten die naast elkaar horen te staan: die van ons (kort, met
+ *  eigen namen) en die van Exact (compleet). Wat je wilt weten is niet hoe
+ *  lang ze zijn, maar of elke code waarop wij boeken daar ook bestaat --
+ *  anders wordt de boeking straks geweigerd en is de factuur al weg.
+ * ------------------------------------------------------------------ */
+
+export interface GrootboekRegel {
+  code: string
+  naam: string
+  actief: boolean
+  inExact: boolean
+  exactNaam: string | null
+  exactSoort: string | null
+  geblokkeerd: boolean
+}
+
+export interface GrootboekStand {
+  regels: GrootboekRegel[]
+  /** Actieve rekeningen van ons die Exact niet kent. */
+  ontbreekt: number
+  /** Actieve rekeningen die in Exact geblokkeerd staan. */
+  geblokkeerd: number
+  /** Hoeveel rekeningen Exact in totaal kent. */
+  exactAantal: number
+  laatstAt: number | null
+  laatsteFout: string | null
+  door: string | null
+}
+
+function alsStand(uit: Partial<GrootboekStand>): GrootboekStand {
+  return {
+    regels: uit.regels ?? [],
+    ontbreekt: uit.ontbreekt ?? 0,
+    geblokkeerd: uit.geblokkeerd ?? 0,
+    exactAantal: uit.exactAantal ?? 0,
+    laatstAt: uit.laatstAt ?? null,
+    laatsteFout: uit.laatsteFout ?? null,
+    door: uit.door ?? null,
+  }
+}
+
+/** De stand zonder Exact te bellen: alleen wat er is opgeslagen. */
+export async function exactGrootboekStand(): Promise<GrootboekStand> {
+  return alsStand(await roepFunctie<GrootboekStand>('exact', { actie: 'grootboek-stand' }))
+}
+
+/** Het schema opnieuw ophalen bij Exact. Duurt even bij een grote administratie. */
+export async function exactSyncGrootboek(): Promise<GrootboekStand & { aantal: number }> {
+  const uit = await roepFunctie<GrootboekStand & { aantal?: number }>(
+    'exact', { actie: 'sync-grootboek' })
+  return { ...alsStand(uit), aantal: uit.aantal ?? 0 }
+}

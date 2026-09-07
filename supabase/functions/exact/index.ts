@@ -8,16 +8,19 @@
  * één plek waar alleen de server bij kan: exact_koppeling (0048), RLS aan,
  * geen enkele policy, alleen de servicesleutel.
  *
- * Deze functie doet vijf dingen en niets meer:
+ * Deze functie doet zeven dingen:
  *
- *   instellen     de sleutels van de Exact-app zetten (alleen ontwikkeling)
- *   verbind-url   een link naar Exact maken, met een state die we onthouden
- *   terug         Exact komt terug met code en state: eerst de state, dan pas iets schrijven
- *   status        is er een koppeling, welke administratie, tot wanneer
- *   los           de tokens wissen
+ *   instellen         de sleutels van de Exact-app zetten (alleen ontwikkeling)
+ *   verbind-url       een link naar Exact maken, met een state die we onthouden
+ *   terug             Exact komt terug met code en state: eerst de state, dan pas iets schrijven
+ *   status            is er een koppeling, welke administratie, tot wanneer
+ *   los               de tokens wissen
+ *   sync-grootboek    het rekeningschema uit Exact ophalen
+ *   grootboek-stand   onze lijst naast die van Exact leggen
  *
- * Geen artikelen, geen facturen, geen synchronisatie. Dat komt later, als
- * eerst duidelijk is dat de koppeling zelf staat en blijft staan.
+ * Het praten met Exact zelf staat in _gedeeld/exact.ts -- inclusief het
+ * verversen van het token, want dat leeft tien minuten. Facturen versturen
+ * komt daarna; wat daarvoor nog nodig is staat in docs/exact-koppelen.md.
  *
  * Uitrollen:  npm run functions:open
  * NOOIT kaal deployen: de terugkeer van Exact is een gewone GET uit een
@@ -46,6 +49,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
+import { ExactFout, exactLijst, geldigToken } from '../_gedeeld/exact.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -575,6 +579,171 @@ async function instellen(body: Record<string, unknown>, beller: Beller): Promise
   })
 }
 
+/* ------------------------------------------------------------------ *
+ *  Het rekeningschema ophalen
+ *
+ *  Uit Exact naar public.exact_grootboek, en verder niets: public.grootboek
+ *  blijft van ons. Zie de kop van migratie 0053 voor waarom die twee lijsten
+ *  gescheiden blijven.
+ * ------------------------------------------------------------------ */
+
+interface ExactGL {
+  ID?: string
+  Code?: string
+  Description?: string
+  BalanceSide?: string
+  IsBlocked?: boolean
+  Type?: number
+}
+
+/*
+ * Wat de nummers van Exact betekenen. Een 12 in een kolom zegt niemand iets;
+ * bij "Kosten" weet de administratie meteen of een rekening klopt. Onbekende
+ * nummers laten we als nummer staan in plaats van te gokken.
+ */
+const GL_SOORTEN: Record<number, string> = {
+  10: 'Kas en bank',
+  12: 'Debiteuren',
+  20: 'Voorraad',
+  22: 'Vaste activa',
+  30: 'Crediteuren',
+  35: 'Btw',
+  40: 'Eigen vermogen',
+  50: 'Kosten',
+  55: 'Omzet',
+  90: 'Tussenrekening',
+}
+
+async function syncGrootboek(beller: Beller): Promise<Response> {
+  const lijn = await geldigToken(admin)
+
+  const rijen = await exactLijst<ExactGL>(lijn, 'financial/GLAccounts', {
+    $select: 'ID,Code,Description,IsBlocked,Type',
+    $orderby: 'Code',
+  })
+
+  const nu = Date.now()
+  const uit = rijen
+    .map((r) => ({
+      code: String(r.Code ?? '').trim(),
+      omschrijving: String(r.Description ?? '').trim(),
+      exact_id: r.ID ?? null,
+      soort: typeof r.Type === 'number' ? (GL_SOORTEN[r.Type] ?? String(r.Type)) : null,
+      geblokkeerd: r.IsBlocked === true,
+      division: lijn.division,
+      updated_at: nu,
+    }))
+    .filter((r) => r.code !== '')
+
+  if (uit.length > 0) {
+    /* In brokken, want een administratie met honderden rekeningen in één
+       verzoek is een tijdslimiet die je een keer haalt en daarna niet meer. */
+    for (let i = 0; i < uit.length; i += 200) {
+      const { error } = await admin.from('exact_grootboek')
+        .upsert(uit.slice(i, i + 200), { onConflict: 'code' })
+      if (error) throw new ExactFout(`exact_grootboek schrijven: ${error.message}`)
+    }
+
+    /*
+     * Rekeningen die er niet meer zijn, of die uit een andere administratie
+     * komen. Zonder dit blijft de lijst van het proefaccount naast die van de
+     * echte staan, en dan lijkt elke code te bestaan.
+     */
+    await admin.from('exact_grootboek').delete().lt('updated_at', nu)
+  }
+
+  await admin.from('exact_sync').upsert({
+    soort: 'grootboek',
+    laatst_at: nu,
+    aantal: uit.length,
+    laatste_fout: null,
+    door: beller.naam || beller.id,
+    updated_at: nu,
+  }, { onConflict: 'soort' })
+
+  return json({ ok: true, aantal: uit.length, division: lijn.division, ...await grootboekStand() })
+}
+
+/* ------------------------------------------------------------------ *
+ *  De twee lijsten naast elkaar
+ *
+ *  Dit is waar het om begonnen was. Niet "hoeveel rekeningen kent Exact",
+ *  maar: staat elke code waarop wij boeken ook daar, en heet hij hetzelfde?
+ *  Een code die hier wel bestaat en daar niet, is een boeking die straks
+ *  geweigerd wordt -- en dat wil je weten vóór de factuur weg is.
+ * ------------------------------------------------------------------ */
+
+async function grootboekStand() {
+  const [onze, hunne, sync] = await Promise.all([
+    admin.from('grootboek').select('code, naam, actief').order('code'),
+    admin.from('exact_grootboek').select('code, omschrijving, soort, geblokkeerd').order('code'),
+    admin.from('exact_sync').select('*').eq('soort', 'grootboek').maybeSingle(),
+  ])
+
+  const bij = new Map<string, { omschrijving: string; soort: string | null; geblokkeerd: boolean }>()
+  for (const r of (hunne.data ?? [])) {
+    bij.set(String(r.code), {
+      omschrijving: String(r.omschrijving ?? ''),
+      soort: (r.soort as string) ?? null,
+      geblokkeerd: r.geblokkeerd === true,
+    })
+  }
+
+  const regels = (onze.data ?? []).map((g) => {
+    const e = bij.get(String(g.code))
+    return {
+      code: String(g.code),
+      naam: String(g.naam),
+      actief: g.actief === true,
+      inExact: Boolean(e),
+      exactNaam: e?.omschrijving ?? null,
+      exactSoort: e?.soort ?? null,
+      geblokkeerd: e?.geblokkeerd ?? false,
+    }
+  })
+
+  return {
+    regels,
+    /* Alleen tellen wat ertoe doet: een rekening die wij niet meer gebruiken
+       hoeft niet in Exact te bestaan. */
+    ontbreekt: regels.filter((r) => r.actief && !r.inExact).length,
+    geblokkeerd: regels.filter((r) => r.actief && r.geblokkeerd).length,
+    exactAantal: (hunne.data ?? []).length,
+    laatstAt: sync.data?.laatst_at ?? null,
+    laatsteFout: sync.data?.laatste_fout ?? null,
+    door: sync.data?.door ?? null,
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Mag deze beller bij de administratie
+ *
+ *  Het ophalen van het rekeningschema is administratiewerk en geen
+ *  ontwikkelwerk. wieBelt() kijkt naar de rollen rond Trucksupply; hier gaat
+ *  het om het recht admin.desk, en dat weet alleen de database.
+ * ------------------------------------------------------------------ */
+
+async function magAdministratie(req: Request): Promise<boolean> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!token) return false
+  const { data } = await admin.auth.getUser(token)
+  if (!data.user) return false
+
+  const { data: profiel } = await admin
+    .from('profiles')
+    .select('roles, active, grants, revokes')
+    .eq('auth_id', data.user.id)
+    .maybeSingle()
+  if (!profiel?.active) return false
+
+  const rollen = (profiel.roles ?? []) as string[]
+  const toegekend = (profiel.grants ?? []) as string[]
+  const ingetrokken = (profiel.revokes ?? []) as string[]
+  if (ingetrokken.includes('admin.desk')) return false
+  return rollen.includes('administratie') || rollen.includes('management')
+    || toegekend.includes('admin.desk')
+}
+
 /* ------------------------------------------------------------------ */
 
 Deno.serve(async (req) => {
@@ -641,6 +810,19 @@ Deno.serve(async (req) => {
       return json({ ok: true, url: link.toString() })
     }
 
+    /* ---- het rekeningschema ophalen ---- */
+
+    if (actie === 'sync-grootboek') {
+      if (!beller.magSleutels && !(await magAdministratie(req))) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      return await syncGrootboek(beller)
+    }
+
+    if (actie === 'grootboek-stand') {
+      return json({ ok: true, ...await grootboekStand() })
+    }
+
     if (actie === 'los') {
       await bewaar({
         access_token: null,
@@ -657,6 +839,22 @@ Deno.serve(async (req) => {
     return json({ ok: false, reden: 'Onbekende actie.' }, 400)
   } catch (e) {
     console.error(`[exact] ${actie}`, e)
+    /*
+     * Een ExactFout weet zelf wat er aan de hand is. Het verschil dat ertoe
+     * doet is "koppel opnieuw" tegenover "Exact had het even niet": bij het
+     * eerste moet iemand iets doen, bij het tweede is wachten genoeg. Alles
+     * over één kam scheren als 502 laat het scherm dat niet zien.
+     */
+    if (e instanceof ExactFout) {
+      if (actie === 'sync-grootboek') {
+        await admin.from('exact_sync').upsert({
+          soort: 'grootboek',
+          laatste_fout: e.message.slice(0, 400),
+          updated_at: Date.now(),
+        }, { onConflict: 'soort' }).then(() => {}, () => {})
+      }
+      return json({ ok: false, reden: e.message, opnieuwKoppelen: e.opnieuwKoppelen }, e.status)
+    }
     return json({ ok: false, reden: String((e as Error).message ?? e) }, 502)
   }
 })

@@ -35,6 +35,11 @@ export interface ApiAdapter {
   push(changes: PushChange[]): Promise<void>
   /** Haalt serverwijzigingen op sinds timestamp */
   pull(since: number): Promise<PullResult>
+  /** Sla wachtwoord terug in het systeem. Geeft niets terug bij succes.
+   * In de huidige codebase wordt dit gebruikt voor de “Forgot password” flow.
+   * De API mag een fout teruggeven, die moet door de front‑end afgehandeld
+   * worden. */
+  forgotPassword(email: string): Promise<void>
   /** Snelle bereikbaarheidscheck */
   ping(): Promise<boolean>
 }

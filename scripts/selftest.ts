@@ -4895,5 +4895,106 @@ console.log('\n35. De ontwikkelschermen zijn te vinden')
   check('Exact staat erbij', eigen.includes('exact'))
 }
 
+/* ==================================================================== *
+ *  Het token van Exact leeft tien minuten
+ *
+ *  Dit is de val waar elke eerste koppeling in loopt, en hij is stil: alles
+ *  werkt, tien minuten lang, en daarna geeft Exact 401 zonder dat er iets aan
+ *  de koppeling mankeert.
+ *
+ *  Eronder zit een tweede, die erger is. Exact geeft bij het verversen een
+ *  NIEUW refresh-token en trekt het oude in. Wie dat niet opslaat, heeft een
+ *  koppeling die precies één verversing overleeft en daarna definitief dood
+ *  is -- opnieuw proberen helpt dan niet meer, want het bewaarde token
+ *  bestaat niet meer bij Exact.
+ *
+ *  Alle drie de regels hieronder zijn met het oog niet te zien in een diff.
+ *  Vandaar dat ze hier staan.
+ * ==================================================================== */
+
+console.log('\n36. Het token van Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/_gedeeld/exact.ts', 'utf8')
+
+  check('er wordt met een refresh_token ververst',
+    bron.includes("grant_type: 'refresh_token'"))
+
+  check('het nieuwe refresh-token wordt opgeslagen',
+    /refresh_token: uit\.refresh_token \|\| rij\.refresh_token/.test(bron))
+
+  /*
+   * En het wordt opgeslagen VOORDAT het antwoord wordt gebruikt. Zou dat na
+   * afloop gebeuren, dan is een mislukt verzoek genoeg om het verse token
+   * kwijt te raken terwijl Exact het oude al heeft ingetrokken.
+   */
+  const iSchrijf = bron.indexOf("update(nieuw)")
+  const iTerug = bron.indexOf("return { basis, division: rij.division, token: uit.access_token")
+  check('en dat gebeurt vóór het antwoord teruggaat',
+    iSchrijf > 0 && iTerug > 0 && iSchrijf < iTerug)
+
+  check('mislukt wegschrijven laat de aanroep niet slagen',
+    bron.includes('Het verse token kon niet worden opgeslagen'))
+
+  /*
+   * Het verschil tussen "koppel opnieuw" en "Exact had het even niet". Bij
+   * een 500 de tokens weggooien betekent dat een storing bij Exact een
+   * handmatige herkoppeling kost.
+   */
+  check('alleen bij 400 of 401 gaat de koppeling los',
+    bron.includes('const kwijt = res.status === 400 || res.status === 401'))
+  check('en bij een storing blijft hij staan',
+    /if \(kwijt\) \{/.test(bron))
+
+  /* Verversen met marge: een token dat nog vijf seconden geldig is, is bij
+     aankomst verlopen. */
+  check('er wordt met een marge ververst', bron.includes('VERSE_MARGE_MS'))
+
+  /*
+   * Exact antwoordt in XML als je niet om JSON vraagt, en verpakt in
+   * { d: { results } } -- niet in { value }, dat is OData 4.
+   */
+  check('er wordt om JSON gevraagd', bron.includes("Accept: 'application/json'"))
+  check('en het antwoord wordt uit d.results gehaald',
+    bron.includes('uit.d?.results') && !bron.includes('json.value'))
+  check('meerdere pagina\'s worden gevolgd', bron.includes('__next'))
+
+  /* Een factuurdatum is een dag, geen moment: op lokale middernacht kan hij
+     in de winter een dag terugvallen en dan in het vorige boekjaar landen. */
+  check('een datum gaat op UTC naar Exact',
+    bron.includes('getUTCFullYear') && bron.includes('T00:00:00.000Z'))
+}
+
+/* ==================================================================== *
+ *  Het rekeningschema blijft van ons
+ *
+ *  De verleiding is om het schema van Exact over public.grootboek heen te
+ *  zetten. Dat is precies wat er niet moet gebeuren: die lijst is met opzet
+ *  kort (zie 0044) en heeft eigen namen en trefwoorden. Een sync die daar
+ *  overheen loopt, gooit dat weg -- en dat merk je pas als de administratie
+ *  de rekening niet meer terugvindt.
+ * ==================================================================== */
+
+console.log('\n37. Het rekeningschema blijft van ons')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  check('de sync schrijft in exact_grootboek',
+    bron.includes("from('exact_grootboek')"))
+  check('en raakt public.grootboek niet aan',
+    !/from\('grootboek'\)[\s\S]{0,80}(upsert|update|insert|delete)/.test(bron))
+
+  /* Wat Exact niet meer kent hoort weg, anders blijft de lijst van het
+     proefaccount naast die van de echte administratie staan. */
+  check('wat verdwenen is wordt opgeruimd',
+    /delete\(\)\.lt\('updated_at', nu\)/.test(bron))
+
+  check('het schema ophalen mag ook de administratie',
+    bron.includes('magAdministratie'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

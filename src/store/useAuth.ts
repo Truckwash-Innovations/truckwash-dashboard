@@ -111,7 +111,11 @@ export const useAuth = create<AuthStore>((set, get) => ({
       try {
         const res = await api.login(email, password)
         if (!res) {
-          set({ error: 'E-mailadres of wachtwoord klopt niet.', busy: false })
+          // In development, log a warning about failed login due to invalid credentials
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('Login failed: invalid credentials', { email });
+          }
+          set({ error: 'E-mailadres of wachtwoord klopt niet.', busy: false });
           return false
         }
         userId = res.userId
@@ -140,24 +144,27 @@ export const useAuth = create<AuthStore>((set, get) => ({
           // weten we niet wie er binnenkomt.
           await useSync.getState().sync({ silent: true })
         }
-      } catch {
-        // Geen verbinding: terugvallen op wat dit apparaat eerder leerde.
-        userId = await verifyOfflineLogin(email, password)
-        if (!userId) {
-          set({
-            error:
-              'Geen verbinding, en dit account is nog niet eerder op dit ' +
-              'apparaat gebruikt. Log één keer met internet in.',
-            busy: false,
-          })
-          return false
-        }
-        await storageSet(
-          SESSION_KEY,
-          JSON.stringify({ userId, token: 'offline', at: Date.now() }),
-        )
-        setSyncEnabled(true)
-      }
+       } catch (e) {
+         // Geen verbinding: terugvallen op wat dit apparaat eerder leerde.
+         if (process.env.NODE_ENV !== 'production') {
+           console.warn('Login failed (offline fallback)', { email, error: e instanceof Error ? e.message : e });
+         }
+         userId = await verifyOfflineLogin(email, password)
+         if (!userId) {
+           set({
+             error:
+               'Geen verbinding, en dit account is nog niet eerder op dit ' +
+               'apparaat gebruikt. Log één keer met internet in.',
+             busy: false,
+           })
+           return false
+         }
+         await storageSet(
+           SESSION_KEY,
+           JSON.stringify({ userId, token: 'offline', at: Date.now() }),
+         )
+         setSyncEnabled(true)
+       }
 
       const user = await db.users.get(userId)
       if (!user) {
@@ -195,10 +202,13 @@ export const useAuth = create<AuthStore>((set, get) => ({
 
       set({ user, role: null, busy: false, error: null })
       return true
-    } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Inloggen mislukt', busy: false })
-      return false
-    }
+      } catch (e) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Login error', { email, error: e instanceof Error ? e.message : e });
+        }
+        set({ error: e instanceof Error ? e.message : 'Inloggen mislukt', busy: false });
+        return false
+      }
   },
 
   logout: async () => {

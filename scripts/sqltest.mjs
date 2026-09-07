@@ -183,6 +183,7 @@ await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile
 await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
+await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -237,6 +238,7 @@ await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_
 await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
 await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
+await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
 
 
 
@@ -4752,6 +4754,92 @@ check('er staat geen exact-geheim tussen de instellingen',
     select count(*)::int as n from public.instellingen
      where sleutel ilike '%exact%geheim%' or sleutel ilike '%exact%secret%'
         or sleutel ilike '%client_secret%'`)).rows[0].n === 0)
+
+/* ==================================================================== *
+ *  Exact kent het rekeningschema (0053)
+ *
+ *  De belofte van deze migratie is een scheiding: onze korte lijst blijft
+ *  van ons, die van Exact staat ernaast. Als exact_grootboek ooit een
+ *  schrijfpolicy krijgt, of als public.grootboek van de sync mag worden
+ *  overschreven, dan is die scheiding weg -- en dan zijn de eigen namen en
+ *  trefwoorden bij de eerstvolgende sync verdwenen.
+ *
+ *  En het tweede: dezelfde bon mag niet twee keer naar Exact. Zonder die
+ *  index staat een factuur na een tweede poging twee keer in de boekhouding.
+ * ==================================================================== */
+
+console.log('\n37. Exact kent het rekeningschema (0053)')
+
+check('exact_grootboek en exact_sync bestaan',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public'
+       and table_name in ('exact_grootboek', 'exact_sync')`)).rows[0].n === 2)
+
+/* Lezen mag, schrijven niet: er hoort geen enkele insert- of update-policy
+   te staan. De Edge Function gebruikt de servicesleutel en heeft er geen
+   nodig; een mens die met de hand in de kopie kan schrijven maakt van een
+   kopie een tweede waarheid. */
+const exSchrijf = (await db.query(`
+  select count(*)::int as n from pg_policies
+   where schemaname = 'public'
+     and tablename in ('exact_grootboek', 'exact_sync')
+     and cmd <> 'SELECT'`)).rows[0].n
+check('niemand mag in de kopie van Exact schrijven', exSchrijf === 0, `${exSchrijf} policies`)
+
+const exLees = (await db.query(`
+  select count(*)::int as n from pg_policies
+   where schemaname = 'public'
+     and tablename in ('exact_grootboek', 'exact_sync')
+     and cmd = 'SELECT'`)).rows[0].n
+check('en lezen kan wel', exLees === 2, `${exLees} policies`)
+
+check('RLS staat aan op allebei',
+  (await db.query(`
+    select count(*)::int as n from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+     where ns.nspname = 'public'
+       and c.relname in ('exact_grootboek', 'exact_sync')
+       and c.relrowsecurity`)).rows[0].n === 2)
+
+check('de twee soorten werk staan klaar',
+  (await db.query(`select count(*)::int as n from public.exact_sync
+                    where soort in ('grootboek', 'facturen')`)).rows[0].n === 2)
+
+check('een bon draagt waar hij in Exact terechtkwam',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'expenses'
+       and column_name in ('exact_id', 'exact_at', 'exact_fout')`)).rows[0].n === 3)
+
+/* ---- dezelfde bon gaat niet twee keer ---- */
+
+await db.exec(`
+  insert into public.expenses (id, expense_date, category, supplier, description,
+                               amount_excl, vat_pct, status, source)
+  values ('exp_ex_a', public.now_ms(), 'overig', 'Shell', 'a', 100, 21, 'goedgekeurd', 'mail'),
+         ('exp_ex_b', public.now_ms(), 'overig', 'Shell', 'b', 100, 21, 'goedgekeurd', 'mail')
+  on conflict (id) do nothing;`)
+
+await db.exec(`update public.expenses set exact_id = 'EX-1' where id = 'exp_ex_a'`)
+
+let exDubbel = false
+try {
+  await db.exec(`update public.expenses set exact_id = 'EX-1' where id = 'exp_ex_b'`)
+} catch {
+  exDubbel = true
+}
+check('twee bonnen kunnen niet naar dezelfde boeking wijzen', exDubbel)
+
+/* De tegenhanger: leeg mag wel meer dan eens, anders zou geen enkele bon
+   ongestuurd kunnen blijven. */
+let exLeegMag = true
+try {
+  await db.exec(`update public.expenses set exact_id = null where id in ('exp_ex_a', 'exp_ex_b')`)
+} catch {
+  exLeegMag = false
+}
+check('en niet-verstuurd mag zo vaak als nodig', exLeegMag)
 
 await db.close()
 

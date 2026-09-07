@@ -65,10 +65,52 @@ staan als je daarna in de echte boekhouding boekt. Koppel daarna opnieuw.
 Zolang er *proefomgeving* staat, laat het statusblok dat zien. Staat er
 *echte administratie*, dan is dat een rood label — dat is geen versiering.
 
+## Het rekeningschema
+
+Onderaan het scherm staat je grootboek naast dat van Exact. Klik op **Ophalen
+uit Exact** en hij haalt het hele rekeningschema op.
+
+Wat er *niet* gebeurt is dat schema over je eigen lijst heen zetten. Dat is
+met opzet: een administratie in Exact heeft er al gauw een paar honderd, en
+onze lijst is kort gehouden zodat de administratie bij een bon in één oogopslag
+de juiste rekening vindt. Zouden we ze allemaal overnemen, dan zijn je eigen
+namen en trefwoorden bovendien overschreven door de omschrijving uit Exact.
+
+Wat je in plaats daarvan ziet is de vraag die ertoe doet: **bestaat elke code
+waarop wij boeken ook in Exact, en heet hij daar hetzelfde?** Staat er een code
+bij die Exact niet kent, dan wordt een factuur op die code straks geweigerd —
+dat wil je weten voordat de factuur weg is, niet erna.
+
+Standaard toont hij alleen wat afwijkt. Klopt alles, dan staat er één groene
+regel en verder niets.
+
 ## Wat er nog niet gebeurt
 
-De koppeling verbindt en houdt het token bij. Er gaan nog **geen facturen naar
-Exact**. Dat is de volgende stap; zie de plannen rond de inkoopfacturen.
+De koppeling verbindt, houdt het token vers, en haalt het rekeningschema op.
+Er gaan nog **geen facturen naar Exact**.
+
+Dat is geen vergeten stap maar een wachtende: een inkoopboeking in Exact heeft
+drie dingen nodig die we nog niet hebben, en die niet te verzinnen zijn.
+
+1. **Een dagboek.** Exact wil weten in welk inkoopdagboek de boeking komt
+   (vaak 70). Dat nummer staat in jullie administratie en moet hier ingesteld
+   worden.
+2. **De leverancier als relatie in Exact.** Een boeking verwijst naar een
+   crediteur met een intern id van Exact, niet naar de naam op de factuur.
+   Er moet dus een koppeling komen tussen "Shell Nederland" op de bon en het
+   relatienummer in Exact — matchen op naam, en handmatig bijstellen waar dat
+   misgaat.
+3. **De btw-codes.** 21% heet in Exact niet "21" maar een code die per
+   administratie kan verschillen.
+
+Zodra de koppeling staat en het rekeningschema is opgehaald, zijn die drie uit
+Exact zelf op te halen en in te stellen. Dat werkt niet blind: het moet tegen
+een echte administratie aangelegd worden, ook al is het de proef.
+
+**Personeel** ligt verder weg. Exact heeft daar een aparte module voor, en het
+raakt gegevens die met opzet apart staan (BSN, IBAN, uurloon staan in
+`personnel_private` en horen daar te blijven). Dat is een gesprek over welke
+velden mee mogen, niet iets om er even bij te bouwen.
 
 ## Voor de techniek
 
@@ -83,3 +125,11 @@ Exact**. Dat is de volgende stap; zie de plannen rond de inkoopfacturen.
 - Uitrollen na een wijziging: `npm run functions:open`. Nooit kaal
   `supabase functions deploy exact` — dan staat `verify_jwt` weer aan en
   weigert Supabase de terugkeer van Exact, die een gewone GET zonder token is.
+- Het praten met Exact staat in `supabase/functions/_gedeeld/exact.ts`,
+  inclusief het verversen van het token. Dat token leeft **tien minuten**, en
+  Exact geeft bij elke verversing een nieuw refresh-token dat meteen opgeslagen
+  moet worden — sla je dat niet op, dan overleeft de koppeling precies één
+  verversing. De zelftest let daarop (`npm run selftest`, hoofdstuk 36).
+- `npm run functietest` kijkt de Edge Functions na op syntaxfouten, onbekende
+  namen en dubbele definities. Die draaien nergens anders langs een compiler
+  en werden voorheen pas bij het uitrollen gecontroleerd.

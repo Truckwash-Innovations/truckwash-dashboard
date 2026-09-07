@@ -37,13 +37,15 @@
 
 import { useEffect, useState } from 'react'
 import {
-  ExternalLink, Link2, Link2Off, Loader2, RefreshCw, Save, TriangleAlert,
+  Check, Download, ExternalLink, Link2, Link2Off, Loader2, RefreshCw, Save,
+  TriangleAlert, X,
 } from 'lucide-react'
 import {
-  exactInstellen, exactLos, exactStatus, exactVerbindUrl, type ExactStatus,
+  exactGrootboekStand, exactInstellen, exactLos, exactStatus, exactSyncGrootboek,
+  exactVerbindUrl, type ExactStatus, type GrootboekStand,
 } from '../../lib/trucksupply'
 import { dateTime, relative } from '../../lib/format'
-import { Badge, Card, Field } from '../../components/ui'
+import { Badge, Card, Empty, Field } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 
 /** Leeg = de standaard van de server. Alleen om het typen te besparen. */
@@ -369,7 +371,167 @@ export default function Exact() {
           </Card>
         )}
       </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Grootboek verbonden={stand?.verbonden === true} />
+      </div>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Het rekeningschema
+ *
+ *  Casper: "grootboekrekeningen moeten ook met exact syncen, zodat alles
+ *  netjes kan staan."
+ *
+ *  Wat hier NIET gebeurt is het schema van Exact over onze lijst heen
+ *  zetten. Een administratie in Exact heeft er al gauw een paar honderd, en
+ *  onze lijst is met opzet kort -- staat zo in migratie 0044. Wat je wilt
+ *  weten is iets anders, en dat is precies wat deze tabel laat zien: bestaat
+ *  elke code waarop wij boeken ook daar, en heet hij hetzelfde?
+ *
+ *  Een code die hier wel bestaat en in Exact niet, is een boeking die straks
+ *  geweigerd wordt. Dat wil je zien voordat de factuur weg is.
+ * ------------------------------------------------------------------ */
+
+function Grootboek({ verbonden }: { verbonden: boolean }) {
+  const [stand, setStand] = useState<GrootboekStand | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [alles, setAlles] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setStand(await exactGrootboekStand())
+      } catch (e) {
+        setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+      }
+    })()
+  }, [])
+
+  async function haalOp() {
+    setBezig(true)
+    setFout(null)
+    try {
+      const uit = await exactSyncGrootboek()
+      setStand(uit)
+      toast.ok(`${uit.exactAantal} rekeningen opgehaald uit Exact.`)
+    } catch (e) {
+      const bericht = e instanceof Error ? e.message : 'Ophalen mislukte.'
+      setFout(bericht)
+      toast.error(bericht)
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  /* Standaard alleen wat aandacht vraagt. De hele lijst is instelwerk dat je
+     één keer nakijkt; de afwijkingen zijn wat je elke keer wilt zien. */
+  const regels = stand?.regels ?? []
+  const opvallend = regels.filter((r) => r.actief && (!r.inExact || r.geblokkeerd))
+  const tonen = alles ? regels : opvallend
+
+  return (
+    <Card
+      title="Het rekeningschema naast dat van Exact"
+      hint="Boekt elke code straks ook echt?"
+      action={
+        <button
+          className="btn sm"
+          disabled={bezig || !verbonden}
+          onClick={() => void haalOp()}
+          title={verbonden ? 'Opnieuw ophalen bij Exact' : 'Eerst koppelen met Exact'}
+        >
+          {bezig ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Ophalen uit Exact
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      <div className="row mb">
+        {stand?.laatstAt
+          ? <span className="ts-sub">Laatst opgehaald {relative(stand.laatstAt)}{stand.door ? ` · ${stand.door}` : ''} · {stand.exactAantal} rekeningen in Exact</span>
+          : <span className="ts-sub">Nog niet opgehaald.</span>}
+      </div>
+
+      {stand && stand.ontbreekt > 0 && (
+        <div className="waarschuwing mb">
+          <TriangleAlert size={14} />
+          <span>
+            <strong>{stand.ontbreekt} rekening{stand.ontbreekt === 1 ? '' : 'en'}</strong> waarop wij
+            boeken bestaan niet in Exact. Een factuur op zo'n code wordt straks geweigerd.
+          </span>
+        </div>
+      )}
+      {stand && stand.geblokkeerd > 0 && (
+        <div className="waarschuwing zacht mb">
+          <span>{stand.geblokkeerd} rekening(en) staan in Exact op geblokkeerd.</span>
+        </div>
+      )}
+
+      {stand && opvallend.length === 0 && stand.laatstAt && (
+        <div className="waarschuwing zacht mb" style={{ borderColor: 'var(--ok)' }}>
+          <Check size={14} />
+          <span>Elke rekening die wij gebruiken bestaat in Exact en is niet geblokkeerd.</span>
+        </div>
+      )}
+
+      {tonen.length === 0 && !stand?.laatstAt && (
+        <Empty text="Haal het schema op bij Exact om de vergelijking te zien." />
+      )}
+
+      {tonen.length > 0 && (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Bij ons</th>
+                <th>In Exact</th>
+                <th>Soort</th>
+                <th>Staat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tonen.map((r) => (
+                <tr key={r.code}>
+                  <td className="mono">{r.code}</td>
+                  <td className="afgekapt">{r.naam}{!r.actief && <span className="ts-sub"> · niet in gebruik</span>}</td>
+                  <td className="afgekapt">
+                    {r.inExact
+                      ? (r.exactNaam || <span className="ts-sub">zonder omschrijving</span>)
+                      : <span className="ts-sub">—</span>}
+                  </td>
+                  <td>{r.exactSoort ?? '—'}</td>
+                  <td>
+                    {!r.inExact && <Badge tone="danger" dot>niet in Exact</Badge>}
+                    {r.inExact && r.geblokkeerd && <Badge tone="warn" dot>geblokkeerd</Badge>}
+                    {r.inExact && !r.geblokkeerd && <Badge tone="ok" dot>klopt</Badge>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {regels.length > opvallend.length && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn ghost sm" onClick={() => setAlles((v) => !v)}>
+            {alles
+              ? <><X size={14} /> Alleen wat afwijkt</>
+              : <>Alle {regels.length} rekeningen tonen</>}
+          </button>
+        </div>
+      )}
+
+      <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+        Onze lijst blijft kort en houdt zijn eigen namen; die van Exact is een kopie ernaast.
+        Wat je hier ziet is of ze op elkaar aansluiten.
+      </p>
+    </Card>
   )
 }
 

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { startThemaMotor } from './lib/theme'
 import './styles/theme.css'
+import './styles/animations.css'
 import './styles/auth.css'
 
 /*

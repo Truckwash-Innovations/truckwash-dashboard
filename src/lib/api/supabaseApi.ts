@@ -401,6 +401,16 @@ export const supabaseApi: ApiAdapter = {
       return false
     }
   },
+  async forgotPassword(email: string): Promise<void> {
+    if (!supabaseConfigured) {
+      throw new Error('No backend configured')
+    }
+    const cleaned = email.trim().toLowerCase()
+    const { error } = await supabase().auth.resetPasswordForEmail(cleaned)
+    if (error) {
+      throw new Error(error.message || 'Password reset failed')
+    }
+  },
 
   async login(email, password) {
     const { data, error } = await supabase().auth.signInWithPassword({

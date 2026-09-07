@@ -1,0 +1,18 @@
+/* Animation configuration shared across the app */
+:root {
+  /* Base animation duration – can be tweaked globally */
+  --anim-duration: .16s;
+  /* Default easing – mirrors existing --ease variable */
+  --anim-ease: var(--ease);
+  /* Optional default delay */
+  --anim-delay: 0s;
+}
+/* Shared keyframes for common UI patterns */
+@keyframes slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

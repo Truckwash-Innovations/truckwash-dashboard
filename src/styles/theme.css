@@ -3,6 +3,12 @@
    ================================================================== */
 
 :root {
+  /* Dit blok IS het donkere thema. Er is geen [data-thema="donker"]-blok:
+     donker is wat er staat als niemand iets overschrijft, en dat is met opzet
+     zo -- bij het opstarten staat het script nog niet aan en dan wil je geen
+     witte flits. Wie hier lichte kleuren neerzet, maakt daarmee het donkere
+     thema licht; de lichte stand heeft verderop zijn eigen blok. */
+  color-scheme: dark;
   --bg:            #070c16;
   --bg-2:          #0b1220;
   --surface:       #111a2b;
@@ -77,6 +83,9 @@
   --glas:             rgba(11, 18, 32, .74);
   --glas-zacht:       rgba(11, 18, 32, .5);
   /* Nauwelijks zichtbare oplichting bij aanwijzen */
+  /* ---------- Sidebar width variables ---------- */
+  --sidebar-width: 248px;
+  --sidebar-width-collapsed: 64px;
   --sluier:           rgba(255, 255, 255, .03);
   /* De gloed rechtsboven in het werkvlak */
   --werkvlak-gloed:   rgba(248, 192, 16, .11);
@@ -106,23 +115,31 @@
    ================================================================== */
 
 :root[data-thema="licht"] {
-  --bg:            #eef1f6;
-  --bg-2:          #f6f8fb;
+  color-scheme: light;
+
+  /* Neutraler grijs dan de blauwzweem die hier eerst stond, en een fellere
+     merkkleur. Stond eerst op :root, maar dat is het donkere thema -- daar
+     hoorde het niet en daar maakte het donker licht. */
+  --bg:            #f9f9f9;
+  --bg-2:          #eaeaea;
   --surface:       #ffffff;
-  --surface-2:     #f2f5fa;
-  --surface-3:     #e4eaf3;
-  --line:          #cdd6e4;
-  --line-soft:     #dfe5ee;
+  --surface-2:     #f5f5f5;
+  --surface-3:     #e0e0e0;
+  --line:          #c0c0c0;
+  --line-soft:     #d0d0d0;
 
-  --text:          #10192a;
-  --text-2:        #46536b;
-  --text-3:        #75839c;
+  --text:          #222222;
+  --text-2:        #555555;
+  --text-3:        #777777;
 
-  --brand:         #e0a800;
-  --brand-2:       #b98900;
-  --brand-glow:    rgba(224, 168, 0, .28);
-  --on-brand:      #1a1300;
-  --accent:        #1f7fc4;
+  --brand:         #ffb200;
+  --brand-2:       #e89e00;
+  --brand-glow:    rgba(255, 178, 0, .30);
+  /* Donkere tekst op het geel, en niet wit. Wit op #ffb200 haalt bij lange na
+     de leesbaarheidsdrempel niet -- op een knop in de zon is dat het verschil
+     tussen lezen en gokken. */
+  --on-brand:      #241a00;
+  --accent:        #0077ff;
 
   --ok:            #12864c;
   --warn:          #a86b00;
@@ -260,7 +277,8 @@ input, select, textarea { font: inherit; }
 
 .app-shell {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  /* Sidebar width driven by CSS variables */
+  grid-template-columns: var(--sidebar-width) 1fr;
   height: 100%;
   overflow: hidden;
 }
@@ -282,8 +300,8 @@ input, select, textarea { font: inherit; }
   padding: 18px 18px 14px;
 }
 
-.sidebar-brand .mark {
-  width: 34px; height: 34px;
+ .sidebar-brand .mark {
+  width: 40px; height: 40px;
   display: grid; place-items: center;
   border-radius: 10px;
   background: linear-gradient(135deg, var(--brand), var(--brand-2));
@@ -296,11 +314,11 @@ input, select, textarea { font: inherit; }
 
 .nav { padding: 8px 10px; overflow-y: auto; flex: 1; }
 
-.nav-item {
+ .nav-item {
   position: relative;
   display: flex; align-items: center; gap: 11px;
   width: 100%;
-  min-height: 40px;
+  min-height: 48px;
   padding: 9px 12px;
   margin-bottom: 2px;
   border: 0; background: transparent;
@@ -328,7 +346,7 @@ input, select, textarea { font: inherit; }
 .nav-item.active svg { color: var(--brand); }
 .nav-item .badge { margin-left: auto; }
 
-.sidebar-foot { padding: 10px; border-top: 1px solid var(--line-soft); }
+.sidebar-foot { padding: 12px; border-top: 1px solid var(--line-soft); }
 
 .main {
   display: flex;
@@ -630,7 +648,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 /* --------------------------- Progress ---------------------------- */
 
 .bar { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
-.bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--accent)); transition: width .4s var(--ease); }
+  .bar > span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--accent)); transition: width var(--anim-duration) var(--anim-ease); }
 .bar.warn > span { background: linear-gradient(90deg, var(--warn), #ff8a4c); }
 .bar.danger > span { background: linear-gradient(90deg, var(--danger), #ff5f7a); }
 
@@ -797,7 +815,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 
 /* ---------------------------- Zoeken ------------------------------ */
 
-.search-trigger {
+  .search-trigger {
   display: inline-flex; align-items: center; gap: 8px;
   min-height: 36px;
   padding: 6px 10px 6px 11px;
@@ -808,7 +826,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   color: var(--text-3);
   cursor: pointer;
   font-size: .84rem;
-  transition: border-color .16s var(--ease), background .16s var(--ease), color .16s var(--ease);
+   transition: border-color var(--anim-duration) var(--anim-ease), background var(--anim-duration) var(--anim-ease), color var(--anim-duration) var(--anim-ease);
 }
 .search-trigger:hover { border-color: var(--line); background: var(--surface); color: var(--text-2); }
 .search-trigger .label { flex: 1; text-align: left; }
@@ -1022,7 +1040,7 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .perm-row:last-child { border-bottom: 0; }
 .perm-row.on { background: var(--tint-brand-weak); }
 
-.perm-switch {
+  .perm-switch {
   flex: none; margin-top: 2px;
   width: 38px; height: 22px;
   border-radius: 999px;
@@ -1030,13 +1048,13 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   background: var(--surface-3);
   cursor: pointer; padding: 0;
   position: relative;
-  transition: background .16s var(--ease), border-color .16s var(--ease);
+   transition: background var(--anim-duration) var(--anim-ease), border-color var(--anim-duration) var(--anim-ease);
 }
-.perm-switch .knob {
+  .perm-switch .knob {
   position: absolute; top: 2px; left: 2px;
   width: 16px; height: 16px; border-radius: 50%;
   background: var(--text-3);
-  transition: transform .16s var(--ease), background .16s var(--ease);
+   transition: transform var(--anim-duration) var(--anim-ease), background var(--anim-duration) var(--anim-ease);
 }
 .perm-switch.on { background: var(--brand); border-color: var(--brand); }
 .perm-switch.on .knob { transform: translateX(16px); background: var(--on-brand); }
@@ -1092,14 +1110,14 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
-.course-card {
+  .course-card {
   display: flex; flex-direction: column;
   text-align: left; padding: 18px;
   border-radius: var(--radius);
   border: 1px solid var(--line-soft);
   background: linear-gradient(180deg, var(--surface), var(--bg-2));
   cursor: pointer;
-  transition: transform .16s var(--ease), border-color .16s var(--ease);
+   transition: transform var(--anim-duration) var(--anim-ease), border-color var(--anim-duration) var(--anim-ease);
 }
 .course-card:hover { transform: translateY(-3px); border-color: var(--brand); }
 .course-card h3 { font-size: 1rem; margin: 10px 0 6px; }
@@ -2672,7 +2690,7 @@ table.data.matrix th { vertical-align: bottom; }
    ================================================================== */
 
 .app-shell { transition: grid-template-columns .22s var(--ease); }
-.app-shell.smal { grid-template-columns: 64px 1fr; }
+.app-shell.smal { grid-template-columns: var(--sidebar-width-collapsed) 1fr; }
 
 .app-shell.smal .sidebar-brand {
   align-items: center;
@@ -2706,9 +2724,9 @@ table.data.matrix th { vertical-align: bottom; }
 .app-shell.smal .logo-vlak { overflow: hidden; }
 
 @media (max-width: 860px) {
-  .app-shell.smal { grid-template-columns: 1fr; }
+.app-shell.smal {
+  grid-template-columns: var(--sidebar-width-collapsed) 1fr;
 }
-
 /* ------------------------------------------------------------------
    Het logo op een licht vlak
 

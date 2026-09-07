@@ -1456,6 +1456,10 @@ export const mockApi: ApiAdapter = {
     }
     return { changes, serverTime: Date.now() }
   },
+  async forgotPassword(email: string): Promise<void> {
+    // In the mock backend we just resolve. In a real backend this would send an e‑mail.
+    return new Promise((resolve) => setTimeout(resolve, 100))
+  },
 }
 
 export { ensureSeeded as seedMockServer }

@@ -29,7 +29,7 @@
   font-size: 1rem; text-align: left;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: border-color .16s var(--ease), box-shadow .16s var(--ease);
+  transition: border-color var(--anim-duration) var(--anim-ease), box-shadow var(--anim-duration) var(--anim-ease);
 }
 .rolzoek-knop:hover,
 .rolzoek-knop:focus-visible {
@@ -59,7 +59,7 @@
   color: var(--text-2);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: color .16s var(--ease), border-color .16s var(--ease);
+  transition: color var(--anim-duration) var(--anim-ease), border-color var(--anim-duration) var(--anim-ease);
 }
 .rolzoek-mic:hover,
 .rolzoek-mic:focus-visible { outline: none; color: var(--brand); border-color: var(--brand); }

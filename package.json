@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.50.0",
+  "version": "1.51.0",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "selftest": "tsx scripts/selftest.ts",
     "sqltest": "node scripts/sqltest.mjs",
+    "functietest": "node scripts/functies-nakijken.mjs",
     "functions": "npm run functions:open && npm run functions:dicht",
     "functions:open": "supabase functions deploy stuur-mail ontvang-mail kassa-koppelen website-gegevens trucky trucksupply exact lezer --no-verify-jwt --project-ref yxsbmhavnttswxczeovt",
     "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie medewerker route kassa-apparaat factuur-lezen --project-ref yxsbmhavnttswxczeovt",

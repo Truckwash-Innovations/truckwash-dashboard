@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { motion } from 'framer-motion'
-import { AlertCircle, ArrowLeft, Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Eye, EyeOff, Loader2, LogIn, UserPlus, WifiOff, Mail } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
 import { useUpdates } from '../lib/updates'
 import { backendError } from '../lib/api'
 import Logo from './Logo'
 import Aanmelden from './Aanmelden'
+import ForgotPassword from './ForgotPassword'
 
 export default function Login({ terugNaarSite = false }: { terugNaarSite?: boolean }) {
   const { login, busy, error } = useAuth()
@@ -17,6 +18,7 @@ export default function Login({ terugNaarSite = false }: { terugNaarSite?: boole
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   const [aanmelden, setAanmelden] = useState(false)
+  const [forgot, setForgot] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -25,6 +27,7 @@ export default function Login({ terugNaarSite = false }: { terugNaarSite?: boole
   }
 
   if (aanmelden) return <Aanmelden onBack={() => setAanmelden(false)} />
+  if (forgot) return <ForgotPassword onBack={() => setForgot(false)} />
 
   return (
     <div className="auth-screen">
@@ -120,19 +123,26 @@ export default function Login({ terugNaarSite = false }: { terugNaarSite?: boole
           </div>
         </div>
 
-        <button
+        <motion.button
           className="btn primary block lg"
           type="submit"
           disabled={busy || !email || !password || !!backendError}
+          whileHover={{ scale: 1.03, transition: { duration: 0.15 } }}
+          whileTap={{ scale: 0.97, transition: { duration: 0.1 } }}
         >
           {busy ? <Loader2 size={17} className="spin" /> : <LogIn size={17} />}
           {busy ? 'Bezig met inloggen…' : 'Inloggen'}
-        </button>
+        </motion.button>
 
         <div className="auth-alt">
           <span>Nog geen account?</span>
           <button type="button" className="btn sm" onClick={() => setAanmelden(true)} disabled={busy}>
             <UserPlus size={14} /> Aanmelden
+          </button>
+        </div>
+        <div className="auth-alt">
+          <button type="button" className="btn sm" onClick={() => setForgot(true)} disabled={busy}>
+            <Mail size={14} /> Forgot password?
           </button>
         </div>
 

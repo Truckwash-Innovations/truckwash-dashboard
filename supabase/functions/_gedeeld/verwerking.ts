@@ -296,7 +296,16 @@ export async function vulInVanuitLezing(admin: any, opties: {
 
   console.log('[verwerking] geboekt ' + JSON.stringify({
     expenseId,
-    lezer: bron,
+    /*
+     * Hier stond `bron`, en die bestaat in deze functie niet -- alleen in
+     * verwerkLezing hiernaast. Dat is geen schoonheidsfoutje in een logregel:
+     * een onbekende naam gooit een ReferenceError, en die viel precies hier,
+     * ná het bijwerken van de bon maar vóór de return. Gevolg: de bon werd
+     * netjes ingevuld, en alles wat daarna hoorde te gebeuren -- het
+     * eventueel automatisch goedkeuren -- gebeurde nooit. Gevonden met
+     * npm run functietest, dat sindsdien op deze klasse fouten let.
+     */
+    lezer: opties.lezer ?? null,
     leverancier: naam,
     bedrag: bij.amount_excl ?? null,
     btw: bij.vat_pct ?? null,
