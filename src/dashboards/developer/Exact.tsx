@@ -51,12 +51,13 @@ import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
-  exactKoppelBedrijf, exactRelatiesStand, exactStuurVerkoop,
+  exactBatchUitvoeren, exactBetaalStand, exactKoppelBedrijf,
+  exactRelatiesStand, exactSepaMaken, exactStuurVerkoop,
   exactSyncAdministraties, exactSyncPersoneel, exactSyncRelaties,
   exactVerbindUrl, exactVerkoopOpmaken, exactVerkoopStand,
   exactVerkoopVersturen, exactZetAdministratie,
   type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
-  type FacturenStand, type RelatiesStand, type VerkoopStand,
+  type BetaalStand, type FacturenStand, type RelatiesStand, type VerkoopStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
@@ -546,6 +547,10 @@ export default function Exact() {
 
       <div style={{ gridColumn: '1 / -1' }}>
         <Verkoop verbonden={stand?.verbonden === true} />
+      </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Betalen />
       </div>
     </div>
   )
@@ -2046,6 +2051,250 @@ function Facturen({ verbonden }: { verbonden: boolean }) {
 }
 
 /* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Betalen
+ *
+ *  Casper: "zorg ervoor dat je hem ook op betaald kan zetten, evt een sepa
+ *  bestand kan aanmaken."
+ *
+ *  Twee handelingen, en dat is geen omslachtigheid. Een bestand maken is
+ *  niet hetzelfde als geld overmaken -- er kan van alles tussen komen: de
+ *  bank weigert het, iemand vergeet te fiatteren, het blijft in de map
+ *  staan. Pas als iemand zegt dat het is uitgevoerd, gaan de facturen op
+ *  betaald.
+ * ------------------------------------------------------------------ */
+
+function Betalen() {
+  const [stand, setStand] = useState<BetaalStand | null>(null)
+  const [bezig, setBezig] = useState<string | null>(null)
+  const [fout, setFout] = useState<string | null>(null)
+  const [bv, setBv] = useState('')
+  const [overgeslagen, setOvergeslagen] = useState<{ id: string; naam: string; reden: string }[]>([])
+
+  async function laad() {
+    try {
+      const uit = await exactBetaalStand()
+      setStand(uit)
+      if (!bv && uit.administraties.length > 0) setBv(uit.administraties[0].code)
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  async function doe(wat: string, werk: () => Promise<void>) {
+    setBezig(wat)
+    try {
+      await werk()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(null)
+    }
+  }
+
+  /**
+   * Het bestand aan de gebruiker geven.
+   *
+   * Via een blob en een onzichtbare link. De app draait ook als
+   * Windows-programma en op een tablet; een gewone download is het enige dat
+   * daar overal hetzelfde werkt.
+   */
+  function bewaar(naam: string, inhoud: string) {
+    const blob = new Blob([inhoud], { type: 'application/xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = naam
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    /* Even wachten voordat we hem weggooien: sommige browsers hebben de blob
+       nog nodig als de download net begint. */
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
+
+  const voorBv = (stand?.openstaand ?? []).filter((r) => !bv || r.administratie === bv)
+  const zonderIban = voorBv.filter((r) => !r.iban)
+  const adm = stand?.administraties.find((a) => a.code === bv)
+
+  return (
+    <Card
+      title="Betalen"
+      hint="Wat er openstaat, en een bestand voor de bank"
+      action={
+        <button className="btn ghost sm" onClick={() => void laad()} title="Opnieuw ophalen">
+          <RefreshCw size={14} />
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      <div className="row mb">
+        {stand && (
+          <span className="ts-sub">
+            {stand.openstaand.length} facturen open · {money(stand.totaalOpen)} in totaal
+            {stand.zonderIban > 0 && ` · ${stand.zonderIban} zonder rekeningnummer`}
+          </span>
+        )}
+      </div>
+
+      {/* ---- van welke rekening ---- */}
+
+      <div className="grid cols-3 mb">
+        <Field label="Betalen vanuit" help="Elke bv betaalt van zijn eigen rekening.">
+          <select className="input" value={bv} onChange={(e) => setBv(e.currentTarget.value)}>
+            {(stand?.administraties ?? []).map((a) => (
+              <option key={a.code} value={a.code}>{a.code}{a.naam ? ` · ${a.naam}` : ''}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Onze rekening" help="Komt in het bestand als rekening van de opdrachtgever.">
+          <input className="input mono" readOnly value={adm?.eigenIban || ''} placeholder="nog niet ingevuld" />
+        </Field>
+        <Field label="Op naam van">
+          <input className="input" readOnly value={adm?.eigenNaam || ''} placeholder="nog niet ingevuld" />
+        </Field>
+      </div>
+
+      {adm && !adm.eigenIban && (
+        <div className="waarschuwing mb">
+          <TriangleAlert size={14} />
+          <span>
+            Voor {adm.code} staat er geen eigen rekeningnummer. Zonder dat kan er geen
+            betaalbestand gemaakt worden.
+          </span>
+        </div>
+      )}
+
+      {zonderIban.length > 0 && (
+        <div className="waarschuwing zacht mb">
+          <TriangleAlert size={14} />
+          <span>
+            {zonderIban.length} factuur/facturen hebben geen rekeningnummer. De lezer haalt dat
+            van de factuur; staat het er niet op, dan moet die betaling met de hand.
+          </span>
+        </div>
+      )}
+
+      <div className="row mb">
+        <button
+          className="btn primary sm"
+          disabled={bezig !== null || !adm?.eigenIban || voorBv.length === 0}
+          onClick={() => void doe('sepa', async () => {
+            const uit = await exactSepaMaken(bv)
+            bewaar(uit.bestandsnaam, uit.xml)
+            setOvergeslagen(uit.overgeslagen)
+            await laad()
+            toast.ok(`${uit.aantal} betalingen, ${money(uit.totaal)}. Het bestand is opgeslagen.`)
+          })}
+        >
+          {bezig === 'sepa' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+          Betaalbestand maken ({voorBv.length - zonderIban.length})
+        </button>
+      </div>
+
+      {overgeslagen.length > 0 && (
+        <div className="waarschuwing zacht mb">
+          <TriangleAlert size={14} />
+          <span>
+            Niet meegenomen:{' '}
+            {overgeslagen.map((o) => `${o.naam} (${o.reden})`).join(', ')}.
+          </span>
+        </div>
+      )}
+
+      {/* ---- de opdrachten ---- */}
+
+      {(stand?.batches ?? []).length > 0 && (
+        <>
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>Betaalopdrachten</h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Zet een opdracht pas op uitgevoerd als de bank hem werkelijk heeft gedraaid. Dán gaan
+            de facturen op betaald.
+          </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr><th>Gemaakt</th><th>Bv</th><th className="num">Aantal</th><th className="num">Totaal</th><th>Staat</th><th /></tr>
+              </thead>
+              <tbody>
+                {(stand?.batches ?? []).map((b) => (
+                  <tr key={b.id}>
+                    <td>{dateTime(b.aangemaaktAt)}</td>
+                    <td className="mono">{b.administratie ?? '—'}</td>
+                    <td className="num">{b.aantal}</td>
+                    <td className="num">{money(b.totaal)}</td>
+                    <td>
+                      {b.status === 'concept' && <Badge tone="warn" dot>nog niet uitgevoerd</Badge>}
+                      {b.status === 'uitgevoerd' && <Badge tone="ok" dot>uitgevoerd</Badge>}
+                      {b.door && <span className="ts-sub"> · {b.door}</span>}
+                    </td>
+                    <td>
+                      {b.status === 'concept' && (
+                        <button
+                          className="btn sm"
+                          disabled={bezig !== null}
+                          onClick={() => {
+                            if (!confirm(`${b.aantal} facturen op betaald zetten? Doe dit pas als de bank de opdracht heeft gedraaid.`)) return
+                            void doe('uitvoeren', async () => {
+                              const uit = await exactBatchUitvoeren(b.id)
+                              setStand(uit)
+                              toast.ok(`${uit.betaald} facturen op betaald gezet.`)
+                            })
+                          }}
+                        >
+                          <Check size={13} /> Uitgevoerd
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* ---- wat er openstaat ---- */}
+
+      {voorBv.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>Openstaand ({voorBv.length})</h4>
+          <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr><th>Vervalt</th><th>Leverancier</th><th>Nummer</th><th className="num">Incl. btw</th><th>Rekening</th></tr>
+              </thead>
+              <tbody>
+                {voorBv.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.vervaldatum ? dateShort(r.vervaldatum) : dateShort(r.datum)}</td>
+                    <td className="afgekapt">{r.leverancier}</td>
+                    <td className="mono">{r.factuurnummer ?? '—'}</td>
+                    <td className="num">{money(r.bedragIncl)}</td>
+                    <td className="mono afgekapt">
+                      {r.iban || <Badge tone="warn">ontbreekt</Badge>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+        Het bestand is pain.001.001.03, het formaat dat elke bank leest. Rekeningnummers worden
+        vooraf nagerekend met de mod-97-toets: een bank weigert een bestand met één foute IBAN in
+        zijn geheel, en die nummers komen van een factuur die door een model is gelezen.
+      </p>
+    </Card>
+  )
+}
 
 /* ------------------------------------------------------------------ *
  *  Verkoopfacturen

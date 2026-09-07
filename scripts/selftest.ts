@@ -5319,5 +5319,126 @@ console.log('\n42. Zoeken in de kostenposten')
   check('wat er niet in staat vindt hij niet', !pastBijZoek(bon, 'enexis'))
 }
 
+/* ==================================================================== *
+ *  Het SEPA-betaalbestand (0065)
+ *
+ *  Een bank weigert een bestand met één foute IBAN in ZIJN GEHEEL. Niet die
+ *  ene regel: het hele bestand. Dan sta je met achttien facturen die niet
+ *  betaald zijn en een foutmelding die alleen zegt dat er iets niet klopt.
+ *
+ *  En die IBAN's komen uit een factuur die door een model is gelezen.
+ *  Meestal goed, en soms een cijfer verkeerd -- precies wat de mod-97-toets
+ *  eruit haalt.
+ * ==================================================================== */
+
+console.log('\n43. Het SEPA-betaalbestand')
+
+{
+  const { ibanKlopt, maakSepa } = await import('../supabase/functions/_gedeeld/sepa.ts')
+
+  /* --- de toets --- */
+
+  check('een goede Nederlandse IBAN komt erdoor', ibanKlopt('NL91ABNA0417164300'))
+  check('met spaties ook', ibanKlopt('NL91 ABNA 0417 1643 00'))
+  check('en in kleine letters', ibanKlopt('nl91abna0417164300'))
+
+  /*
+   * Eén cijfer verkeerd is precies wat een model doet met een slechte scan.
+   * Zou dat erdoor komen, dan gaat er geld naar een rekening die niet
+   * bestaat -- of erger, naar een die wel bestaat.
+   */
+  check('één cijfer verkeerd valt af', !ibanKlopt('NL91ABNA0417164301'))
+  check('een te korte valt af', !ibanKlopt('NL91ABNA04'))
+  check('en leeg ook', !ibanKlopt(''))
+
+  /* --- het bestand --- */
+
+  const uit = maakSepa({
+    berichtId: 'bb_test1',
+    eigenNaam: 'Truckwash1 Group B.V.',
+    eigenIban: 'NL91ABNA0417164300',
+    uitvoerenOp: new Date('2026-04-03T00:00:00Z'),
+    regels: [
+      { id: 'exp_1', naam: 'Enexis B.V.', iban: 'NL02ABNA0123456789', bedrag: 121, kenmerk: '2026-00841' },
+      { id: 'exp_2', naam: 'Fout & Co', iban: 'NL00FOUT0000000000', bedrag: 50, kenmerk: 'X' },
+      { id: 'exp_3', naam: 'Nul B.V.', iban: 'NL91ABNA0417164300', bedrag: 0, kenmerk: 'Y' },
+    ],
+  })
+
+  check('alleen de goede regel gaat mee', uit.aantal === 1, String(uit.aantal))
+  check('en de andere twee worden gemeld met een reden',
+    uit.overgeslagen.length === 2
+    && uit.overgeslagen.some((o) => /klopt niet/.test(o.reden))
+    && uit.overgeslagen.some((o) => /nul/.test(o.reden)),
+    JSON.stringify(uit.overgeslagen))
+
+  check('het totaal is dat van wat meegaat', uit.totaal === 121, String(uit.totaal))
+
+  /*
+   * De bank telt na. Staat er in CtrlSum iets anders dan de som van de
+   * bedragen, of in NbOfTxs iets anders dan het aantal, dan weigert hij het
+   * bestand -- en dat is precies het soort fout dat je niet met het oog ziet.
+   */
+  check('het aantal in de kop klopt met de regels',
+    (uit.xml.match(/<NbOfTxs>1<\/NbOfTxs>/g) ?? []).length === 2)
+  check('en het controletotaal ook',
+    (uit.xml.match(/<CtrlSum>121\.00<\/CtrlSum>/g) ?? []).length === 2)
+
+  check('de uitvoerdatum staat erin', uit.xml.includes('<ReqdExctnDt>2026-04-03</ReqdExctnDt>'))
+  check('en het is pain.001.001.03',
+    uit.xml.includes('urn:iso:std:iso:20022:tech:xsd:pain.001.001.03'))
+
+  /*
+   * Een leveranciersnaam met een ampersand erin maakt van geldige XML een
+   * bestand dat de bank niet kan lezen -- en dat merk je pas daar.
+   */
+  const metTeken = maakSepa({
+    berichtId: 'bb_test2',
+    eigenNaam: 'Truckwash1 Group B.V.',
+    eigenIban: 'NL91ABNA0417164300',
+    uitvoerenOp: new Date('2026-04-03T00:00:00Z'),
+    regels: [{ id: 'exp_9', naam: 'Jansen & Zonen', iban: 'NL02ABNA0123456789', bedrag: 10 }],
+  })
+  /*
+   * De ampersand haalt het bestand niet eens: SEPA staat hem niet toe in een
+   * naam, dus hij wordt al bij het opschonen vervangen. Dat is de goede
+   * uitkomst -- de bank zou hem anders weigeren. Wat hier wordt vastgelegd is
+   * dat er GEEN losse & in de XML belandt, hoe dan ook: dat zou van geldige
+   * XML een bestand maken dat niet te lezen is.
+   */
+  check('een ampersand haalt het bestand niet',
+    metTeken.xml.includes('Jansen Zonen'), metTeken.xml.match(/<Nm>[^<]*<\/Nm>/g)?.join(' | '))
+  check('en er staat nergens een losse ampersand in',
+    !/&(?!(amp|lt|gt|quot|apos);)/.test(metTeken.xml))
+
+  /* En tekens die SEPA niet toestaat worden vervangen, niet weggelaten:
+     "Müller" hoort "Muller" te worden en niet "Mller". */
+  const metAccent = maakSepa({
+    berichtId: 'bb_test3',
+    eigenNaam: 'Truckwash1 Group B.V.',
+    eigenIban: 'NL91ABNA0417164300',
+    uitvoerenOp: new Date('2026-04-03T00:00:00Z'),
+    regels: [{ id: 'exp_8', naam: 'Müller Transport', iban: 'NL02ABNA0123456789', bedrag: 10 }],
+  })
+  check('een accent wordt vervangen en niet weggelaten',
+    metAccent.xml.includes('Muller Transport'), metAccent.xml.slice(0, 0) || 'zie bestand')
+
+  /* En een eigen rekening die niet klopt is geen regel die je overslaat maar
+     een bestand dat nergens heen kan. */
+  let eigenFout = false
+  try {
+    maakSepa({
+      berichtId: 'bb_test4',
+      eigenNaam: 'Truckwash1 Group B.V.',
+      eigenIban: 'NL00FOUT0000000000',
+      uitvoerenOp: new Date('2026-04-03T00:00:00Z'),
+      regels: [{ id: 'exp_7', naam: 'Test', iban: 'NL02ABNA0123456789', bedrag: 10 }],
+    })
+  } catch {
+    eigenFout = true
+  }
+  check('een eigen rekening die niet klopt stopt het hele bestand', eigenFout)
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -29,6 +29,10 @@
  *   verkoop-opmaken   concepten maken uit de wasbeurten van een maand
  *   verkoop-versturen een concept een nummer geven en op verstuurd zetten
  *   stuur-verkoop     verstuurde verkoopfacturen naar Exact
+ *   betaal-stand      wat er openstaat en welke opdrachten er zijn
+ *   sepa-maken        een betaalbestand voor de bank
+ *   batch-uitvoeren   de facturen van een opdracht op betaald zetten
+ *   zet-betaald       één factuur met de hand op betaald
  *   koppel-leverancier  met de hand zeggen welke crediteur het is
  *   dagboeken / btw-codes   lijstjes uit Exact om uit te kiezen
  *
@@ -66,6 +70,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import {
   ExactFout, exactDatum, exactLijst, exactPost, geldigToken, type ExactLijn,
 } from '../_gedeeld/exact.ts'
+import { maakSepa } from '../_gedeeld/sepa.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -935,6 +940,207 @@ async function grootboekStand() {
     laatsteFout: sync.data?.laatste_fout ?? null,
     door: sync.data?.door ?? null,
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Betalen
+ *
+ *  Casper: "zorg ervoor dat je hem ook op betaald kan zetten, evt een sepa
+ *  bestand kan aanmaken."
+ *
+ *  Het bestand maken en het betaald zetten zijn met opzet twee handelingen.
+ *  Een bestand maken is niet hetzelfde als geld overmaken -- er kan van alles
+ *  tussen komen: de bank weigert het, iemand vergeet te fiatteren, het blijft
+ *  in de map staan. Pas als iemand zegt dat het is uitgevoerd, gaan de
+ *  facturen op betaald.
+ * ------------------------------------------------------------------ */
+
+async function betaalStand() {
+  const [open, batches, bvs] = await Promise.all([
+    admin.rpc('betaalbaar'),
+    admin.from('betaalbatch').select('*').order('aangemaakt_at', { ascending: false }).limit(30),
+    admin.from('exact_administratie')
+      .select('code, naam, eigen_iban, eigen_naam, eigen_bic').eq('actief', true).order('code'),
+  ])
+  if (open.error) throw new ExactFout(`openstaande facturen: ${open.error.message}`)
+
+  const openstaand = ((open.data ?? []) as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id),
+    leverancier: String(r.leverancier ?? ''),
+    factuurnummer: (r.factuurnummer as string) ?? null,
+    bedragIncl: Number(r.bedrag_incl) || 0,
+    iban: String(r.iban ?? ''),
+    administratie: (r.administratie as string) ?? null,
+    datum: Number(r.datum) || 0,
+    vervaldatum: (r.vervaldatum as number) ?? null,
+  }))
+
+  return {
+    openstaand,
+    /* Zonder rekeningnummer valt er niets over te maken; dat is het eerste
+       wat je wilt zien, want het is werk voor een mens. */
+    zonderIban: openstaand.filter((r) => !r.iban).length,
+    totaalOpen: Math.round(openstaand.reduce((t, r) => t + r.bedragIncl, 0) * 100) / 100,
+    batches: (batches.data ?? []).map((b) => ({
+      id: String(b.id),
+      administratie: (b.administratie as string) ?? null,
+      bestandsnaam: String(b.bestandsnaam ?? ''),
+      aantal: Number(b.aantal) || 0,
+      totaal: Number(b.totaal) || 0,
+      status: String(b.status),
+      aangemaaktAt: Number(b.aangemaakt_at) || 0,
+      uitgevoerdAt: (b.uitgevoerd_at as number) ?? null,
+      door: (b.door as string) ?? null,
+    })),
+    administraties: (bvs.data ?? []).map((a) => ({
+      code: String(a.code),
+      naam: String(a.naam ?? ''),
+      eigenIban: String(a.eigen_iban ?? ''),
+      eigenNaam: String(a.eigen_naam ?? ''),
+      eigenBic: String(a.eigen_bic ?? ''),
+    })),
+  }
+}
+
+async function sepaMaken(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const bv = String(body.administratie ?? '').trim()
+  if (!bv) return json({ ok: false, reden: 'Geef aan uit welke bv er betaald wordt.' }, 400)
+
+  const { data: adm } = await admin.from('exact_administratie')
+    .select('eigen_iban, eigen_naam, eigen_bic, naam').eq('code', bv).maybeSingle()
+  if (!adm?.eigen_iban) {
+    return json({
+      ok: false,
+      reden: `Voor ${bv} staat er geen eigen rekeningnummer. Zet dat eerst bij de bv.`,
+    }, 409)
+  }
+
+  const stand = await betaalStand()
+  const kiezen = new Set((Array.isArray(body.ids) ? body.ids : []).map(String))
+  const regels = stand.openstaand
+    .filter((r) => r.administratie === bv)
+    .filter((r) => kiezen.size === 0 || kiezen.has(r.id))
+
+  if (regels.length === 0) {
+    return json({ ok: false, reden: 'Er staat niets open voor deze bv.' }, 409)
+  }
+
+  /* Uitvoeren op de eerstvolgende werkdag. Een bestand met de datum van
+     vandaag erin komt bij de bank aan als "zo snel mogelijk"; morgen is
+     rustiger en geeft ruimte om het nog tegen te houden. */
+  const uitvoeren = new Date()
+  uitvoeren.setUTCDate(uitvoeren.getUTCDate() + 1)
+  while (uitvoeren.getUTCDay() === 0 || uitvoeren.getUTCDay() === 6) {
+    uitvoeren.setUTCDate(uitvoeren.getUTCDate() + 1)
+  }
+
+  const batchId = 'bb_' + crypto.randomUUID().replace(/-/g, '').slice(0, 18)
+
+  const uit = maakSepa({
+    berichtId: batchId,
+    eigenNaam: String(adm.eigen_naam ?? adm.naam ?? 'Truckwash'),
+    eigenIban: String(adm.eigen_iban),
+    eigenBic: (adm.eigen_bic as string) ?? null,
+    uitvoerenOp: uitvoeren,
+    regels: regels.map((r) => ({
+      id: r.id,
+      naam: r.leverancier,
+      iban: r.iban,
+      bedrag: r.bedragIncl,
+      kenmerk: r.factuurnummer,
+    })),
+  })
+
+  if (uit.aantal === 0) {
+    return json({
+      ok: false,
+      reden: 'Geen enkele factuur kon mee; zie de lijst hieronder.',
+      overgeslagen: uit.overgeslagen,
+    }, 409)
+  }
+
+  const { error } = await admin.from('betaalbatch').insert({
+    id: batchId,
+    administratie: bv,
+    bericht_id: batchId,
+    bestandsnaam: uit.bestandsnaam,
+    aantal: uit.aantal,
+    totaal: uit.totaal,
+    uitvoeren_op: uitvoeren.getTime(),
+    door: beller.naam || beller.id,
+  })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  const meegenomen = new Set(uit.overgeslagen.map((o) => o.id))
+  const lijnen = regels.filter((r) => !meegenomen.has(r.id)).map((r) => ({
+    id: 'br_' + r.id,
+    batch_id: batchId,
+    expense_id: r.id,
+    naam: r.leverancier,
+    iban: r.iban,
+    bedrag: r.bedragIncl,
+    kenmerk: r.factuurnummer,
+  }))
+  const { error: rFout } = await admin.from('betaalregel').insert(lijnen)
+  if (rFout) {
+    /* De regels zijn de reden dat de batch bestaat; zonder regels is hij een
+       lege huls die later voor verwarring zorgt. Dus meteen weer weg. */
+    await admin.from('betaalbatch').delete().eq('id', batchId)
+    return json({ ok: false, reden: rFout.message }, 502)
+  }
+
+  return json({
+    ok: true,
+    batchId,
+    bestandsnaam: uit.bestandsnaam,
+    xml: uit.xml,
+    aantal: uit.aantal,
+    totaal: uit.totaal,
+    overgeslagen: uit.overgeslagen,
+    ...await betaalStand(),
+  })
+}
+
+async function batchUitvoeren(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const id = String(body.batchId ?? '').trim()
+  if (!id) return json({ ok: false, reden: 'Geen betaalopdracht meegestuurd.' }, 400)
+
+  const { data, error } = await admin.rpc('betaalbatch_uitvoeren', {
+    batch_in: id,
+    door_in: beller.naam || beller.id,
+  })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({ ok: true, betaald: Number(data ?? 0), ...await betaalStand() })
+}
+
+async function zetBetaald(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const id = String(body.expenseId ?? '').trim()
+  const verkoopId = String(body.verkoopId ?? '').trim()
+  const terug = body.terug === true
+
+  if (id) {
+    const { error } = await admin.from('expenses').update({
+      betaald_at: terug ? null : Date.now(),
+      betaald_door: terug ? null : (beller.naam || beller.id),
+      updated_at: Date.now(),
+    }).eq('id', id)
+    if (error) return json({ ok: false, reden: error.message }, 502)
+    return json({ ok: true, ...await betaalStand() })
+  }
+
+  if (verkoopId) {
+    const { error } = await admin.from('verkoopfactuur').update({
+      status: terug ? 'verstuurd' : 'betaald',
+      betaald_at: terug ? null : Date.now(),
+      betaald_door: terug ? null : (beller.naam || beller.id),
+      updated_at: Date.now(),
+    }).eq('id', verkoopId)
+    if (error) return json({ ok: false, reden: error.message }, 502)
+    return json({ ok: true, ...await verkoopStand() })
+  }
+
+  return json({ ok: false, reden: 'Geen factuur meegestuurd.' }, 400)
 }
 
 /* ------------------------------------------------------------------ *
@@ -2077,6 +2283,19 @@ Deno.serve(async (req) => {
     }
 
     /* ---- facturen ---- */
+
+    /* ---- betalen ---- */
+
+    if (actie === 'betaal-stand' || actie === 'sepa-maken'
+        || actie === 'batch-uitvoeren' || actie === 'zet-betaald') {
+      if (!beller.magSleutels && !(await magAdministratie(req))) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      if (actie === 'sepa-maken') return await sepaMaken(body, beller)
+      if (actie === 'batch-uitvoeren') return await batchUitvoeren(body, beller)
+      if (actie === 'zet-betaald') return await zetBetaald(body, beller)
+      return json({ ok: true, ...await betaalStand() })
+    }
 
     /* ---- verkoopfacturen ---- */
 

@@ -1417,3 +1417,106 @@ export async function exactStuurVerkoop(): Promise<
     mislukt2: Array.isArray(uit.mislukt) ? uit.mislukt : [],
   }
 }
+
+
+/* ------------------------------------------------------------------ *
+ *  Betalen en SEPA
+ *
+ *  Het bestand maken en het betaald zetten zijn met opzet twee handelingen.
+ *  Een bestand maken is niet hetzelfde als geld overmaken.
+ * ------------------------------------------------------------------ */
+
+export interface OpenstaandeFactuur {
+  id: string
+  leverancier: string
+  factuurnummer: string | null
+  bedragIncl: number
+  /** Zoals de lezer hem van de factuur haalde. Leeg = niets over te maken. */
+  iban: string
+  administratie: string | null
+  datum: number
+  vervaldatum: number | null
+}
+
+export interface BetaalBatch {
+  id: string
+  administratie: string | null
+  bestandsnaam: string
+  aantal: number
+  totaal: number
+  status: 'concept' | 'uitgevoerd' | 'ingetrokken'
+  aangemaaktAt: number
+  uitgevoerdAt: number | null
+  door: string | null
+}
+
+export interface BetaalAdministratie {
+  code: string
+  naam: string
+  eigenIban: string
+  eigenNaam: string
+  eigenBic: string
+}
+
+export interface BetaalStand {
+  openstaand: OpenstaandeFactuur[]
+  zonderIban: number
+  totaalOpen: number
+  batches: BetaalBatch[]
+  administraties: BetaalAdministratie[]
+}
+
+function alsBetaal(uit: Partial<BetaalStand>): BetaalStand {
+  return {
+    openstaand: uit.openstaand ?? [],
+    zonderIban: uit.zonderIban ?? 0,
+    totaalOpen: uit.totaalOpen ?? 0,
+    batches: uit.batches ?? [],
+    administraties: uit.administraties ?? [],
+  }
+}
+
+export async function exactBetaalStand(): Promise<BetaalStand> {
+  return alsBetaal(await roepFunctie<BetaalStand>('exact', { actie: 'betaal-stand' }))
+}
+
+export interface SepaUitkomst extends BetaalStand {
+  batchId: string
+  bestandsnaam: string
+  xml: string
+  aantal: number
+  totaal: number
+  /** Wat er niet in kon, met de reden erbij. */
+  overgeslagen: { id: string; naam: string; reden: string }[]
+}
+
+export async function exactSepaMaken(
+  administratie: string, ids?: string[],
+): Promise<SepaUitkomst> {
+  const uit = await roepFunctie<SepaUitkomst>(
+    'exact', { actie: 'sepa-maken', administratie, ...(ids?.length ? { ids } : {}) })
+  return {
+    ...alsBetaal(uit),
+    batchId: uit.batchId ?? '',
+    bestandsnaam: uit.bestandsnaam ?? 'betaling.xml',
+    xml: uit.xml ?? '',
+    aantal: uit.aantal ?? 0,
+    totaal: uit.totaal ?? 0,
+    overgeslagen: uit.overgeslagen ?? [],
+  }
+}
+
+/** Pas hier gaan de facturen op betaald: het bestand is dan echt gedraaid. */
+export async function exactBatchUitvoeren(
+  batchId: string,
+): Promise<BetaalStand & { betaald: number }> {
+  const uit = await roepFunctie<BetaalStand & { betaald?: number }>(
+    'exact', { actie: 'batch-uitvoeren', batchId })
+  return { ...alsBetaal(uit), betaald: uit.betaald ?? 0 }
+}
+
+export async function exactZetBetaald(
+  wat: { expenseId?: string; verkoopId?: string; terug?: boolean },
+): Promise<void> {
+  await roepFunctie<{ ok: boolean }>('exact', { actie: 'zet-betaald', ...wat })
+}

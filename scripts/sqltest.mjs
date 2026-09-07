@@ -195,6 +195,7 @@ await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/m
 await run(db, '0062_een_factuur_splitsen.sql draait', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 await run(db, '0063_relaties_uit_exact.sql draait', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
 await run(db, '0064_verkoopfacturen.sql draait', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
+await run(db, '0065_betalen_en_sepa.sql draait', sqlFile('supabase/migrations/0065_betalen_en_sepa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -261,6 +262,7 @@ await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van
 await run(db, '0062 nogmaals', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
 await run(db, '0063 nogmaals', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
 await run(db, '0064 nogmaals', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
+await run(db, '0065 nogmaals', sqlFile('supabase/migrations/0065_betalen_en_sepa.sql'))
 
 
 
