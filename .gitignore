@@ -33,3 +33,7 @@ Truckwash1-Dashboard-*.apk
 
 # Werkbestanden van de Supabase-CLI
 supabase/.temp/
+
+# Persoonlijke Claude Code-instellingen: hierin staan absolute paden van deze
+# machine, en deze repo is publiek.
+.claude/settings.local.json
