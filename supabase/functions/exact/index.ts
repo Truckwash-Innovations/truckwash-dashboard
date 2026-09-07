@@ -20,6 +20,11 @@
  *   sync-personeel    het personeel uit Exact ophalen
  *   personeel-stand   onze mensen naast die van Exact leggen
  *   koppel-medewerker met de hand zeggen wie wie is
+ *   sync-crediteuren  de leveranciers uit Exact ophalen
+ *   facturen-stand    wat er klaarstaat om te versturen, en wat mist
+ *   stuur-facturen    goedgekeurde facturen als inkoopboeking naar Exact
+ *   koppel-leverancier  met de hand zeggen welke crediteur het is
+ *   dagboeken / btw-codes   lijstjes uit Exact om uit te kiezen
  *
  * Het praten met Exact zelf staat in _gedeeld/exact.ts -- inclusief het
  * verversen van het token, want dat leeft tien minuten. Facturen versturen
@@ -52,7 +57,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
-import { ExactFout, exactLijst, geldigToken } from '../_gedeeld/exact.ts'
+import { ExactFout, exactDatum, exactLijst, exactPost, geldigToken } from '../_gedeeld/exact.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -819,6 +824,319 @@ async function grootboekStand() {
 }
 
 /* ------------------------------------------------------------------ *
+ *  De crediteuren
+ * ------------------------------------------------------------------ */
+
+interface ExactAccount {
+  ID?: string
+  Code?: string
+  Name?: string
+  VATNumber?: string
+}
+
+async function syncCrediteuren(beller: Beller): Promise<Response> {
+  const lijn = await geldigToken(admin)
+
+  const rijen = await exactLijst<ExactAccount>(lijn, 'crm/Accounts', {
+    $select: 'ID,Code,Name,VATNumber',
+    $filter: 'IsSupplier eq true',
+  })
+
+  const nu = Date.now()
+  const uit = rijen
+    .filter((r) => r.ID)
+    .map((r) => ({
+      exact_id: String(r.ID),
+      code: (r.Code ?? '').trim() || null,
+      naam: String(r.Name ?? '').trim(),
+      btw_nummer: r.VATNumber ?? null,
+      division: lijn.division,
+      updated_at: nu,
+    }))
+
+  if (uit.length > 0) {
+    for (let i = 0; i < uit.length; i += 200) {
+      const { error } = await admin.from('exact_crediteur')
+        .upsert(uit.slice(i, i + 200), { onConflict: 'exact_id' })
+      if (error) throw new ExactFout(`exact_crediteur schrijven: ${error.message}`)
+    }
+    await admin.from('exact_crediteur').delete().lt('updated_at', nu)
+  }
+
+  /*
+   * De zoeknaam en het automatisch koppelen doet de database, in één keer.
+   * Dat scheelt niet alleen verkeer: kaal_bedrijf() staat daar, en als deze
+   * functie zijn eigen versie van "dezelfde naam" zou maken, lopen die twee
+   * binnen een half jaar uit elkaar.
+   */
+  const { error: klaar } = await admin.rpc('exact_crediteuren_klaarzetten', {
+    door_in: beller.naam || beller.id,
+  })
+  if (klaar) throw new ExactFout(`crediteuren klaarzetten: ${klaar.message}`)
+
+  await admin.from('exact_sync').upsert({
+    soort: 'crediteuren',
+    laatst_at: nu,
+    aantal: uit.length,
+    laatste_fout: null,
+    door: beller.naam || beller.id,
+    updated_at: nu,
+  }, { onConflict: 'soort' })
+
+  return json({ ok: true, aantal: uit.length, ...await facturenStand() })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat er klaarstaat, en wat er nog mist
+ * ------------------------------------------------------------------ */
+
+async function instellingenVoorFacturen() {
+  const { data } = await admin.from('instellingen')
+    .select('sleutel, waarde')
+    .in('sleutel', ['exact_facturen', 'exact_dagboek', 'exact_btw_21', 'exact_btw_9', 'exact_btw_0'])
+  const bij = Object.fromEntries((data ?? []).map((r) => [r.sleutel, String(r.waarde ?? '').trim()]))
+  return {
+    aan: (bij.exact_facturen ?? 'uit') === 'aan',
+    dagboek: bij.exact_dagboek ?? '',
+    btw: { 21: bij.exact_btw_21 ?? '', 9: bij.exact_btw_9 ?? '', 0: bij.exact_btw_0 ?? '' },
+  }
+}
+
+async function facturenStand() {
+  const inst = await instellingenVoorFacturen()
+
+  /*
+   * Eén databasefunctie in plaats van een vraag per bon.
+   *
+   * Hier stond een lus die voor elke bon apart kaal_bedrijf() aanriep om de
+   * leverancier te normaliseren. Bij tweehonderd wachtende bonnen zijn dat
+   * tweehonderd heen-en-weertjes, en het zette bovendien de kennis van "wat
+   * is dezelfde naam" op twee plekken. Nu doet de database het in één keer.
+   */
+  const [wacht, gedaan, mislukt, sync] = await Promise.all([
+    admin.rpc('exact_facturen_wachtend'),
+    admin.from('expenses').select('id', { count: 'exact', head: true }).not('exact_id', 'is', null),
+    admin.from('expenses').select('id', { count: 'exact', head: true })
+      .eq('status', 'goedgekeurd').is('exact_id', null).not('exact_fout', 'is', null),
+    admin.from('exact_sync').select('*').eq('soort', 'facturen').maybeSingle(),
+  ])
+  if (wacht.error) throw new ExactFout(`wachtende facturen: ${wacht.error.message}`)
+
+  const wachtend = ((wacht.data ?? []) as Record<string, unknown>[]).map((e) => {
+    const mist: string[] = []
+    if (!e.crediteur_id) mist.push('crediteur')
+    if (!e.grootboek_id) mist.push('grootboekrekening')
+    if (!Number(e.bedrag)) mist.push('bedrag')
+    return {
+      id: String(e.id),
+      leverancier: String(e.leverancier ?? ''),
+      zoeknaam: String(e.zoeknaam ?? ''),
+      factuurnummer: (e.factuurnummer as string) ?? null,
+      bedrag: Number(e.bedrag) || 0,
+      btwPct: Number(e.btw_pct) || 0,
+      grootboek: (e.grootboek_code as string) ?? null,
+      grootboekId: (e.grootboek_id as string) ?? null,
+      crediteurId: (e.crediteur_id as string) ?? null,
+      datum: Number(e.datum) || 0,
+      crediteur: (e.crediteur_naam as string) ?? null,
+      mist,
+      fout: (e.fout as string) ?? null,
+    }
+  })
+
+  const { count: crediteuren } = await admin
+    .from('exact_crediteur').select('exact_id', { count: 'exact', head: true })
+
+  return {
+    aan: inst.aan,
+    dagboek: inst.dagboek,
+    btw: inst.btw,
+    wachtend,
+    /* Wat er nog moet gebeuren voordat er ook maar iets kan. */
+    ontbreekt: [
+      ...(inst.dagboek ? [] : ['het inkoopdagboek']),
+      ...(inst.btw[21] ? [] : ['de btw-code voor 21%']),
+      ...(crediteuren ? [] : ['de crediteuren uit Exact']),
+    ],
+    verstuurd: gedaan.count ?? 0,
+    mislukt: mislukt.count ?? 0,
+    crediteuren: crediteuren ?? 0,
+    laatstAt: sync.data?.laatst_at ?? null,
+    laatsteFout: sync.data?.laatste_fout ?? null,
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Lijstjes uit Exact om uit te kiezen
+ *
+ *  Niet opgeslagen: het zijn er een handvol en je kijkt er één keer naar,
+ *  bij het instellen. Een tabel erbij die daarna nooit meer bijgewerkt wordt
+ *  is een tabel die na een jaar iets anders beweert dan Exact.
+ * ------------------------------------------------------------------ */
+
+async function dagboeken(): Promise<Response> {
+  const lijn = await geldigToken(admin)
+  const rijen = await exactLijst<{ Code?: string; Description?: string; Type?: number }>(
+    lijn, 'financial/Journals', { $select: 'Code,Description,Type' })
+  /* Type 20 is het inkoopdagboek bij Exact. De rest tonen we ook maar
+     onderaan -- een administratie kan afwijkend zijn ingericht. */
+  return json({
+    ok: true,
+    dagboeken: rijen
+      .map((r) => ({
+        code: String(r.Code ?? '').trim(),
+        naam: String(r.Description ?? '').trim(),
+        inkoop: r.Type === 20,
+      }))
+      .filter((r) => r.code)
+      .sort((a, b) => Number(b.inkoop) - Number(a.inkoop) || a.code.localeCompare(b.code)),
+  })
+}
+
+async function btwCodes(): Promise<Response> {
+  const lijn = await geldigToken(admin)
+  const rijen = await exactLijst<{ Code?: string; Description?: string; Percentage?: number }>(
+    lijn, 'vat/VATCodes', { $select: 'Code,Description,Percentage' })
+  return json({
+    ok: true,
+    codes: rijen
+      .map((r) => ({
+        code: String(r.Code ?? '').trim(),
+        naam: String(r.Description ?? '').trim(),
+        /* Exact geeft 0.21 waar wij 21 zeggen. */
+        pct: typeof r.Percentage === 'number' ? Math.round(r.Percentage * 100) : null,
+      }))
+      .filter((r) => r.code)
+      .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1)),
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Met de hand koppelen
+ * ------------------------------------------------------------------ */
+
+async function koppelLeverancier(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const zoeknaam = String(body.zoeknaam ?? '').trim()
+  if (!zoeknaam) return json({ ok: false, reden: 'Geen leverancier meegestuurd.' }, 400)
+
+  const exactId = String(body.exactId ?? '').trim()
+  if (!exactId) {
+    await admin.from('exact_leverancier').delete().eq('zoeknaam', zoeknaam)
+    return json({ ok: true, ...await facturenStand() })
+  }
+
+  const { data: cred } = await admin.from('exact_crediteur')
+    .select('exact_id, naam').eq('exact_id', exactId).maybeSingle()
+  if (!cred) return json({ ok: false, reden: 'Die crediteur staat niet in de opgehaalde lijst.' }, 404)
+
+  const { error } = await admin.from('exact_leverancier').upsert({
+    zoeknaam,
+    gezien_als: String(body.gezienAls ?? ''),
+    exact_id: exactId,
+    exact_naam: cred.naam,
+    bron: 'handmatig',
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'zoeknaam' })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({ ok: true, ...await facturenStand() })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Versturen
+ *
+ *  Het slot zit hier en niet in het scherm. Casper wilde dit alvast
+ *  ingebouwd hebben maar uit laten staan, en een knop die je verstopt is
+ *  geen slot -- deze functie is met een gewoon verzoek aan te roepen.
+ *
+ *  Verder: één bon tegelijk, en na elke bon meteen wegschrijven wat ervan
+ *  kwam. Zou dat pas aan het eind gebeuren, dan is een tijdslimiet halverwege
+ *  genoeg om vijf boekingen in Exact te hebben staan waarvan wij denken dat
+ *  ze er niet zijn -- en de volgende ronde stuurt ze nog een keer.
+ * ------------------------------------------------------------------ */
+
+interface BoekingAntwoord {
+  EntryID?: string
+  EntryNumber?: number
+}
+
+async function stuurFacturen(beller: Beller): Promise<Response> {
+  const inst = await instellingenVoorFacturen()
+  if (!inst.aan) {
+    return json({
+      ok: false,
+      reden: 'Facturen naar Exact staat uit. Zet hem aan bij Ontwikkeling, Exact.',
+    }, 409)
+  }
+  if (!inst.dagboek) {
+    return json({ ok: false, reden: 'Er staat geen inkoopdagboek ingesteld.' }, 409)
+  }
+
+  const lijn = await geldigToken(admin)
+  const stand = await facturenStand()
+  const klaar = stand.wachtend.filter((b) => b.mist.length === 0)
+
+  let gelukt = 0
+  const mislukt: { id: string; reden: string }[] = []
+
+  for (const bon of klaar.slice(0, 25)) {
+    try {
+      if (!bon.crediteurId) throw new Error('geen crediteur gekoppeld')
+      if (!bon.grootboekId) throw new Error(`rekening ${bon.grootboek} bestaat niet in Exact`)
+
+      const btwCode = inst.btw[bon.btwPct as 21 | 9 | 0] ?? inst.btw[21]
+      if (!btwCode) throw new Error(`geen btw-code ingesteld voor ${bon.btwPct}%`)
+
+      /*
+       * YourRef en niet InvoiceNumber. Dat laatste is bij Exact een geheel
+       * getal, en een factuurnummer is bijna nooit alleen cijfers --
+       * "2026-00841" of "F/44821". Erin persen levert een 400 op die niets
+       * uitlegt.
+       */
+      const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
+        Journal: inst.dagboek,
+        Supplier: bon.crediteurId,
+        EntryDate: exactDatum(bon.datum || Date.now()),
+        Description: `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`.slice(0, 60),
+        YourRef: (bon.factuurnummer ?? '').slice(0, 50),
+        PurchaseEntryLines: [{
+          AmountFC: bon.bedrag,
+          GLAccount: bon.grootboekId,
+          VATCode: btwCode,
+          Description: (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
+        }],
+      })
+
+      const id = uit.EntryID ?? (uit.EntryNumber != null ? String(uit.EntryNumber) : null)
+      if (!id) throw new Error('Exact gaf geen boekingsnummer terug')
+
+      await admin.from('expenses')
+        .update({ exact_id: id, exact_at: Date.now(), exact_fout: null, updated_at: Date.now() })
+        .eq('id', bon.id)
+      gelukt++
+    } catch (e) {
+      const reden = e instanceof Error ? e.message : String(e)
+      await admin.from('expenses')
+        .update({ exact_fout: reden.slice(0, 400), updated_at: Date.now() })
+        .eq('id', bon.id)
+      mislukt.push({ id: bon.id, reden })
+    }
+  }
+
+  await admin.from('exact_sync').upsert({
+    soort: 'facturen',
+    laatst_at: Date.now(),
+    aantal: gelukt,
+    laatste_fout: mislukt.length > 0 ? `${mislukt.length} mislukt` : null,
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'soort' })
+
+  return json({ ok: true, gelukt, mislukt, ...await facturenStand() })
+}
+
+/* ------------------------------------------------------------------ *
  *  Het personeel
  *
  *  Exporteren kan niet, en dat is geen keuze van ons: payroll/Employees in
@@ -1257,6 +1575,22 @@ Deno.serve(async (req) => {
       if (actie === 'koppel-medewerker') return await koppelMedewerker(body, beller)
       if (actie === 'medewerker-details') return await medewerkerDetails(body)
       return json({ ok: true, ...await personeelStand() })
+    }
+
+    /* ---- facturen ---- */
+
+    if (actie === 'sync-crediteuren' || actie === 'facturen-stand'
+        || actie === 'stuur-facturen' || actie === 'koppel-leverancier'
+        || actie === 'dagboeken' || actie === 'btw-codes') {
+      if (!beller.magSleutels && !(await magAdministratie(req))) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      if (actie === 'sync-crediteuren') return await syncCrediteuren(beller)
+      if (actie === 'stuur-facturen') return await stuurFacturen(beller)
+      if (actie === 'koppel-leverancier') return await koppelLeverancier(body, beller)
+      if (actie === 'dagboeken') return await dagboeken()
+      if (actie === 'btw-codes') return await btwCodes()
+      return json({ ok: true, ...await facturenStand() })
     }
 
     if (actie === 'los') {

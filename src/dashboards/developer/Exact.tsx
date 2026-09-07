@@ -38,7 +38,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Check, Download, ExternalLink, Link2, Link2Off, Loader2, Plus, RefreshCw,
-  Save, Search, Trash2, TriangleAlert, Unlink, Users, X,
+  Save, Search, Send, Trash2, TriangleAlert, Unlink, Users, X,
 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../lib/db'
@@ -48,11 +48,13 @@ import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
-  exactSyncPersoneel, exactVerbindUrl,
+  exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
+  exactSyncCrediteuren, exactSyncPersoneel, exactVerbindUrl,
+  type ExactBtwCode, type ExactDagboek, type FacturenStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
-import { dateShort, dateTime, relative } from '../../lib/format'
+import { dateShort, dateTime, money, relative } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 
@@ -522,6 +524,10 @@ export default function Exact() {
 
       <div style={{ gridColumn: '1 / -1' }}>
         <Personeel verbonden={stand?.verbonden === true} />
+      </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Facturen verbonden={stand?.verbonden === true} />
       </div>
     </div>
   )
@@ -1414,6 +1420,269 @@ function leesbaar(waarde: unknown): string {
   }
   if (typeof waarde === 'object') return ''
   return String(waarde)
+}
+
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Goedgekeurde facturen naar Exact
+ *
+ *  Casper: "uiteindelijk wil ik natuurlijk als er facturen goedgekeurd
+ *  worden, bij exact netjes komen, zodat we blue10 volledig weg kunnen halen.
+ *  Kan je dat wel alvast integreren, maar voor nu even uit laten zetten?"
+ *
+ *  Dus staat alles er en gaat er niets. Het slot zit op de server: die
+ *  weigert te versturen zolang de schakelaar uit staat. Een knop die je
+ *  verstopt is geen slot -- de functie is met een gewoon verzoek aan te
+ *  roepen.
+ * ------------------------------------------------------------------ */
+
+function Facturen({ verbonden }: { verbonden: boolean }) {
+  const [stand, setStand] = useState<FacturenStand | null>(null)
+  const [bezig, setBezig] = useState<string | null>(null)
+  const [fout, setFout] = useState<string | null>(null)
+  const [dagboeken, setDagboeken] = useState<ExactDagboek[] | null>(null)
+  const [codes, setCodes] = useState<ExactBtwCode[] | null>(null)
+  const [aanzetten, setAanzetten] = useState(false)
+
+  async function laad() {
+    try {
+      setStand(await exactFacturenStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  async function doe(wat: string, werk: () => Promise<void>) {
+    setBezig(wat)
+    try {
+      await werk()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(null)
+    }
+  }
+
+  async function zetAan(aan: boolean) {
+    await zetInstelling('exact_facturen', aan ? 'aan' : 'uit')
+    setAanzetten(false)
+    await laad()
+    toast.ok(aan
+      ? 'Goedgekeurde facturen gaan nu naar Exact.'
+      : 'Uitgezet. Er gaat niets meer naar Exact.')
+  }
+
+  const klaar = (stand?.wachtend ?? []).filter((b) => b.mist.length === 0)
+  const stuk = (stand?.wachtend ?? []).filter((b) => b.mist.length > 0)
+
+  return (
+    <Card
+      title="Goedgekeurde facturen naar Exact"
+      hint="Het einddoel: Blue10 eruit"
+      action={
+        <button className="btn ghost sm" onClick={() => void laad()} title="Opnieuw ophalen">
+          <RefreshCw size={14} />
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      {/* ---- de schakelaar ---- */}
+
+      <div className="row mb">
+        {stand?.aan
+          ? <Badge tone="ok" dot>staat aan</Badge>
+          : <Badge tone="warn" dot>staat uit</Badge>}
+        {stand && <span className="ts-sub">{stand.verstuurd} verstuurd · {klaar.length} klaar · {stuk.length} nog niet compleet</span>}
+      </div>
+
+      {stand && !stand.aan && (
+        <div className="waarschuwing zacht mb">
+          <span>
+            Er gaat niets naar Exact. Alles eromheen werkt wel — je kunt instellen en koppelen
+            zonder dat er één boeking wordt aangemaakt.
+          </span>
+        </div>
+      )}
+
+      <div className="row mb">
+        {stand?.aan ? (
+          <button className="btn danger sm" disabled={bezig !== null}
+            onClick={() => void doe('uit', () => zetAan(false))}>
+            Uitzetten
+          </button>
+        ) : (
+          <button className="btn sm" disabled={bezig !== null || !verbonden}
+            onClick={() => setAanzetten(true)}>
+            Aanzetten
+          </button>
+        )}
+        <button
+          className="btn sm"
+          disabled={bezig !== null || !verbonden}
+          onClick={() => void doe('crediteuren', async () => {
+            const uit = await exactSyncCrediteuren()
+            setStand(uit)
+            toast.ok(`${uit.aantal} crediteuren opgehaald.`)
+          })}
+        >
+          {bezig === 'crediteuren' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+          Crediteuren ophalen
+        </button>
+        <button
+          className="btn primary sm"
+          disabled={bezig !== null || !stand?.aan || klaar.length === 0}
+          onClick={() => void doe('sturen', async () => {
+            const uit = await exactStuurFacturen()
+            setStand(uit)
+            toast.ok(uit.mislukt2.length > 0
+              ? `${uit.gelukt} verstuurd, ${uit.mislukt2.length} mislukt.`
+              : `${uit.gelukt} factuur${uit.gelukt === 1 ? '' : 'en'} verstuurd.`)
+          })}
+        >
+          {bezig === 'sturen' ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+          Nu versturen ({klaar.length})
+        </button>
+      </div>
+
+      {/* ---- wat er nog moet staan ---- */}
+
+      {stand && stand.ontbreekt.length > 0 && (
+        <div className="waarschuwing mb">
+          <TriangleAlert size={14} />
+          <span>Er ontbreekt nog: {stand.ontbreekt.join(', ')}.</span>
+        </div>
+      )}
+
+      <div className="grid cols-3 mb">
+        <Field label="Inkoopdagboek" help="Vaak 70. Haal de lijst op om te kiezen.">
+          <div className="row">
+            <input
+              className="input mono" style={{ flex: 1 }}
+              defaultValue={stand?.dagboek ?? ''}
+              list="exact-dagboeken"
+              placeholder="70"
+              onBlur={(e) => void zetInstelling('exact_dagboek', e.currentTarget.value.trim()).then(laad)}
+            />
+            <button className="btn ghost sm" disabled={!verbonden}
+              onClick={() => void doe('dagboeken', async () => setDagboeken(await exactDagboeken()))}>
+              <Download size={13} />
+            </button>
+          </div>
+          <datalist id="exact-dagboeken">
+            {(dagboeken ?? []).map((d) => (
+              <option key={d.code} value={d.code}>{d.naam}{d.inkoop ? ' (inkoop)' : ''}</option>
+            ))}
+          </datalist>
+        </Field>
+
+        {([21, 9, 0] as const).map((pct) => (
+          <Field key={pct} label={`Btw-code ${pct}%`} help={pct === 21 ? 'Verplicht; de rest mag leeg.' : undefined}>
+            <div className="row">
+              <input
+                className="input mono" style={{ flex: 1 }}
+                defaultValue={stand?.btw?.[String(pct)] ?? ''}
+                list="exact-btw"
+                onBlur={(e) => void zetInstelling(`exact_btw_${pct}`, e.currentTarget.value.trim()).then(laad)}
+              />
+              {pct === 21 && (
+                <button className="btn ghost sm" disabled={!verbonden}
+                  onClick={() => void doe('btw', async () => setCodes(await exactBtwCodes()))}>
+                  <Download size={13} />
+                </button>
+              )}
+            </div>
+          </Field>
+        ))}
+      </div>
+
+      <datalist id="exact-btw">
+        {(codes ?? []).map((c) => (
+          <option key={c.code} value={c.code}>{c.naam}{c.pct != null ? ` (${c.pct}%)` : ''}</option>
+        ))}
+      </datalist>
+
+      {/* ---- wat er nog niet compleet is ---- */}
+
+      {stuk.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>
+            Nog niet compleet ({stuk.length})
+          </h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Deze bonnen zijn goedgekeurd maar kunnen nog niet weg. Meestal is de leverancier nog
+            niet aan een crediteur in Exact gekoppeld.
+          </p>
+          <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr><th>Datum</th><th>Leverancier</th><th className="num">Excl.</th><th>Rekening</th><th>Mist</th></tr>
+              </thead>
+              <tbody>
+                {stuk.map((b) => (
+                  <tr key={b.id}>
+                    <td>{b.datum ? dateShort(b.datum) : '—'}</td>
+                    <td className="afgekapt">{b.leverancier}</td>
+                    <td className="num">{b.bedrag > 0 ? money(b.bedrag) : '—'}</td>
+                    <td className="mono">{b.grootboek ?? '—'}</td>
+                    <td>
+                      {b.mist.map((m) => <Badge key={m} tone="warn">{m}</Badge>)}
+                      {b.fout && <span className="ts-sub"> · {b.fout}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+        Een bon die is verstuurd draagt het boekingsnummer van Exact en gaat nooit een tweede
+        keer — daar zit een slot op in de database, niet alleen in deze knop.
+      </p>
+
+      {/* ---- bevestigen: aanzetten ---- */}
+
+      {aanzetten && (
+        <Modal
+          open
+          title="Facturen naar Exact aanzetten?"
+          subtitle="Vanaf dat moment worden er echte boekingen aangemaakt"
+          onClose={() => setAanzetten(false)}
+          width={560}
+        >
+          <div className="waarschuwing mb">
+            <TriangleAlert size={14} />
+            <span>
+              Dit is de enige plek waar dit systeem iets in jullie boekhouding zet. Een boeking
+              die eenmaal in Exact staat, haal je daar weg en niet hier.
+            </span>
+          </div>
+          <p className="help" style={{ marginTop: 0 }}>
+            Er staan nu <strong>{klaar.length}</strong> goedgekeurde facturen klaar die compleet
+            zijn. Aanzetten stuurt ze nog niet — dat doe je met “Nu versturen”. Begin met één,
+            kijk in Exact of hij klopt, en ga dan pas verder.
+          </p>
+          {stand && stand.ontbreekt.length > 0 && (
+            <div className="waarschuwing zacht">
+              <span>Let op: {stand.ontbreekt.join(', ')} ontbreekt nog. Zonder dat gaat er niets.</span>
+            </div>
+          )}
+          <div className="row end" style={{ marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setAanzetten(false)}>Annuleren</button>
+            <button className="btn primary" onClick={() => void doe('aan', () => zetAan(true))}>
+              Aanzetten
+            </button>
+          </div>
+        </Modal>
+      )}
+    </Card>
+  )
 }
 
 /* ------------------------------------------------------------------ */

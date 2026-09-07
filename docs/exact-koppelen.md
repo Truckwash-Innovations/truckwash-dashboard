@@ -110,28 +110,46 @@ dat wil je weten voordat de factuur weg is, niet erna.
 Standaard toont hij alleen wat afwijkt. Klopt alles, dan staat er één groene
 regel en verder niets.
 
-## Wat er nog niet gebeurt
+## Facturen naar Exact
 
-De koppeling verbindt, houdt het token vers, en haalt het rekeningschema op.
-Er gaan nog **geen facturen naar Exact**.
+Dit is het einddoel — Blue10 eruit. Het zit er sinds 1.57.0 helemaal in, en
+het **staat uit**.
 
-Dat is geen vergeten stap maar een wachtende: een inkoopboeking in Exact heeft
-drie dingen nodig die we nog niet hebben, en die niet te verzinnen zijn.
+Dat "uit" is echt uit: de serverfunctie weigert te versturen zolang de
+schakelaar uit staat. Alles eromheen werkt wel, dus je kunt rustig instellen
+en koppelen zonder dat er één boeking wordt aangemaakt.
 
-1. **Een dagboek.** Exact wil weten in welk inkoopdagboek de boeking komt
-   (vaak 70). Dat nummer staat in jullie administratie en moet hier ingesteld
-   worden.
-2. **De leverancier als relatie in Exact.** Een boeking verwijst naar een
-   crediteur met een intern id van Exact, niet naar de naam op de factuur.
-   Er moet dus een koppeling komen tussen "Shell Nederland" op de bon en het
-   relatienummer in Exact — matchen op naam, en handmatig bijstellen waar dat
-   misgaat.
-3. **De btw-codes.** 21% heet in Exact niet "21" maar een code die per
-   administratie kan verschillen.
+### Wat er moet staan voordat er iets kan
 
-Zodra de koppeling staat en het rekeningschema is opgehaald, zijn die drie uit
-Exact zelf op te halen en in te stellen. Dat werkt niet blind: het moet tegen
-een echte administratie aangelegd worden, ook al is het de proef.
+Een inkoopboeking bij Exact heeft vier dingen nodig. Het scherm zegt welke
+ervan nog ontbreken.
+
+1. **Het inkoopdagboek** — vaak 70. Haal de lijst op met het pijltje naast het
+   veld en kies eruit.
+2. **De btw-code voor 21%** — die heet bij Exact niet "21" maar een code die
+   per administratie verschilt. Ook op te halen.
+3. **De crediteuren.** Klik op *Crediteuren ophalen*: hij haalt alle
+   leveranciers uit Exact en koppelt meteen wat op naam eenduidig te koppelen
+   is. "Shell Nederland Verkoopmij B.V." en "SHELL NEDERLAND VERKOOPMIJ bv"
+   komen daarbij op elkaar uit; twee verschillende firma's met dezelfde eerste
+   naam bewust níet — een factuur bij de verkeerde crediteur boeken is de fout
+   die niemand terugvindt.
+4. **Het rekeningschema**, met de codes waarop geboekt wordt. Zie hierboven.
+
+### Aanzetten
+
+Onder *Nog niet compleet* zie je welke goedgekeurde bonnen nog niet weg
+kunnen en waarom — meestal een leverancier die nog aan geen crediteur hangt.
+
+Aanzetten stuurt nog niets; dat doe je met **Nu versturen**. Begin met één,
+kijk in Exact of de boeking klopt, en ga dan pas verder.
+
+Een bon die verstuurd is draagt het boekingsnummer van Exact en gaat nooit een
+tweede keer. Dat slot zit in de database, niet in de knop.
+
+### Wat het niet doet
+
+Terugdraaien. Een boeking die in Exact staat, haal je daar weg en niet hier.
 
 ## Personeel
 

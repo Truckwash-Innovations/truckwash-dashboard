@@ -1123,3 +1123,99 @@ export async function exactKoppelMedewerker(
   return alsPersoneel(await roepFunctie<PersoneelStand>(
     'exact', { actie: 'koppel-medewerker', userId, employeeHid }))
 }
+
+
+/* ------------------------------------------------------------------ *
+ *  Goedgekeurde facturen naar Exact
+ *
+ *  Staat standaard uit, en dat slot zit op de server -- deze functies
+ *  krijgen gewoon een weigering terug zolang de schakelaar uit staat.
+ * ------------------------------------------------------------------ */
+
+export interface WachtendeFactuur {
+  id: string
+  leverancier: string
+  zoeknaam: string
+  factuurnummer: string | null
+  bedrag: number
+  btwPct: number
+  grootboek: string | null
+  crediteur: string | null
+  datum: number
+  /** Wat er nog ontbreekt voordat deze bon weg kan. Leeg = klaar. */
+  mist: string[]
+  fout: string | null
+}
+
+export interface FacturenStand {
+  aan: boolean
+  dagboek: string
+  btw: Record<string, string>
+  wachtend: WachtendeFactuur[]
+  /** Wat er nog moet gebeuren voordat er überhaupt iets kan. */
+  ontbreekt: string[]
+  verstuurd: number
+  mislukt: number
+  crediteuren: number
+  laatstAt: number | null
+  laatsteFout: string | null
+}
+
+function alsFacturen(uit: Partial<FacturenStand>): FacturenStand {
+  return {
+    aan: uit.aan === true,
+    dagboek: uit.dagboek ?? '',
+    btw: uit.btw ?? {},
+    wachtend: uit.wachtend ?? [],
+    ontbreekt: uit.ontbreekt ?? [],
+    verstuurd: uit.verstuurd ?? 0,
+    mislukt: uit.mislukt ?? 0,
+    crediteuren: uit.crediteuren ?? 0,
+    laatstAt: uit.laatstAt ?? null,
+    laatsteFout: uit.laatsteFout ?? null,
+  }
+}
+
+export async function exactFacturenStand(): Promise<FacturenStand> {
+  return alsFacturen(await roepFunctie<FacturenStand>('exact', { actie: 'facturen-stand' }))
+}
+
+export async function exactSyncCrediteuren(): Promise<FacturenStand & { aantal: number }> {
+  const uit = await roepFunctie<FacturenStand & { aantal?: number }>(
+    'exact', { actie: 'sync-crediteuren' })
+  return { ...alsFacturen(uit), aantal: uit.aantal ?? 0 }
+}
+
+/** Nu versturen. Weigert zolang de schakelaar uit staat. */
+export async function exactStuurFacturen(): Promise<
+  FacturenStand & { gelukt: number; mislukt2: { id: string; reden: string }[] }
+> {
+  const uit = await roepFunctie<
+    FacturenStand & { gelukt?: number; mislukt?: { id: string; reden: string }[] }
+  >('exact', { actie: 'stuur-facturen' })
+  return {
+    ...alsFacturen(uit),
+    gelukt: uit.gelukt ?? 0,
+    mislukt2: Array.isArray(uit.mislukt) ? uit.mislukt : [],
+  }
+}
+
+export async function exactKoppelLeverancier(
+  zoeknaam: string, exactId: string | null, gezienAls: string,
+): Promise<FacturenStand> {
+  return alsFacturen(await roepFunctie<FacturenStand>(
+    'exact', { actie: 'koppel-leverancier', zoeknaam, exactId, gezienAls }))
+}
+
+export interface ExactDagboek { code: string; naam: string; inkoop: boolean }
+export interface ExactBtwCode { code: string; naam: string; pct: number | null }
+
+export async function exactDagboeken(): Promise<ExactDagboek[]> {
+  const uit = await roepFunctie<{ dagboeken?: ExactDagboek[] }>('exact', { actie: 'dagboeken' })
+  return uit.dagboeken ?? []
+}
+
+export async function exactBtwCodes(): Promise<ExactBtwCode[]> {
+  const uit = await roepFunctie<{ codes?: ExactBtwCode[] }>('exact', { actie: 'btw-codes' })
+  return uit.codes ?? []
+}

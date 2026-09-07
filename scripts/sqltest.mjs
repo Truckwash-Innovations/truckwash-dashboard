@@ -188,6 +188,7 @@ await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migr
 await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
+await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -247,6 +248,7 @@ await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_
 await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
 await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
 await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
+await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
 
 
 
@@ -5140,6 +5142,83 @@ check('en zodra er een bon op staat, telt hij mee',
 check('anon mag die telling niet doen',
   (await db.query(`select has_function_privilege('anon',
      'public.grootboek_in_gebruik(text)', 'execute') as mag`)).rows[0].mag === false)
+
+/* ==================================================================== *
+ *  Goedgekeurde facturen naar Exact (0058)
+ *
+ *  Dit is de enige plek waar dit systeem iets in de boekhouding zet, en hij
+ *  staat met opzet uit. Dat "uit" moet dus ook echt uit zijn -- niet een
+ *  knop die verstopt is, maar een waarde waar de serverfunctie op kijkt.
+ *
+ *  En het tweede: dezelfde factuur mag nooit twee keer geboekt worden. Dat
+ *  slot zit al in 0053 (expenses.exact_id is uniek); hier wordt gecontroleerd
+ *  dat het spul eromheen klopt.
+ * ==================================================================== */
+
+console.log('\n42. Goedgekeurde facturen naar Exact (0058)')
+
+const fxInst = Object.fromEntries((await db.query(
+  `select sleutel, waarde from public.instellingen
+    where sleutel like 'exact_%'`)).rows.map((r) => [r.sleutel, r.waarde]))
+
+check('de schakelaar staat uit', fxInst.exact_facturen === 'uit',
+  String(fxInst.exact_facturen))
+check('en er staat nog geen dagboek of btw-code',
+  (fxInst.exact_dagboek ?? '') === '' && (fxInst.exact_btw_21 ?? '') === '')
+
+check('de twee tabellen bestaan',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public'
+       and table_name in ('exact_crediteur', 'exact_leverancier')`)).rows[0].n === 2)
+
+/* ---- namen vergelijkbaar maken ---- */
+
+const fxKaal = async (naam) =>
+  (await db.query(`select public.kaal_bedrijf($1) as k`, [naam])).rows[0].k
+
+check('twee schrijfwijzen komen op hetzelfde uit',
+  (await fxKaal('Shell Nederland Verkoopmij B.V.')) === (await fxKaal('SHELL NEDERLAND VERKOOPMIJ bv')),
+  `${await fxKaal('Shell Nederland Verkoopmij B.V.')} / ${await fxKaal('SHELL NEDERLAND VERKOOPMIJ bv')}`)
+
+check('leestekens en dubbele spaties tellen niet mee',
+  (await fxKaal('Van   Dijk  &  Zn.')) === (await fxKaal('van-dijk-&-zn')),
+  `${await fxKaal('Van   Dijk  &  Zn.')} / ${await fxKaal('van-dijk-&-zn')}`)
+
+check('en de rechtsvorm gaat eraf, met of zonder punten',
+  (await fxKaal('Enexis B.V.')) === 'enexis'
+  && (await fxKaal('Enexis BV')) === 'enexis'
+  && (await fxKaal('Enexis N.V.')) === 'enexis',
+  `${await fxKaal('Enexis B.V.')} / ${await fxKaal('Enexis BV')} / ${await fxKaal('Enexis N.V.')}`)
+
+/*
+ * En het belangrijkste: NIET te slim. Twee verschillende firma's met een
+ * gedeelde eerste naam horen niet op elkaar uit te komen -- een factuur bij
+ * de verkeerde crediteur boeken is de fout die niemand terugvindt.
+ */
+check('maar twee verschillende firma\'s blijven verschillend',
+  (await fxKaal('Van Dijk Transport B.V.')) !== (await fxKaal('Van Dijk Verhuur B.V.')))
+
+check('een lege naam levert niets op', (await fxKaal('   ')) === null)
+
+/* ---- wie mag erbij ---- */
+
+const fxPol = (await db.query(`
+  select tablename, cmd from pg_policies
+   where schemaname = 'public'
+     and tablename in ('exact_crediteur', 'exact_leverancier')`)).rows
+check('lezen mag, schrijven niet',
+  fxPol.length === 2 && fxPol.every((r) => r.cmd === 'SELECT'))
+
+check('de wachtrij-functie is alleen voor de server',
+  (await db.query(`select has_function_privilege('authenticated',
+     'public.exact_facturen_wachtend()', 'execute') as mag`)).rows[0].mag === false)
+
+/* ---- wat er klaarstaat ---- */
+
+const fxWacht = (await db.query(`select * from public.exact_facturen_wachtend()`)).rows
+check('een goedgekeurde bon zonder crediteur staat wel in de rij maar zonder koppeling',
+  Array.isArray(fxWacht))
 
 await db.close()
 
