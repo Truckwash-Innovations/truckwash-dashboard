@@ -718,102 +718,107 @@ function Splitsen({ bon }: { bon: Expense }) {
         </div>
       )}
 
-      <div className="table-wrap">
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Omschrijving</th>
-              <th className="num">Excl. btw</th>
-              <th>Btw</th>
-              <th>Rekening</th>
-              <th>Vestiging</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {opVolgorde.map((r) => (
-              <tr key={r.id}>
-                <td>
-                  <input
-                    className="input" style={{ minWidth: 140 }}
-                    defaultValue={r.omschrijving}
-                    disabled={!mag}
-                    placeholder="waarvoor"
-                    onBlur={(e) => { if (e.currentTarget.value !== r.omschrijving) void pas(r, { omschrijving: e.currentTarget.value }) }}
-                  />
-                </td>
-                <td className="num">
-                  <input
-                    className="input num" style={{ width: 100 }}
-                    inputMode="decimal"
-                    defaultValue={String(r.bedragExcl ?? '')}
-                    disabled={!mag}
-                    onBlur={(e) => {
-                      const v = Number(e.currentTarget.value.replace(',', '.'))
-                      if (!Number.isFinite(v)) { e.currentTarget.value = String(r.bedragExcl); return }
-                      if (v !== r.bedragExcl) void pas(r, { bedragExcl: v })
-                    }}
-                  />
-                </td>
-                <td>
-                  <select
-                    className="input" style={{ width: 78 }}
-                    value={String(r.btwPct ?? 21)}
-                    disabled={!mag}
-                    onChange={(e) => void pas(r, { btwPct: Number(e.currentTarget.value) })}
-                  >
-                    {[21, 9, 0].map((p) => <option key={p} value={p}>{p}%</option>)}
-                  </select>
-                </td>
-                <td>
-                  <select
-                    className="input" style={{ minWidth: 120 }}
-                    value={r.grootboekCode ?? ''}
-                    disabled={!mag}
-                    onChange={(e) => void pas(r, { grootboekCode: e.currentTarget.value || undefined })}
-                  >
-                    <option value="">— kies —</option>
-                    {rekeningen.filter((g) => g.actief || g.code === r.grootboekCode)
-                      .sort((a, b) => a.code.localeCompare(b.code))
-                      .map((g) => (
-                        <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
-                      ))}
-                  </select>
-                </td>
-                <td>
-                  <select
-                    className="input" style={{ minWidth: 120 }}
-                    value={r.locationId ?? ''}
-                    disabled={!mag}
-                    onChange={(e) => void pas(r, { locationId: e.currentTarget.value || undefined })}
-                  >
-                    <option value="">— van de bon —</option>
-                    {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name)).map((l) => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  {mag && (
-                    <button
-                      className="btn ghost sm"
-                      title="Deze regel weghalen"
-                      onClick={() => void expRepo.wisRegel(r.id)}
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="verdeling">
+        <div className="verdeel-kop">
+          <span>Omschrijving</span>
+          <span>Excl. btw</span>
+          <span>Btw</span>
+          <span>Rekening</span>
+          <span>Vestiging</span>
+          <span />
+        </div>
+
+        {opVolgorde.map((r) => (
+          <div className="verdeel-regel" key={r.id}>
+            <label className="verdeel-veld breed">
+              <span>Omschrijving</span>
+              <input
+                className="input"
+                defaultValue={r.omschrijving}
+                disabled={!mag}
+                placeholder="waarvoor"
+                onBlur={(e) => { if (e.currentTarget.value !== r.omschrijving) void pas(r, { omschrijving: e.currentTarget.value }) }}
+              />
+            </label>
+
+            <label className="verdeel-veld">
+              <span>Excl. btw</span>
+              <input
+                className="input num"
+                inputMode="decimal"
+                defaultValue={String(r.bedragExcl ?? '')}
+                disabled={!mag}
+                onBlur={(e) => {
+                  const v = Number(e.currentTarget.value.replace(',', '.'))
+                  if (!Number.isFinite(v)) { e.currentTarget.value = String(r.bedragExcl); return }
+                  if (v !== r.bedragExcl) void pas(r, { bedragExcl: v })
+                }}
+              />
+            </label>
+
+            <label className="verdeel-veld">
+              <span>Btw</span>
+              <select
+                className="input"
+                value={String(r.btwPct ?? 21)}
+                disabled={!mag}
+                onChange={(e) => void pas(r, { btwPct: Number(e.currentTarget.value) })}
+              >
+                {[21, 9, 0].map((p) => <option key={p} value={p}>{p}%</option>)}
+              </select>
+            </label>
+
+            <label className="verdeel-veld">
+              <span>Rekening</span>
+              <select
+                className="input"
+                value={r.grootboekCode ?? ''}
+                disabled={!mag}
+                onChange={(e) => void pas(r, { grootboekCode: e.currentTarget.value || undefined })}
+              >
+                <option value="">— kies —</option>
+                {rekeningen.filter((g) => g.actief || g.code === r.grootboekCode)
+                  .sort((a, b) => a.code.localeCompare(b.code))
+                  .map((g) => (
+                    <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="verdeel-veld">
+              <span>Vestiging</span>
+              <select
+                className="input"
+                value={r.locationId ?? ''}
+                disabled={!mag}
+                onChange={(e) => void pas(r, { locationId: e.currentTarget.value || undefined })}
+              >
+                <option value="">— van de bon —</option>
+                {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name)).map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <div>
+              {mag && (
+                <button
+                  className="btn ghost sm"
+                  title="Deze regel weghalen"
+                  onClick={() => void expRepo.wisRegel(r.id)}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ---- wat er nog aan ontbreekt ---- */}
 
-      <div className="row" style={{ marginTop: 12 }}>
-        <span className="ts-sub" style={{ flex: 1 }}>
+      <div className="verdeel-som">
+        <span className="ts-sub op">
           Regels samen {money(som)} · op de factuur {money(bon.amountExcl)}
         </span>
         {Math.abs(verschil) < 0.005

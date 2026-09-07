@@ -7,8 +7,24 @@ export const moneyShort = (n: number) => eur0.format(n || 0)
 export const number = (n: number) => num.format(n || 0)
 export const pct = (n: number) => (n >= 0 ? '+' : '') + (Math.round(n * 10) / 10).toFixed(1) + '%'
 
-export const dateShort = (ts: number) =>
-  new Date(ts).toLocaleDateString('nl-NL', { day: '2-digit', month: 'short' })
+/**
+ * Een datum, kort, met het jaar erbij als dat niet vanzelf spreekt.
+ *
+ * Hier stond alleen dag en maand. Bij een wasbeurt van deze week is dat
+ * precies goed -- het jaar erbij is ruis. Bij een factuurdatum niet: "01 dec"
+ * op een scherm in september kan december van vorig jaar zijn of van dit
+ * jaar, en dat scheelt een boekjaar.
+ *
+ * Dus: binnen dit jaar zonder, daarbuiten met. Zo blijft elk scherm kort waar
+ * het kort kan en eerlijk waar het moet.
+ */
+export const dateShort = (ts: number) => {
+  const d = new Date(ts)
+  const ditJaar = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('nl-NL', ditJaar
+    ? { day: '2-digit', month: 'short' }
+    : { day: '2-digit', month: 'short', year: 'numeric' })
+}
 
 export const dateFull = (ts: number) =>
   new Date(ts).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })

@@ -52,19 +52,24 @@ export function Tegels({ items }: { items: Tegel[] }) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: .26, delay: Math.min(i, 10) * 0.035, ease: [.22, .61, .36, 1] }}
           >
-            <span className="ico"><Icon size={20} /></span>
+            {/* Bovenin het icoon en het cijfer, daaronder de tekst. Ze stonden
+                naast elkaar, en dan moeten drie dingen dezelfde breedte delen
+                -- zie het commentaar bij .tegel in theme.css. */}
+            <span className="bovenin">
+              <span className="ico"><Icon size={20} /></span>
+
+              {t.stat !== undefined && (
+                <span className="cijfer">
+                  <b>{t.stat}</b>
+                  {t.statLabel && <span>{t.statLabel}</span>}
+                </span>
+              )}
+            </span>
 
             <span className="tekst">
               <strong>{t.label}</strong>
               <span>{t.hint}</span>
             </span>
-
-            {t.stat !== undefined && (
-              <span className="cijfer">
-                <b>{t.stat}</b>
-                {t.statLabel && <span>{t.statLabel}</span>}
-              </span>
-            )}
 
             <span className="pijl"><ArrowRight size={15} /></span>
           </motion.button>

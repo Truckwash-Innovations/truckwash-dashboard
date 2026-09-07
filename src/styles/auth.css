@@ -94,7 +94,7 @@
 /* -------------------------- Animatie ----------------------------- */
 
 .wash-stage {
-  position: fixed; inset: 0; z-index: 300;
+  position: fixed; inset: 0; z-index: var(--laag-wasstraat);
   background:
     radial-gradient(1000px 600px at 50% 30%, var(--werkvlak-gloed), transparent 65%),
     var(--bg);
@@ -327,7 +327,7 @@
  * ================================================================== */
 
 .welkom {
-  position: fixed; inset: 0; z-index: 120;
+  position: fixed; inset: 0; z-index: var(--laag-welkom);
   display: grid; place-items: center;
   padding: 28px 20px calc(28px + var(--safe-bottom));
   padding-top: calc(28px + var(--safe-top));
