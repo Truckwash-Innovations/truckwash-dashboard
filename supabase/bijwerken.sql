@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0053
+--  Bijwerken: migratie 0017 tot en met 0054
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -44,6 +44,7 @@
 --    0051  de eigen AI mag ook meedenken bij meldingen en Trucky (staat uit)
 --    0052  de Exact-sleutels staan in de database, te zetten bij Ontwikkeling
 --    0053  Exact kent het rekeningschema, en de bon weet waar hij heen ging
+--    0054  Exact kent het personeel (alleen-lezen; koppelen aan onze mensen)
 -- ===========================================================================
 
 -- ===========================================================================
@@ -6583,6 +6584,122 @@ begin
       'create policy %I_select on public.%I for select to authenticated '
       'using (public.is_management() or public.heeft_recht(''admin.desk'') '
       '       or public.heeft_recht(''dev.logs''))',
+      t, t);
+  end loop;
+end $$;
+
+
+-- ===========================================================================
+--  Exact kent het personeel  (0054)
+--
+--  Personeel NAAR Exact sturen kan niet: payroll/Employees is alleen-lezen.
+--  Wat hier komt is de andere kant: wie Exact kent, en wie bij ons wie is
+--  daar. Nodig voordat er ooit loonmutaties heen kunnen, en meteen nuttig --
+--  het laat zien wie in Exact uit dienst staat en hier nog kan inloggen.
+--
+--  exact_personeel bewaart het volledige antwoord van Exact en kan dus een
+--  BSN bevatten. Daarom management-only, dezelfde grens als het dossier.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  Wie Exact kent
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_personeel (
+  /* Het medewerkernummer van Exact. Dit is waar een loonmutatie naar wijst,
+     en daarom de sleutel: het is het enige dat straks nog meetelt. */
+  employee_hid   integer primary key,
+  /* Het interne id (een guid). Sommige aanroepen willen die in plaats van
+     het nummer. */
+  exact_id       text,
+  volledige_naam text not null default '',
+  voornaam       text,
+  achternaam     text,
+  email          text,
+  prive_email    text,
+  in_dienst_per  bigint,
+  uit_dienst_per bigint,
+  actief         boolean not null default true,
+  /* Alles wat Exact meestuurde, onaangeraakt. Hierin kan een BSN zitten;
+     zie de kop voor waarom deze tabel daarom management-only is. */
+  ruw            jsonb,
+  division       text,
+  updated_at     bigint not null default public.now_ms()
+);
+
+/* Voor wie de migratie al eens draaide toen deze kolom er nog niet was. */
+alter table public.exact_personeel add column if not exists ruw jsonb;
+
+create index if not exists exact_personeel_email_idx
+  on public.exact_personeel (lower(email));
+
+comment on table public.exact_personeel is
+  'Het personeel zoals Exact het kent (0054). Alleen-lezen aan de kant van '
+  'Exact: er is geen POST of PUT op payroll/Employees. Kolom ruw bevat het '
+  'volledige antwoord en kan een BSN bevatten -- daarom management-only, '
+  'dezelfde grens als personnel_private (0009).';
+
+-- ---------------------------------------------------------------------------
+--  Wie bij ons wie is daar
+--
+--  Los van profiles gehouden: die tabel synchroniseert mee naar elke tablet,
+--  en dit is serverwerk.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.exact_medewerker (
+  /* profiles.id, als tekst. De rest van dit schema doet hetzelfde. */
+  user_id      text primary key,
+  employee_hid integer not null,
+  /* Hoe de koppeling tot stand kwam: 'email', 'naam' of 'handmatig'. Bij een
+     verschil van mening wil je weten of een mens het zei of een regel. */
+  bron         text not null default 'handmatig'
+               check (bron in ('email', 'naam', 'handmatig')),
+  door         text,
+  updated_at   bigint not null default public.now_ms()
+);
+
+/* Eén iemand hier hoort bij één iemand daar, en andersom. Zonder dit kunnen
+   twee medewerkers aan hetzelfde loonnummer hangen, en dan komen de uren van
+   twee mensen op één loonstrook terecht. */
+create unique index if not exists exact_medewerker_hid_uniek
+  on public.exact_medewerker (employee_hid);
+
+comment on table public.exact_medewerker is
+  'Welke medewerker hier welk medewerkernummer in Exact heeft (0054). Nodig '
+  'voordat er loonmutaties heen kunnen.';
+
+-- ---------------------------------------------------------------------------
+--  Wat er wanneer is opgehaald
+-- ---------------------------------------------------------------------------
+
+insert into public.exact_sync (soort) values ('personeel')
+on conflict (soort) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  Wie mag dit zien
+--
+--  Alleen het management, en dat is strenger dan bij het rekeningschema
+--  (waar ontwikkeling meekijkt) én strenger dan staff.view. De reden staat
+--  in de kop: in kolom ruw kan een BSN zitten, en dat is in 0009 met opzet
+--  beperkt tot het management en de medewerker zelf. Een tabel ernaast die
+--  hetzelfde bevat maar ruimer openstaat, maakt die afspraak waardeloos.
+--
+--  Schrijven doet geen mens: de Edge Function werkt met de servicesleutel.
+-- ---------------------------------------------------------------------------
+
+alter table public.exact_personeel  enable row level security;
+alter table public.exact_medewerker enable row level security;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['exact_personeel', 'exact_medewerker'] loop
+    execute format('drop policy if exists %I_select on public.%I', t, t);
+    execute format(
+      'create policy %I_select on public.%I for select to authenticated '
+      'using (public.is_management())',
       t, t);
   end loop;
 end $$;

@@ -4996,5 +4996,84 @@ console.log('\n37. Het rekeningschema blijft van ons')
     bron.includes('magAdministratie'))
 }
 
+/* ==================================================================== *
+ *  Het personeel van Exact
+ *
+ *  Casper: "voor personeel mag je alles doen." Wat er dan blijkt: exporteren
+ *  kan niet. payroll/Employees in de Exact-API doet GET en verder niets --
+ *  geen POST, geen PUT. Een export zou stilzwijgend geweigerd worden.
+ *
+ *  Wat hier wordt vastgelegd zijn de twee dingen die daarna nog stil kapot
+ *  kunnen: koppelen op naam in plaats van op adres, en het volledige record
+ *  van Exact breder te zien maken dan het dossier zelf.
+ * ==================================================================== */
+
+console.log('\n38. Het personeel van Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const bron = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  /* --- er wordt niets naar de HRM-kant geschreven --- */
+
+  check('er gaat niets naar payroll/Employees toe',
+    !/exactPost\([^)]*payroll\/Employees/.test(bron))
+
+  /* --- koppelen gaat op adres en niet op naam --- */
+
+  check('automatisch koppelen gaat op e-mailadres',
+    bron.includes('const opAdres = new Map<string, number>()'))
+  /*
+   * Op naam matchen is aanlokkelijk en fout. Twee mensen die De Vries heten
+   * is geen uitzondering, en een verkeerde koppeling stuurt straks de uren
+   * van de een naar de loonstrook van de ander.
+   */
+  check('en niet op naam',
+    !/opNaam|volledige_naam.*toLowerCase.*set\(/.test(bron))
+
+  /* Een nummer dat al bezet is wordt overgeslagen, niet overschreven. */
+  check('een bezet loonnummer wordt overgeslagen',
+    bron.includes('if (hid == null || bezet.has(hid)) continue'))
+
+  /* --- het hele record, en de grens eromheen --- */
+
+  check('het volledige antwoord van Exact wordt bewaard',
+    bron.includes('ruw: r as unknown as Record<string, unknown>'))
+  /*
+   * Zonder $select, met opzet: één verzonnen veldnaam laat Exact het hele
+   * verzoek weigeren, en dan wijst de foutmelding naar niets.
+   */
+  check('en zonder $select opgehaald',
+    /exactLijst<ExactMedewerker>\(lijn, 'payroll\/Employees'\)/.test(bron))
+
+  /*
+   * De grens. In dat record kan een BSN zitten, en dat ligt in 0009 bij het
+   * management en bij de medewerker zelf. Een los toegekend recht mag hier
+   * dus géén achterdeur zijn -- vandaar null als recht.
+   */
+  check('personeel is management-only, zonder rechtenachterdeur',
+    bron.includes("return await heeftRecht(req, null, ['management'])"))
+  check('en heeftRecht kent die vorm ook echt',
+    bron.includes('if (recht === null) return rollen.some((r) => mijn.includes(r))'))
+
+  /* Het volledige record reist niet mee met het overzicht. */
+  check('het hele record komt pas mee als je er een opent',
+    bron.includes('async function medewerkerDetails')
+    && !/exactMensen[\s\S]{0,400}ruw:/.test(bron))
+
+  /* --- het scherm --- */
+
+  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  check('je kunt een Exact-medewerker opzoeken in plaats van een nummer typen',
+    scherm.includes('function Zoeker'))
+  check('en zoeken kan op naam, nummer en adres',
+    scherm.includes('String(m.employeeHid).includes(t)')
+    && scherm.includes('m.email.toLowerCase().includes(t)'))
+  check('een nummer dat al aan iemand anders hangt is niet te kiezen',
+    scherm.includes("disabled={Boolean(m.gekoppeldAan && m.gekoppeldAan !== persoon.userId)}"))
+  check('de datums van Exact worden leesbaar getoond',
+    scherm.includes('function leesbaar') && scherm.includes('OData v2 schrijft datums'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -184,6 +184,7 @@ await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/m
 await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
+await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -239,6 +240,7 @@ await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_h
 await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
 await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
 await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
+await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
 
 
 
@@ -4840,6 +4842,106 @@ try {
   exLeegMag = false
 }
 check('en niet-verstuurd mag zo vaak als nodig', exLeegMag)
+
+/* ==================================================================== *
+ *  Exact kent het personeel (0054)
+ *
+ *  Eén ding staat hier op het spel dat niet vanzelf goed blijft. In
+ *  exact_personeel.ruw zit het volledige antwoord van Exact, en daar kan een
+ *  burgerservicenummer in zitten. In 0009 is afgesproken dat zoiets alleen
+ *  door het management en door de medewerker zelf te zien is. Zou deze tabel
+ *  ruimer openstaan -- op staff.view bijvoorbeeld, waar een leidinggevende
+ *  onder valt -- dan is die afspraak via de achterdeur ongedaan gemaakt,
+ *  zonder dat iemand het merkt.
+ *
+ *  En het tweede: één loonnummer hoort aan één mens. Hangen er twee aan
+ *  hetzelfde nummer, dan komen straks de uren van twee mensen op één
+ *  loonstrook terecht.
+ * ==================================================================== */
+
+console.log('\n38. Exact kent het personeel (0054)')
+
+check('exact_personeel en exact_medewerker bestaan',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public'
+       and table_name in ('exact_personeel', 'exact_medewerker')`)).rows[0].n === 2)
+
+check('het volledige antwoord van Exact wordt bewaard',
+  (await db.query(`
+    select count(*)::int as n from information_schema.columns
+     where table_schema = 'public' and table_name = 'exact_personeel'
+       and column_name = 'ruw' and data_type = 'jsonb'`)).rows[0].n === 1)
+
+/*
+ * Dit is de belangrijkste regel van dit hoofdstuk. De policy moet op
+ * is_management() staan en nergens anders op -- geen staff.view, geen
+ * heeft_recht, geen admin.desk. Zodra daar iets bij komt is het BSN breder
+ * te zien dan via het dossier zelf.
+ */
+const exPersPolicies = (await db.query(`
+  select tablename, cmd, coalesce(qual, '') as qual from pg_policies
+   where schemaname = 'public'
+     and tablename in ('exact_personeel', 'exact_medewerker')`)).rows
+
+check('personeel is alleen voor het management',
+  exPersPolicies.length === 2
+  && exPersPolicies.every((r) => r.cmd === 'SELECT'
+    && /is_management/.test(r.qual)
+    && !/staff\.view|heeft_recht|admin\.desk/.test(r.qual)),
+  JSON.stringify(exPersPolicies.map((r) => `${r.tablename}:${r.cmd}:${r.qual}`)))
+
+check('RLS staat aan op allebei',
+  (await db.query(`
+    select count(*)::int as n from pg_class c
+      join pg_namespace ns on ns.oid = c.relnamespace
+     where ns.nspname = 'public'
+       and c.relname in ('exact_personeel', 'exact_medewerker')
+       and c.relrowsecurity`)).rows[0].n === 2)
+
+check('en dat is dezelfde grens als het dossier zelf',
+  /is_management/.test((await db.query(`
+    select coalesce(qual, '') as qual from pg_policies
+     where schemaname = 'public' and tablename = 'personnel_private'
+       and cmd = 'SELECT'`)).rows[0].qual))
+
+/* ---- één nummer, één mens ---- */
+
+await db.exec(`
+  insert into public.exact_medewerker (user_id, employee_hid, bron)
+  values ('u_een', 4001, 'handmatig')
+  on conflict (user_id) do nothing;`)
+
+let exHidDubbel = false
+try {
+  await db.exec(`insert into public.exact_medewerker (user_id, employee_hid, bron)
+                 values ('u_twee', 4001, 'handmatig')`)
+} catch {
+  exHidDubbel = true
+}
+check('twee mensen kunnen niet aan hetzelfde loonnummer hangen', exHidDubbel)
+
+let exAnderMag = true
+try {
+  await db.exec(`insert into public.exact_medewerker (user_id, employee_hid, bron)
+                 values ('u_twee', 4002, 'handmatig')`)
+} catch {
+  exAnderMag = false
+}
+check('en een ander nummer mag gewoon', exAnderMag)
+
+let exBronFout = false
+try {
+  await db.exec(`insert into public.exact_medewerker (user_id, employee_hid, bron)
+                 values ('u_drie', 4003, 'verzonnen')`)
+} catch {
+  exBronFout = true
+}
+check('een verzonnen koppelbron wordt geweigerd', exBronFout)
+
+check('personeel staat als soort werk klaar',
+  (await db.query(`select count(*)::int as n from public.exact_sync
+                    where soort = 'personeel'`)).rows[0].n === 1)
 
 await db.close()
 

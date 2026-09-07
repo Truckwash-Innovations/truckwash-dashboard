@@ -107,10 +107,51 @@ Zodra de koppeling staat en het rekeningschema is opgehaald, zijn die drie uit
 Exact zelf op te halen en in te stellen. Dat werkt niet blind: het moet tegen
 een echte administratie aangelegd worden, ook al is het de proef.
 
-**Personeel** ligt verder weg. Exact heeft daar een aparte module voor, en het
-raakt gegevens die met opzet apart staan (BSN, IBAN, uurloon staan in
-`personnel_private` en horen daar te blijven). Dat is een gesprek over welke
-velden mee mogen, niet iets om er even bij te bouwen.
+## Personeel
+
+**Personeel naar Exact exporteren kan niet.** Dat is geen keuze van ons: de
+HRM-kant van de Exact-API is alleen-lezen. `payroll/Employees`, `Employments`,
+`EmploymentContracts` en `EmploymentSalaries` ondersteunen GET en verder niets
+— er is geen POST en geen PUT. Je kunt via de API dus geen medewerker
+aanmaken of wijzigen.
+
+Wat er wél is, staat onderaan het Exact-scherm: **Het personeel naast dat van
+Exact**. Klik op *Ophalen uit Exact* en hij haalt iedereen op die Exact kent.
+Wie op e-mailadres te koppelen is, koppelt hij meteen zelf.
+
+De rest doe je met de knop in de kolom *Nummer*: die opent een zoeker waarin je
+op naam, medewerkernummer of e-mailadres zoekt. Je ziet eerst wat Exact over
+die persoon weet — alle velden die Exact meestuurt — en koppelt hem dan pas.
+Een nummer dat al aan iemand anders hangt kun je niet kiezen.
+
+Koppelen gaat automatisch alleen op **e-mailadres**, nooit op naam. Twee mensen
+die De Vries heten is geen uitzondering, en een verkeerde koppeling stuurt
+straks de uren van de een naar de loonstrook van de ander.
+
+### Waar het scherm je op wijst
+
+- **Uit dienst in Exact, hier nog actief.** Dat is iemand die weg is en nog
+  steeds kan inloggen. Daar is dit scherm eigenlijk voor.
+- **Nog niet gekoppeld.** Zolang dat zo is kunnen de uren van die persoon niet
+  naar Exact.
+
+### Wie het mag zien
+
+Alleen het management. Strenger dan het rekeningschema (waar ontwikkeling
+meekijkt), en met opzet: het volledige Exact-record kan een burgerservicenummer
+bevatten, en dat ligt in migratie 0009 bij het management en bij de medewerker
+zelf. Een tabel ernaast met dezelfde gegevens maar een ruimere deur zou die
+afspraak waardeloos maken.
+
+### De enige kant die Exact wél laat schrijven
+
+`payroll/VariableMutations` — de variabele loonmutaties: gewerkte uren, verlof
+en toeslagen per loonperiode. Precies het werk dat elke maand met de hand gaat.
+Zo'n mutatie wijst naar een medewerkernummer, en dat is waarom bovenstaande
+koppeling er eerst moet zijn. Wat er daarna nog voor nodig is: het loonjaar en
+de periode, en per soort mutatie het juiste type (en bij een looncomponent de
+code daarvan). Die zijn uit jullie eigen administratie te halen zodra de
+koppeling staat.
 
 ## Voor de techniek
 

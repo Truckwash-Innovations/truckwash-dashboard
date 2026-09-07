@@ -35,17 +35,20 @@
  *  in de echte administratie te blijven hangen.
  * =========================================================================== */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Check, Download, ExternalLink, Link2, Link2Off, Loader2, RefreshCw, Save,
-  TriangleAlert, X,
+  Search, TriangleAlert, Unlink, Users, X,
 } from 'lucide-react'
 import {
-  exactGrootboekStand, exactInstellen, exactLos, exactStatus, exactSyncGrootboek,
-  exactVerbindUrl, type ExactStatus, type GrootboekStand,
+  exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
+  exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
+  exactSyncPersoneel, exactVerbindUrl,
+  type ExactPersoon, type ExactStatus, type GrootboekStand, type PersoneelRegel,
+  type PersoneelStand,
 } from '../../lib/trucksupply'
-import { dateTime, relative } from '../../lib/format'
-import { Badge, Card, Empty, Field } from '../../components/ui'
+import { dateShort, dateTime, relative } from '../../lib/format'
+import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 
 /** Leeg = de standaard van de server. Alleen om het typen te besparen. */
@@ -375,6 +378,10 @@ export default function Exact() {
       <div style={{ gridColumn: '1 / -1' }}>
         <Grootboek verbonden={stand?.verbonden === true} />
       </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Personeel verbonden={stand?.verbonden === true} />
+      </div>
     </div>
   )
 }
@@ -533,6 +540,483 @@ function Grootboek({ verbonden }: { verbonden: boolean }) {
       </p>
     </Card>
   )
+}
+
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Het personeel
+ *
+ *  Casper: "voor personeel mag je alles doen." Wat dan blijkt: exporteren
+ *  kan niet. De HRM-kant van de Exact-API is alleen-lezen -- geen POST en
+ *  geen PUT op payroll/Employees. Een export bouwen zou iets opleveren dat
+ *  Exact stilzwijgend weigert.
+ *
+ *  Andersom kijken kan wel, en dat levert meer op dan het klinkt. Drie
+ *  vragen, en de derde is de reden dat dit scherm er staat: wie is er in
+ *  Exact uit dienst en kan hier nog gewoon inloggen?
+ * ------------------------------------------------------------------ */
+
+function Personeel({ verbonden }: { verbonden: boolean }) {
+  const [stand, setStand] = useState<PersoneelStand | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [alles, setAlles] = useState(false)
+  const [mag, setMag] = useState(true)
+  /** Bij wie staat de zoeker open. */
+  const [zoeken, setZoeken] = useState<PersoneelRegel | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setStand(await exactPersoneelStand())
+      } catch (e) {
+        const bericht = e instanceof Error ? e.message : 'De stand is niet op te halen.'
+        /* Geen recht is geen storing: dan hoort dit blok gewoon dicht te
+           blijven in plaats van een rode balk te tonen. */
+        if (/niet voor iedereen/i.test(bericht)) setMag(false)
+        else setFout(bericht)
+      }
+    })()
+  }, [])
+
+  async function haalOp() {
+    setBezig(true)
+    setFout(null)
+    try {
+      const uit = await exactSyncPersoneel()
+      setStand(uit)
+      toast.ok(uit.gekoppeld > 0
+        ? `${uit.exactAantal} medewerkers opgehaald, ${uit.gekoppeld} nieuw gekoppeld op e-mailadres.`
+        : `${uit.exactAantal} medewerkers opgehaald uit Exact.`)
+    } catch (e) {
+      const bericht = e instanceof Error ? e.message : 'Ophalen mislukte.'
+      setFout(bericht)
+      toast.error(bericht)
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function koppel(userId: string, hid: number | null) {
+    try {
+      setStand(await exactKoppelMedewerker(userId, hid))
+      toast.ok(hid == null ? 'Koppeling weggehaald.' : 'Gekoppeld.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Koppelen mislukte.')
+    }
+  }
+
+  if (!mag) return null
+
+  const regels = stand?.regels ?? []
+  const opvallend = regels.filter((r) => r.actief && (r.wegMaarActief || r.employeeHid == null))
+  const tonen = alles ? regels : opvallend
+
+  return (
+    <Card
+      title="Het personeel naast dat van Exact"
+      hint="Wie is wie, en wie hoort er niet meer bij"
+      action={
+        <button
+          className="btn sm"
+          disabled={bezig || !verbonden}
+          onClick={() => void haalOp()}
+          title={verbonden ? 'Opnieuw ophalen bij Exact' : 'Eerst koppelen met Exact'}
+        >
+          {bezig ? <Loader2 size={14} className="spin" /> : <Users size={14} />} Ophalen uit Exact
+        </button>
+      }
+    >
+      <p className="help" style={{ marginTop: 0 }}>
+        Personeel <strong>naar</strong> Exact sturen kan niet: hun HRM-API is alleen-lezen.
+        Wat hier staat is de vergelijking — en de enige kant die Exact wél laat schrijven zijn
+        de variabele loonmutaties (uren per periode). Daarvoor moet eerst duidelijk zijn wie
+        hier welk medewerkernummer heeft, en dat is precies wat deze lijst regelt.
+      </p>
+
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      <div className="row mb">
+        {stand?.laatstAt
+          ? <span className="ts-sub">Laatst opgehaald {relative(stand.laatstAt)}{stand.door ? ` · ${stand.door}` : ''} · {stand.exactAantal} medewerkers in Exact</span>
+          : <span className="ts-sub">Nog niet opgehaald.</span>}
+      </div>
+
+      {stand && stand.weg > 0 && (
+        <div className="waarschuwing mb">
+          <TriangleAlert size={14} />
+          <span>
+            <strong>{stand.weg} {stand.weg === 1 ? 'iemand staat' : 'mensen staan'} in Exact uit
+            dienst</strong> maar hier nog actief. Die kunnen dus nog inloggen.
+          </span>
+        </div>
+      )}
+      {stand && stand.zonderKoppeling > 0 && (
+        <div className="waarschuwing zacht mb">
+          <span>
+            {stand.zonderKoppeling} actieve medewerker(s) zijn nog aan geen enkel
+            medewerkernummer gekoppeld. Zolang dat zo is kunnen hun uren niet naar Exact.
+          </span>
+        </div>
+      )}
+
+      {stand && opvallend.length === 0 && stand.laatstAt && (
+        <div className="waarschuwing zacht mb" style={{ borderColor: 'var(--ok)' }}>
+          <Check size={14} />
+          <span>Iedereen die hier werkt is gekoppeld en staat in Exact in dienst.</span>
+        </div>
+      )}
+
+      {tonen.length === 0 && !stand?.laatstAt && (
+        <Empty text="Haal het personeel op bij Exact om de vergelijking te zien." />
+      )}
+
+      {tonen.length > 0 && (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Bij ons</th>
+                <th>E-mail</th>
+                <th>In Exact</th>
+                <th>Nummer</th>
+                <th>Staat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tonen.map((r) => (
+                <tr key={r.userId}>
+                  <td className="afgekapt">
+                    {r.naam}{!r.actief && <span className="ts-sub"> · niet actief</span>}
+                  </td>
+                  <td className="afgekapt mono">{r.email}</td>
+                  <td className="afgekapt">
+                    {r.exactNaam ?? <span className="ts-sub">—</span>}
+                    {r.uitDienstPer != null && (
+                      <span className="ts-sub"> · uit dienst {dateShort(r.uitDienstPer)}</span>
+                    )}
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button
+                        className="btn ghost sm"
+                        onClick={() => setZoeken(r)}
+                        title="Een medewerker in Exact opzoeken en koppelen"
+                      >
+                        {r.employeeHid != null
+                          ? <><span className="mono">{r.employeeHid}</span></>
+                          : <><Search size={13} /> zoeken</>}
+                      </button>
+                      {r.koppelBron && <span className="ts-sub">{r.koppelBron}</span>}
+                    </div>
+                  </td>
+                  <td>
+                    {r.wegMaarActief && <Badge tone="danger" dot>uit dienst</Badge>}
+                    {!r.wegMaarActief && r.employeeHid == null && <Badge tone="warn" dot>niet gekoppeld</Badge>}
+                    {!r.wegMaarActief && r.employeeHid != null && <Badge tone="ok" dot>klopt</Badge>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {regels.length > opvallend.length && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn ghost sm" onClick={() => setAlles((v) => !v)}>
+            {alles
+              ? <><X size={14} /> Alleen wat afwijkt</>
+              : <>Alle {regels.length} medewerkers tonen</>}
+          </button>
+        </div>
+      )}
+
+      {stand && stand.alleenInExact.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>
+            Alleen in Exact ({stand.alleenInExact.length})
+          </h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Deze medewerkernummers hangen aan niemand hier. Vul het nummer hierboven in bij de
+            juiste persoon om ze te koppelen.
+          </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr><th>Nummer</th><th>Naam</th><th>E-mail</th><th>Staat</th></tr>
+              </thead>
+              <tbody>
+                {stand.alleenInExact.map((p) => (
+                  <tr key={p.employeeHid}>
+                    <td className="mono">{p.employeeHid}</td>
+                    <td className="afgekapt">{p.naam}</td>
+                    <td className="afgekapt mono">{p.email || '—'}</td>
+                    <td>{p.actief ? <Badge>in dienst</Badge> : <Badge tone="warn">uit dienst</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+        Koppelen gaat automatisch op e-mailadres, en verder niet. Op naam matchen klinkt handig
+        maar twee mensen die De Vries heten is geen uitzondering — en een verkeerde koppeling
+        stuurt straks de uren van de een naar de loonstrook van de ander.
+      </p>
+
+      {zoeken && (
+        <Zoeker
+          persoon={zoeken}
+          mensen={stand?.exactMensen ?? []}
+          onSluit={() => setZoeken(null)}
+          onKies={async (hid) => {
+            await koppel(zoeken.userId, hid)
+            setZoeken(null)
+          }}
+        />
+      )}
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  De Exact-medewerker erbij zoeken
+ *
+ *  Casper: "dat je dus bij een medewerker in het systeem, een medewerker in
+ *  exact kan zoeken, zodat je dus de exact medewerker kan koppelen aan die
+ *  medewerker, waar dus ook alle dingen bij meekomen."
+ *
+ *  Hier stond een veldje waar je het nummer in tikte. Dat werkt alleen als je
+ *  het nummer uit je hoofd kent, en dan nog zie je pas na het opslaan of je
+ *  de juiste te pakken had. Nu: zoeken op naam, nummer of adres, en van wie
+ *  je aanwijst eerst zien wat Exact over hem weet.
+ * ------------------------------------------------------------------ */
+
+function Zoeker({
+  persoon, mensen, onKies, onSluit,
+}: {
+  persoon: PersoneelRegel
+  mensen: ExactPersoon[]
+  onKies: (hid: number | null) => void | Promise<void>
+  onSluit: () => void
+}) {
+  const [term, setTerm] = useState('')
+  const [open, setOpen] = useState<number | null>(persoon.employeeHid)
+  const [velden, setVelden] = useState<Record<string, unknown> | null>(null)
+  const [laden, setLaden] = useState(false)
+
+  /* Bij het openen alvast zoeken op de naam die we hier kennen. Negen van de
+     tien keer staat de juiste dan meteen bovenaan. */
+  useEffect(() => { setTerm(persoon.naam) }, [persoon.naam])
+
+  useEffect(() => {
+    if (open == null) { setVelden(null); return }
+    setLaden(true)
+    void (async () => {
+      try {
+        const uit = await exactMedewerkerDetails(open)
+        setVelden(uit.velden)
+      } catch {
+        setVelden(null)
+      } finally {
+        setLaden(false)
+      }
+    })()
+  }, [open])
+
+  const gevonden = useMemo(() => {
+    const t = term.trim().toLowerCase()
+    const lijst = t === ''
+      ? mensen
+      : mensen.filter((m) =>
+          m.naam.toLowerCase().includes(t)
+          || String(m.employeeHid).includes(t)
+          || m.email.toLowerCase().includes(t)
+          || (m.priveEmail ?? '').toLowerCase().includes(t))
+    /* In dienst eerst: wie uit dienst is zoek je zelden op. */
+    return [...lijst].sort((a, b) => Number(b.actief) - Number(a.actief)
+      || a.naam.localeCompare(b.naam)).slice(0, 60)
+  }, [mensen, term])
+
+  return (
+    <Modal
+      open
+      title={`Exact-medewerker koppelen aan ${persoon.naam}`}
+      subtitle="Zoek de juiste, bekijk wat Exact van hem weet, en koppel"
+      onClose={onSluit}
+      width={860}
+    >
+      {mensen.length === 0 && (
+        <Empty text="Er is nog geen personeel opgehaald uit Exact. Doe dat eerst." />
+      )}
+
+      {mensen.length > 0 && (
+        <>
+          <Field label="Zoeken" help="Op naam, medewerkernummer of e-mailadres.">
+            <input
+              className="input"
+              value={term}
+              autoFocus
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="naam, nummer of e-mail"
+            />
+          </Field>
+
+          <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr><th>Nr.</th><th>Naam</th><th>E-mail</th><th>Dienst</th><th /></tr>
+              </thead>
+              <tbody>
+                {gevonden.map((m) => (
+                  <tr key={m.employeeHid} className={m.employeeHid === open ? 'aan' : undefined}>
+                    <td className="mono">{m.employeeHid}</td>
+                    <td className="afgekapt">{m.naam}</td>
+                    <td className="afgekapt mono">{m.email || m.priveEmail || '—'}</td>
+                    <td>
+                      {m.actief ? <Badge tone="ok">in dienst</Badge> : <Badge tone="warn">uit dienst</Badge>}
+                      {m.gekoppeldAan && m.gekoppeldAan !== persoon.userId && (
+                        <Badge tone="danger">al gekoppeld</Badge>
+                      )}
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn ghost sm" onClick={() => setOpen(m.employeeHid)}>
+                          Bekijken
+                        </button>
+                        <button
+                          className="btn sm"
+                          disabled={Boolean(m.gekoppeldAan && m.gekoppeldAan !== persoon.userId)}
+                          onClick={() => void onKies(m.employeeHid)}
+                        >
+                          Koppelen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {gevonden.length === 0 && (
+                  <tr><td colSpan={5}><span className="ts-sub">Niets gevonden.</span></td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ---- alles wat Exact over deze medewerker weet ---- */}
+
+          {open != null && (
+            <>
+              <h4 style={{ marginTop: 18, marginBottom: 6 }}>
+                Wat Exact weet over nummer {open}
+              </h4>
+              {laden && <p className="ts-sub" style={{ marginTop: 0 }}>Ophalen…</p>}
+              {!laden && !velden && (
+                <p className="ts-sub" style={{ marginTop: 0 }}>Geen gegevens gevonden.</p>
+              )}
+              {!laden && velden && <Velden velden={velden} />}
+            </>
+          )}
+
+          {persoon.employeeHid != null && (
+            <div className="row" style={{ marginTop: 16 }}>
+              <button className="btn danger sm" onClick={() => void onKies(null)}>
+                <Unlink size={14} /> Koppeling weghalen
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
+  )
+}
+
+/**
+ * Het hele record van Exact, leesbaar.
+ *
+ * Er komen tientallen velden mee en de namen zijn die van Exact. De bekende
+ * krijgen een Nederlandse kop; de rest tonen we zoals hij heet, want een veld
+ * verbergen omdat wij de naam niet kennen is precies wat je niet wilt als je
+ * zit te zoeken waarom een koppeling niet klopt.
+ *
+ * Lege velden vallen weg. Een record met veertig lege regels is geen
+ * overzicht.
+ */
+const VELDNAMEN: Record<string, string> = {
+  EmployeeHID: 'Medewerkernummer',
+  FullName: 'Volledige naam',
+  FirstName: 'Voornaam',
+  LastName: 'Achternaam',
+  Initials: 'Voorletters',
+  Email: 'E-mail (werk)',
+  PrivateEmail: 'E-mail (privé)',
+  Phone: 'Telefoon',
+  MobilePhone: 'Mobiel',
+  BirthDate: 'Geboortedatum',
+  SocialSecurityNumber: 'Burgerservicenummer',
+  StartDate: 'In dienst per',
+  EndDate: 'Uit dienst per',
+  IsActive: 'In dienst',
+  Gender: 'Geslacht',
+  City: 'Plaats',
+  Postcode: 'Postcode',
+  AddressLine1: 'Adres',
+  Country: 'Land',
+  JobTitleDescription: 'Functie',
+  BusinessEmail: 'E-mail (zakelijk)',
+}
+
+function Velden({ velden }: { velden: Record<string, unknown> }) {
+  const regels = Object.entries(velden)
+    .map(([sleutel, waarde]) => [sleutel, leesbaar(waarde)] as const)
+    .filter(([, waarde]) => waarde !== '')
+    .sort(([a], [b]) => {
+      /* Wat we een naam hebben gegeven eerst, in de volgorde van die lijst. */
+      const ia = Object.keys(VELDNAMEN).indexOf(a)
+      const ib = Object.keys(VELDNAMEN).indexOf(b)
+      if (ia >= 0 && ib >= 0) return ia - ib
+      if (ia >= 0) return -1
+      if (ib >= 0) return 1
+      return a.localeCompare(b)
+    })
+
+  if (regels.length === 0) return <p className="ts-sub">Exact stuurde geen velden mee.</p>
+
+  return (
+    <div className="grid cols-3">
+      {regels.map(([sleutel, waarde]) => (
+        <div key={sleutel}>
+          <span className="help" style={{ display: 'block' }}>
+            {VELDNAMEN[sleutel] ?? sleutel}
+          </span>
+          <span style={{ wordBreak: 'break-word' }}>{waarde}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Eén waarde uit Exact als tekst. Leeg betekent: laat de regel weg. */
+function leesbaar(waarde: unknown): string {
+  if (waarde === null || waarde === undefined || waarde === '') return ''
+  if (typeof waarde === 'boolean') return waarde ? 'ja' : 'nee'
+  if (typeof waarde === 'number') return String(waarde)
+  if (typeof waarde === 'string') {
+    /* OData v2 schrijft datums als /Date(1735689600000)/. Zo laten staan
+       is onleesbaar; er een datum van maken is het hele punt. */
+    const d = /^\/Date\((-?\d+)/.exec(waarde)
+    if (d) {
+      const t = Number(d[1])
+      return Number.isFinite(t) ? dateShort(t) : ''
+    }
+    /* Exact hangt overal een __metadata-blok aan; dat zegt niemand iets. */
+    return waarde
+  }
+  if (typeof waarde === 'object') return ''
+  return String(waarde)
 }
 
 /* ------------------------------------------------------------------ */

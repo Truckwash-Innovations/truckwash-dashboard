@@ -17,6 +17,9 @@
  *   los               de tokens wissen
  *   sync-grootboek    het rekeningschema uit Exact ophalen
  *   grootboek-stand   onze lijst naast die van Exact leggen
+ *   sync-personeel    het personeel uit Exact ophalen
+ *   personeel-stand   onze mensen naast die van Exact leggen
+ *   koppel-medewerker met de hand zeggen wie wie is
  *
  * Het praten met Exact zelf staat in _gedeeld/exact.ts -- inclusief het
  * verversen van het token, want dat leeft tien minuten. Facturen versturen
@@ -716,6 +719,308 @@ async function grootboekStand() {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Het personeel
+ *
+ *  Exporteren kan niet, en dat is geen keuze van ons: payroll/Employees in
+ *  de Exact-API doet GET en verder niets. Geen POST, geen PUT. Wie daar een
+ *  export op bouwt, bouwt iets dat stil geweigerd wordt.
+ *
+ *  Wat wel kan is de andere kant op kijken, en dat blijkt nuttiger dan het
+ *  klinkt. Drie vragen worden hiermee beantwoord, en de derde is de reden
+ *  dat dit er staat: wie is er in Exact uit dienst terwijl hij hier nog
+ *  actief is? Dat is iemand die weg is en nog steeds kan inloggen.
+ *
+ *  Bewust zonder BSN en geboortedatum -- zie de kop van migratie 0054.
+ * ------------------------------------------------------------------ */
+
+interface ExactMedewerker {
+  ID?: string
+  EmployeeHID?: number
+  FullName?: string
+  FirstName?: string
+  LastName?: string
+  Email?: string
+  PrivateEmail?: string
+  StartDate?: string
+  EndDate?: string
+  IsActive?: boolean
+}
+
+/**
+ * Een datum van Exact naar milliseconden.
+ *
+ * Exact levert OData v2, en dat schrijft datums als "/Date(1735689600000)/".
+ * Nieuwere velden komen als gewone ISO-tekst terug. Allebei opvangen, en bij
+ * iets onbekends null -- een verkeerd gelezen datum in dienst is erger dan
+ * een lege.
+ */
+function exactMs(waarde: string | undefined): number | null {
+  if (!waarde) return null
+  const odata = /^\/Date\((-?\d+)/.exec(waarde)
+  if (odata) return Number(odata[1])
+  const t = Date.parse(waarde)
+  return Number.isFinite(t) ? t : null
+}
+
+async function syncPersoneel(beller: Beller): Promise<Response> {
+  const lijn = await geldigToken(admin)
+
+  /*
+   * Met opzet zonder $select.
+   *
+   * Casper wil bij het koppelen "alle dingen" erbij zien, en een vaste lijst
+   * velden betekent dat je ze allemaal bij naam moet kennen. Eén veldnaam die
+   * niet bestaat en Exact weigert het hele verzoek -- dan werkt de sync niet
+   * en wijst de foutmelding naar niets. Zonder $select komt alles mee; wat we
+   * zeker weten gaat in eigen kolommen, de rest blijft in ruw staan.
+   */
+  const rijen = await exactLijst<ExactMedewerker>(lijn, 'payroll/Employees')
+
+  const nu = Date.now()
+  const uit = rijen
+    .filter((r) => typeof r.EmployeeHID === 'number')
+    .map((r) => ({
+      employee_hid: r.EmployeeHID as number,
+      exact_id: r.ID ?? null,
+      volledige_naam: String(r.FullName ?? `${r.FirstName ?? ''} ${r.LastName ?? ''}`).trim(),
+      voornaam: r.FirstName ?? null,
+      achternaam: r.LastName ?? null,
+      email: r.Email ?? null,
+      prive_email: r.PrivateEmail ?? null,
+      in_dienst_per: exactMs(r.StartDate),
+      uit_dienst_per: exactMs(r.EndDate),
+      actief: r.IsActive !== false,
+      /* Alles wat Exact meestuurde. Hierin kan een BSN zitten; deze tabel is
+         daarom management-only, net als het dossier (0009). */
+      ruw: r as unknown as Record<string, unknown>,
+      division: lijn.division,
+      updated_at: nu,
+    }))
+
+  if (uit.length > 0) {
+    for (let i = 0; i < uit.length; i += 200) {
+      const { error } = await admin.from('exact_personeel')
+        .upsert(uit.slice(i, i + 200), { onConflict: 'employee_hid' })
+      if (error) throw new ExactFout(`exact_personeel schrijven: ${error.message}`)
+    }
+    await admin.from('exact_personeel').delete().lt('updated_at', nu)
+  }
+
+  /*
+   * Koppelen op e-mailadres, en alleen daarop.
+   *
+   * Op naam matchen is aanlokkelijk en fout: twee mensen die De Vries heten
+   * is geen uitzondering maar de regel, en een verkeerde koppeling stuurt
+   * straks de uren van de een naar de loonstrook van de ander. Een adres is
+   * uniek of het is er niet. Wat overblijft koppelt een mens met de hand.
+   */
+  const { data: mensen } = await admin.from('profiles').select('id, email, name, active')
+  const opAdres = new Map<string, number>()
+  for (const r of uit) {
+    for (const adres of [r.email, r.prive_email]) {
+      const k = (adres ?? '').trim().toLowerCase()
+      if (k) opAdres.set(k, r.employee_hid)
+    }
+  }
+
+  const { data: bestaand } = await admin.from('exact_medewerker').select('user_id, employee_hid, bron')
+  const alGekoppeld = new Set((bestaand ?? []).map((r) => String(r.user_id)))
+  const bezet = new Set((bestaand ?? []).map((r) => Number(r.employee_hid)))
+
+  const nieuw: { user_id: string; employee_hid: number; bron: string; door: string; updated_at: number }[] = []
+  for (const m of (mensen ?? [])) {
+    if (alGekoppeld.has(String(m.id))) continue
+    const hid = opAdres.get(String(m.email ?? '').trim().toLowerCase())
+    /* Een nummer dat al aan iemand anders hangt slaan we over; dat is een
+       geval voor een mens, niet voor een regel. */
+    if (hid == null || bezet.has(hid)) continue
+    bezet.add(hid)
+    nieuw.push({
+      user_id: String(m.id),
+      employee_hid: hid,
+      bron: 'email',
+      door: beller.naam || beller.id,
+      updated_at: nu,
+    })
+  }
+  if (nieuw.length > 0) {
+    await admin.from('exact_medewerker').upsert(nieuw, { onConflict: 'user_id' })
+  }
+
+  await admin.from('exact_sync').upsert({
+    soort: 'personeel',
+    laatst_at: nu,
+    aantal: uit.length,
+    laatste_fout: null,
+    door: beller.naam || beller.id,
+    updated_at: nu,
+  }, { onConflict: 'soort' })
+
+  return json({ ok: true, aantal: uit.length, gekoppeld: nieuw.length, ...await personeelStand() })
+}
+
+async function personeelStand() {
+  const [onze, hunne, koppel, sync] = await Promise.all([
+    admin.from('profiles').select('id, name, email, active').order('name'),
+    admin.from('exact_personeel').select('*').order('volledige_naam'),
+    admin.from('exact_medewerker').select('user_id, employee_hid, bron'),
+    admin.from('exact_sync').select('*').eq('soort', 'personeel').maybeSingle(),
+  ])
+
+  const bijHid = new Map<number, Record<string, unknown>>()
+  for (const r of (hunne.data ?? [])) bijHid.set(Number(r.employee_hid), r)
+
+  const link = new Map<string, { hid: number; bron: string }>()
+  for (const r of (koppel.data ?? [])) {
+    link.set(String(r.user_id), { hid: Number(r.employee_hid), bron: String(r.bron) })
+  }
+
+  const regels = (onze.data ?? []).map((m) => {
+    const k = link.get(String(m.id))
+    const e = k ? bijHid.get(k.hid) : undefined
+    const uitDienst = e ? (e.uit_dienst_per as number | null) : null
+    return {
+      userId: String(m.id),
+      naam: String(m.name ?? ''),
+      email: String(m.email ?? ''),
+      actief: m.active === true,
+      employeeHid: k?.hid ?? null,
+      koppelBron: k?.bron ?? null,
+      exactNaam: e ? String(e.volledige_naam ?? '') : null,
+      exactActief: e ? e.actief === true : null,
+      uitDienstPer: uitDienst,
+      /*
+       * Waar het om begonnen was: uit dienst bij Exact, hier nog actief.
+       * Dat is iemand die weg is en nog steeds kan inloggen.
+       */
+      wegMaarActief: Boolean(m.active === true && e
+        && (e.actief === false || (typeof uitDienst === 'number' && uitDienst < Date.now()))),
+    }
+  })
+
+  const gekoppeldeHids = new Set([...link.values()].map((v) => v.hid))
+
+  /*
+   * Iedereen die Exact kent, met genoeg erbij om in te kunnen zoeken. Het
+   * volledige record blijft hier weg: dat is per medewerker tientallen velden
+   * en gaat alleen mee als je er eentje opent (medewerker-details).
+   */
+  const exactMensen = (hunne.data ?? []).map((r) => ({
+    employeeHid: Number(r.employee_hid),
+    naam: String(r.volledige_naam ?? ''),
+    email: String(r.email ?? ''),
+    priveEmail: String(r.prive_email ?? ''),
+    actief: r.actief === true,
+    inDienstPer: (r.in_dienst_per as number | null) ?? null,
+    uitDienstPer: (r.uit_dienst_per as number | null) ?? null,
+    /* Aan wie hij al hangt; het scherm laat dat zien in plaats van pas bij
+       het opslaan te melden dat het nummer bezet is. */
+    gekoppeldAan: gekoppeldeHids.has(Number(r.employee_hid))
+      ? ([...link.entries()].find(([, v]) => v.hid === Number(r.employee_hid))?.[0] ?? null)
+      : null,
+  }))
+
+  const alleenInExact = exactMensen.filter((r) => r.gekoppeldAan === null)
+
+  return {
+    regels,
+    exactMensen,
+    alleenInExact,
+    /* Wie hier werkt en in Exact niet te vinden is. */
+    zonderKoppeling: regels.filter((r) => r.actief && r.employeeHid == null).length,
+    weg: regels.filter((r) => r.wegMaarActief).length,
+    exactAantal: (hunne.data ?? []).length,
+    laatstAt: sync.data?.laatst_at ?? null,
+    laatsteFout: sync.data?.laatste_fout ?? null,
+    door: sync.data?.door ?? null,
+  }
+}
+
+/**
+ * Alles wat Exact over deze medewerker weet.
+ *
+ * Apart van de lijst gehouden, en dat is met opzet. Het volledige record is
+ * per persoon tientallen velden en kan een BSN bevatten; dat hoort niet in
+ * een overzicht mee te reizen dat je alleen maar opent om te zien wie waar
+ * bij hoort. Het komt pas mee als je er een openslaat.
+ */
+async function medewerkerDetails(body: Record<string, unknown>): Promise<Response> {
+  const hid = Number(body.employeeHid)
+  if (!Number.isInteger(hid)) {
+    return json({ ok: false, reden: 'Geen medewerkernummer meegestuurd.' }, 400)
+  }
+  const { data, error } = await admin.from('exact_personeel')
+    .select('*').eq('employee_hid', hid).maybeSingle()
+  if (error) return json({ ok: false, reden: error.message }, 502)
+  if (!data) return json({ ok: false, reden: 'Die medewerker staat niet in de opgehaalde lijst.' }, 404)
+
+  return json({
+    ok: true,
+    employeeHid: hid,
+    naam: data.volledige_naam,
+    /* Wat Exact stuurde, zoals het binnenkwam. Het scherm zet er de leesbare
+       namen bij die het kent en toont de rest zoals hij is. */
+    velden: data.ruw ?? {},
+  })
+}
+
+/** Met de hand zeggen wie wie is. employeeHid leeg = de koppeling weghalen. */
+async function koppelMedewerker(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const userId = String(body.userId ?? '').trim()
+  if (!userId) return json({ ok: false, reden: 'Geen medewerker meegestuurd.' }, 400)
+
+  const ruw = body.employeeHid
+  if (ruw === null || ruw === '' || ruw === undefined) {
+    await admin.from('exact_medewerker').delete().eq('user_id', userId)
+    return json({ ok: true, ...await personeelStand() })
+  }
+
+  const hid = Number(ruw)
+  if (!Number.isInteger(hid) || hid <= 0) {
+    return json({ ok: false, reden: 'Dat is geen medewerkernummer.' }, 400)
+  }
+
+  /*
+   * Het nummer mag maar aan één iemand hangen. De database bewaakt dat ook,
+   * maar een nette melding is beter dan een foutcode uit Postgres.
+   */
+  const { data: bezet } = await admin.from('exact_medewerker')
+    .select('user_id').eq('employee_hid', hid).maybeSingle()
+  if (bezet && String(bezet.user_id) !== userId) {
+    return json({ ok: false, reden: 'Dat medewerkernummer hangt al aan iemand anders.' }, 409)
+  }
+
+  const { error } = await admin.from('exact_medewerker').upsert({
+    user_id: userId,
+    employee_hid: hid,
+    bron: 'handmatig',
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'user_id' })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({ ok: true, ...await personeelStand() })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Mag deze beller bij het personeel
+ *
+ *  Een andere grens dan bij het rekeningschema. Daar mocht ontwikkeling
+ *  meekijken; hier gaat het om mensen, en geldt dezelfde grens als bij het
+ *  dossier: het management en wie personeel mag inzien.
+ * ------------------------------------------------------------------ */
+
+async function magPersoneel(req: Request): Promise<boolean> {
+  /*
+   * Alleen het management, en niet staff.view. Het volledige Exact-record
+   * gaat hier langs en daar kan een BSN in zitten; dat ligt in 0009 bij het
+   * management en bij de medewerker zelf. Een ruimere deur hier zou die
+   * afspraak omzeilen.
+   */
+  return await heeftRecht(req, null, ['management'])
+}
+
+/* ------------------------------------------------------------------ *
  *  Mag deze beller bij de administratie
  *
  *  Het ophalen van het rekeningschema is administratiewerk en geen
@@ -724,6 +1029,24 @@ async function grootboekStand() {
  * ------------------------------------------------------------------ */
 
 async function magAdministratie(req: Request): Promise<boolean> {
+  return await heeftRecht(req, 'admin.desk', ['administratie', 'management'])
+}
+
+/**
+ * Heeft de beller dit recht, via een rol of los toegekend?
+ *
+ * Eén plek, want dit stond er twee keer bijna hetzelfde en dat is precies
+ * hoe twee controles uit elkaar gaan lopen.
+ *
+ * recht mag null zijn: dan telt alleen de rol. Dat is geen gemak maar een
+ * keuze -- bij het personeel wil je juist géén achterdeur via een los
+ * toegekend recht, want dan is de grens ruimer dan die van het dossier.
+ */
+async function heeftRecht(
+  req: Request,
+  recht: string | null,
+  rollen: string[],
+): Promise<boolean> {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
   if (!token) return false
   const { data } = await admin.auth.getUser(token)
@@ -736,12 +1059,12 @@ async function magAdministratie(req: Request): Promise<boolean> {
     .maybeSingle()
   if (!profiel?.active) return false
 
-  const rollen = (profiel.roles ?? []) as string[]
+  const mijn = (profiel.roles ?? []) as string[]
   const toegekend = (profiel.grants ?? []) as string[]
   const ingetrokken = (profiel.revokes ?? []) as string[]
-  if (ingetrokken.includes('admin.desk')) return false
-  return rollen.includes('administratie') || rollen.includes('management')
-    || toegekend.includes('admin.desk')
+  if (recht === null) return rollen.some((r) => mijn.includes(r))
+  if (ingetrokken.includes(recht)) return false
+  return rollen.some((r) => mijn.includes(r)) || toegekend.includes(recht)
 }
 
 /* ------------------------------------------------------------------ */
@@ -823,6 +1146,19 @@ Deno.serve(async (req) => {
       return json({ ok: true, ...await grootboekStand() })
     }
 
+    /* ---- het personeel ---- */
+
+    if (actie === 'sync-personeel' || actie === 'personeel-stand'
+        || actie === 'koppel-medewerker' || actie === 'medewerker-details') {
+      if (!(await magPersoneel(req))) {
+        return json({ ok: false, reden: 'Personeelsgegevens zijn niet voor iedereen.' }, 403)
+      }
+      if (actie === 'sync-personeel') return await syncPersoneel(beller)
+      if (actie === 'koppel-medewerker') return await koppelMedewerker(body, beller)
+      if (actie === 'medewerker-details') return await medewerkerDetails(body)
+      return json({ ok: true, ...await personeelStand() })
+    }
+
     if (actie === 'los') {
       await bewaar({
         access_token: null,
@@ -846,9 +1182,9 @@ Deno.serve(async (req) => {
      * over één kam scheren als 502 laat het scherm dat niet zien.
      */
     if (e instanceof ExactFout) {
-      if (actie === 'sync-grootboek') {
+      if (actie === 'sync-grootboek' || actie === 'sync-personeel') {
         await admin.from('exact_sync').upsert({
-          soort: 'grootboek',
+          soort: actie === 'sync-personeel' ? 'personeel' : 'grootboek',
           laatste_fout: e.message.slice(0, 400),
           updated_at: Date.now(),
         }, { onConflict: 'soort' }).then(() => {}, () => {})

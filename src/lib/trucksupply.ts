@@ -1012,3 +1012,102 @@ export async function exactSyncGrootboek(): Promise<GrootboekStand & { aantal: n
     'exact', { actie: 'sync-grootboek' })
   return { ...alsStand(uit), aantal: uit.aantal ?? 0 }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Het personeel
+ *
+ *  Let op de richting. Personeel naar Exact sturen kan niet: de HRM-kant
+ *  van hun API is alleen-lezen (payroll/Employees doet GET en verder
+ *  niets). Wat hier gebeurt is dus vergelijken, en dat blijkt nuttiger dan
+ *  het klinkt -- vooral de vraag wie in Exact uit dienst staat en hier nog
+ *  gewoon kan inloggen.
+ * ------------------------------------------------------------------ */
+
+export interface PersoneelRegel {
+  userId: string
+  naam: string
+  email: string
+  actief: boolean
+  employeeHid: number | null
+  koppelBron: 'email' | 'naam' | 'handmatig' | null
+  exactNaam: string | null
+  exactActief: boolean | null
+  uitDienstPer: number | null
+  /** Uit dienst bij Exact, hier nog actief. */
+  wegMaarActief: boolean
+}
+
+export interface ExactPersoon {
+  employeeHid: number
+  naam: string
+  email: string
+  priveEmail?: string
+  actief: boolean
+  inDienstPer?: number | null
+  uitDienstPer?: number | null
+  /** profiles.id van wie hij al aan hangt, of null. */
+  gekoppeldAan?: string | null
+}
+
+export interface PersoneelStand {
+  regels: PersoneelRegel[]
+  /** Iedereen die Exact kent -- de lijst waarin je zoekt. */
+  exactMensen: ExactPersoon[]
+  /** Wie Exact kent en aan niemand hier gekoppeld is. */
+  alleenInExact: ExactPersoon[]
+  zonderKoppeling: number
+  weg: number
+  exactAantal: number
+  laatstAt: number | null
+  laatsteFout: string | null
+  door: string | null
+}
+
+function alsPersoneel(uit: Partial<PersoneelStand>): PersoneelStand {
+  return {
+    regels: uit.regels ?? [],
+    exactMensen: uit.exactMensen ?? [],
+    alleenInExact: uit.alleenInExact ?? [],
+    zonderKoppeling: uit.zonderKoppeling ?? 0,
+    weg: uit.weg ?? 0,
+    exactAantal: uit.exactAantal ?? 0,
+    laatstAt: uit.laatstAt ?? null,
+    laatsteFout: uit.laatsteFout ?? null,
+    door: uit.door ?? null,
+  }
+}
+
+export async function exactPersoneelStand(): Promise<PersoneelStand> {
+  return alsPersoneel(await roepFunctie<PersoneelStand>('exact', { actie: 'personeel-stand' }))
+}
+
+/** Ophalen bij Exact, en meteen koppelen wat op e-mailadres te koppelen valt. */
+export async function exactSyncPersoneel(): Promise<PersoneelStand & { gekoppeld: number }> {
+  const uit = await roepFunctie<PersoneelStand & { gekoppeld?: number }>(
+    'exact', { actie: 'sync-personeel' })
+  return { ...alsPersoneel(uit), gekoppeld: uit.gekoppeld ?? 0 }
+}
+
+/**
+ * Alles wat Exact over deze medewerker weet.
+ *
+ * Apart opgehaald en niet meegeleverd met de lijst: het is per persoon
+ * tientallen velden en er kan een BSN in zitten. Dat hoort niet mee te reizen
+ * met een overzicht dat je opent om te zien wie waar bij hoort.
+ */
+export async function exactMedewerkerDetails(
+  employeeHid: number,
+): Promise<{ employeeHid: number; naam: string; velden: Record<string, unknown> }> {
+  const uit = await roepFunctie<{ employeeHid: number; naam: string; velden: Record<string, unknown> }>(
+    'exact', { actie: 'medewerker-details', employeeHid })
+  return { employeeHid: uit.employeeHid, naam: uit.naam ?? '', velden: uit.velden ?? {} }
+}
+
+/** Met de hand koppelen. employeeHid null = de koppeling weghalen. */
+export async function exactKoppelMedewerker(
+  userId: string,
+  employeeHid: number | null,
+): Promise<PersoneelStand> {
+  return alsPersoneel(await roepFunctie<PersoneelStand>(
+    'exact', { actie: 'koppel-medewerker', userId, employeeHid }))
+}
