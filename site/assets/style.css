@@ -251,10 +251,12 @@ tr.verborgen{display:none}
 .telling{font-size:15px;color:var(--inkt-3);margin:0 0 var(--s2)}
 
 /* ---------- locatiekaart 3D ---------- */
-.kaartblok{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:var(--s4);align-items:start}
+/* De kaart krijgt de meeste ruimte: hij is de reden dat deze pagina anders
+   is dan een lijst, en achttien plaatsnamen moeten er leesbaar op passen. */
+.kaartblok{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:var(--s4);align-items:start}
 .kaarthouder{position:relative}
 #nlkaart{
-  width:100%;aspect-ratio:1/1.12;background:linear-gradient(170deg,#0d1f4a,#07132e);
+  width:100%;aspect-ratio:1/1.06;background:linear-gradient(170deg,#0d1f4a,#07132e);
   border:1px solid rgba(255,255,255,.14);border-radius:5px;cursor:grab;display:block;
   /* verticaal vegen laat de pagina gewoon scrollen op een telefoon */
   touch-action:pan-y;
@@ -268,6 +270,29 @@ tr.verborgen{display:none}
   opacity:0;transition:opacity .14s;z-index:2;
 }
 .kaartlabel.aan{opacity:1}
+
+/* De plaatsnamen op de kaart.
+
+   Bewust rustiger dan het gele label dat bij aanwijzen verschijnt: er staan er
+   achttien tegelijk, en achttien gele blokken maken van een kaart een
+   kermisbord. Donker met een lichte rand leest over het blauwe land heen en
+   laat de kaart de kaart. */
+.kaartnamen{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+.kaartnaam{
+  /* left/top blijven 0; de plek komt uit een transform, want die rekent de
+     browser af zonder de opmaak opnieuw te bepalen -- achttien naampjes per
+     beeldje moeten gratis zijn. */
+  position:absolute;left:0;top:0;
+  font-family:Archivo,sans-serif;font-weight:700;font-size:11.5px;letter-spacing:.03em;
+  color:#fff;background:rgba(7,19,46,.82);border:1px solid rgba(255,255,255,.22);
+  padding:2.5px 7px;border-radius:3px;white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.5);
+  transition:opacity .16s ease;
+}
+/* Wat wijkt omdat het botst gaat weg, niet weg-en-terug: display:none zou de
+   breedte die we bij het opstarten hebben gemeten op nul zetten. */
+.kaartnaam.weg{opacity:0}
+.kaartnaam.aan{background:var(--geel);color:var(--navy-900);border-color:var(--geel);text-shadow:none}
 .kaartknoppen{position:absolute;right:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;z-index:2}
 .kaartknoppen button{
   width:40px;height:40px;border-radius:3px;border:1px solid rgba(255,255,255,.28);

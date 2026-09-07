@@ -25,9 +25,13 @@
  * banner die het probleem verplaatst naar de bezoeker.
  *
  * Wat overblijft is Trucky, en dat is een echte keuze: wat je hem typt gaat
- * naar onze server en van daar naar Claude om er een antwoord van te maken.
+ * naar onze server en van daar naar de dienst die er een antwoord van maakt.
  * Dat is niet nodig om deze site te lezen. Dus staat hij uit tot je hem
  * aanzet, en wordt zijn script niet eens opgehaald zolang dat niet gebeurd is.
+ *
+ * (Welke partijen dat precies zijn staat op /privacy/, waar het thuishoort.
+ * Dit bestand gaat mee naar elke bezoeker; het is geen plek voor namen die
+ * daar niets toevoegen.)
  *
  * Weigeren moet net zo makkelijk zijn als toestaan
  * -----------------------------------------------
@@ -53,16 +57,17 @@
       id: "noodzakelijk",
       naam: "Noodzakelijk",
       vast: true,
-      uitleg: "Het onthouden van deze keuze, en verder niets. Geen cookies, " +
-              "geen statistieken, niets dat je over de site heen volgt.",
+      uitleg: "Onthouden wat je hier kiest, zodat we het niet elke keer " +
+              "opnieuw vragen. Verder niets: geen cookies, en niets dat " +
+              "bijhoudt waar je kijkt.",
     },
     {
       id: "trucky",
       naam: "Trucky, de assistent",
       vast: false,
-      uitleg: "De chatknop rechtsonder. Wat je hem vraagt gaat naar onze " +
-              "server en naar Claude (Anthropic) om er een antwoord van te " +
-              "maken. Staat uit tot je hem aanzet.",
+      uitleg: "De gele knop rechtsonder, waar je een vraag kunt stellen " +
+              "over openingstijden, prijzen of vacatures. Je vraag gaat " +
+              "daarvoor naar ons toe. Staat uit tot je hem aanzet.",
     },
   ];
 
@@ -134,7 +139,7 @@
     d.className = "trucky trucky-uit";
     d.innerHTML =
       '<button class="trucky-knop" type="button" ' +
-        'aria-label="Trucky aanzetten, de assistent van Truckwash 1">' +
+        'aria-label="Trucky aanzetten en een vraag stellen">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
           '<path fill="currentColor" d="M12 3c5 0 9 3.1 9 7s-4 7-9 7c-.9 0-1.8-.1-2.6-.3L5 19l.9-3.3C4.1 14.4 3 12.3 3 10c0-3.9 4-7 9-7z"/>' +
         "</svg>" +
@@ -187,11 +192,11 @@
     balk.innerHTML =
       '<div class="toestemming-binnen">' +
         "<div class=\"toestemming-tekst\">" +
-          "<strong>Deze site zet geen cookies en telt je niet mee.</strong> " +
-          "Er is één ding dat je zelf mag kiezen: Trucky, de assistent " +
-          "rechtsonder. Wat je hem vraagt gaat naar onze server en naar Claude " +
-          "om er een antwoord van te maken. " +
-          '<a href="/cookies/">Wat er precies wordt opgeslagen</a>.' +
+          "<strong>Deze site zet geen cookies en houdt niet bij wat je " +
+          "bekijkt.</strong> Eén ding kun je zelf kiezen: Trucky, die " +
+          "rechtsonder je vragen beantwoordt. Daarvoor moet je vraag naar " +
+          "ons toe. " +
+          '<a href="/cookies/">Zo zit dat precies</a>.' +
         "</div>" +
         '<div class="toestemming-knoppen">' +
           '<button type="button" class="knop knop-rand" data-keus="nee">Alleen noodzakelijk</button>' +
@@ -227,9 +232,10 @@
     venster.innerHTML =
       '<div class="toestemming-venster" role="dialog" aria-modal="true" ' +
            'aria-labelledby="toestemming-titel">' +
-        '<h2 id="toestemming-titel">Wat mag deze site?</h2>' +
+        '<h2 id="toestemming-titel">Jouw keuze</h2>' +
         '<p class="toestemming-inleiding">Er staan geen cookies op deze site en ' +
-          "er wordt niet bijgehouden wat je bekijkt. Alleen dit valt te kiezen.</p>" +
+          "we houden niet bij wat je bekijkt. Dit is het enige dat te kiezen " +
+          "valt.</p>" +
         '<div class="toestemming-lijst">' +
           SOORTEN.map(function (s) {
             var aan = s.vast || (nu ? !!nu.keuze[s.id] : false);
@@ -242,11 +248,10 @@
             "</label>";
           }).join("") +
         "</div>" +
-        '<p class="toestemming-inleiding">Statistieken en advertenties staan er ' +
-          "niet in, want ze worden niet gebruikt. Komt daar ooit iets bij, dan " +
-          "verschijnt hier een schakelaar en wordt het opnieuw gevraagd &mdash; " +
-          "een bestaande keuze telt daar niet voor. " +
-          '<a href="/privacy/">Privacyverklaring</a>.</p>' +
+        '<p class="toestemming-inleiding">Bezoekersstatistieken en advertenties ' +
+          "staan er niet tussen, simpelweg omdat we ze niet gebruiken. Komt " +
+          "daar ooit iets bij, dan vragen we het je opnieuw. " +
+          '<a href="/privacy/">Zo gaan we met je gegevens om</a>.</p>' +
         '<div class="toestemming-knoppen">' +
           '<button type="button" class="knop knop-rand" data-keus="nee">Alles uit</button>' +
           '<button type="button" class="knop knop-geel" data-keus="bewaar">Bewaren</button>' +
@@ -309,11 +314,11 @@
       "</div>" +
       '<p class="toestemming-stand">' +
         (nu
-          ? "Je keuze is opgeslagen op " +
+          ? "Je keuze staat genoteerd sinds " +
             new Date(nu.op).toLocaleDateString("nl-NL", {
               day: "numeric", month: "long", year: "numeric",
             }) + "."
-          : "Je hebt nog niets gekozen; alles wat te kiezen valt staat uit.") +
+          : "Je hebt nog niets gekozen, dus staat alles uit.") +
       "</p>";
 
     vak.querySelectorAll("[data-hier]").forEach(function (v) {
