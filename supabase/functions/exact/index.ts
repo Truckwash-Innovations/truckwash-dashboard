@@ -22,7 +22,7 @@
  *   koppel-medewerker met de hand zeggen wie wie is
  *   sync-administraties  welke bv's Exact kent
  *   zet-administratie    een bv aan- of uitzetten, of tot hoofd maken
- *   sync-crediteuren  de leveranciers uit Exact ophalen
+ *   sync-relaties     de relaties uit Exact: crediteuren en klanten
  *   facturen-stand    wat er klaarstaat om te versturen, en wat mist
  *   stuur-facturen    goedgekeurde facturen als inkoopboeking naar Exact
  *   koppel-leverancier  met de hand zeggen welke crediteur het is
@@ -934,7 +934,7 @@ async function grootboekStand() {
 }
 
 /* ------------------------------------------------------------------ *
- *  De crediteuren
+ *  De relaties
  * ------------------------------------------------------------------ */
 
 interface ExactAccount {
@@ -942,45 +942,63 @@ interface ExactAccount {
   Code?: string
   Name?: string
   VATNumber?: string
+  IsSupplier?: boolean
+  /** Zo heet een klant bij Exact. */
+  IsSales?: boolean
+  Email?: string
+  Phone?: string
+  City?: string
 }
 
-async function syncCrediteuren(beller: Beller): Promise<Response> {
+/*
+ * Alle relaties in één ronde.
+ *
+ * In 0058 werden alleen de crediteuren opgehaald, met een $filter op
+ * IsSupplier. Klanten hebben precies hetzelfde nodig zodra er
+ * verkoopfacturen bijkomen, en ze staan in Exact in dezelfde lijst met
+ * alleen een vlaggetje ertussen. Twee syncs op dezelfde resource is twee
+ * keer hetzelfde verkeer en twee plekken waar dezelfde relatie kan
+ * verschillen. Dus zonder filter, en de vlaggen mee.
+ */
+async function syncRelaties(beller: Beller): Promise<Response> {
   const lijn = await geldigToken(admin)
   const bvs = await actieveAdministraties(lijn)
 
   const nu = Date.now()
-  let uitTotaal = 0
+  let totaal = 0
 
-  /* Een relatie hoort bij één administratie en heeft daar zijn eigen guid.
-     Dezelfde leverancier in twee bv's is dus twee rijen -- en dat moet ook,
-     want een boeking wijst naar de guid van díe bv. */
   for (const bv of bvs) {
     const rijen = await exactLijst<ExactAccount>(lijn, 'crm/Accounts', {
-      $select: 'ID,Code,Name,VATNumber',
-      $filter: 'IsSupplier eq true',
+      $select: 'ID,Code,Name,VATNumber,IsSupplier,IsSales,Email,Phone,City',
     }, bv)
 
     const uit = rijen
       .filter((r) => r.ID)
       .map((r) => ({
         exact_id: String(r.ID),
+        division: bv,
         code: (r.Code ?? '').trim() || null,
         naam: String(r.Name ?? '').trim(),
+        is_leverancier: r.IsSupplier === true,
+        /* Exact noemt een klant "IsSales". Wie geen van beide is -- een
+           prospect, een instantie -- komt er ook in: hij staat in de lijst en
+           kan later alsnog een van de twee worden. */
+        is_klant: r.IsSales === true,
         btw_nummer: r.VATNumber ?? null,
-        division: bv,
+        email: r.Email ?? null,
+        telefoon: r.Phone ?? null,
+        plaats: r.City ?? null,
         updated_at: nu,
       }))
 
     for (let i = 0; i < uit.length; i += 200) {
-      const { error } = await admin.from('exact_crediteur')
+      const { error } = await admin.from('exact_relatie')
         .upsert(uit.slice(i, i + 200), { onConflict: 'exact_id' })
-      if (error) throw new ExactFout(`exact_crediteur schrijven: ${error.message}`)
+      if (error) throw new ExactFout(`exact_relatie schrijven: ${error.message}`)
     }
-    await admin.from('exact_crediteur').delete().eq('division', bv).lt('updated_at', nu)
-    uitTotaal += uit.length
+    await admin.from('exact_relatie').delete().eq('division', bv).lt('updated_at', nu)
+    totaal += uit.length
   }
-
-  const uit = { length: uitTotaal }
 
   /*
    * De zoeknaam en het automatisch koppelen doet de database, in één keer.
@@ -988,21 +1006,125 @@ async function syncCrediteuren(beller: Beller): Promise<Response> {
    * functie zijn eigen versie van "dezelfde naam" zou maken, lopen die twee
    * binnen een half jaar uit elkaar.
    */
-  const { error: klaar } = await admin.rpc('exact_crediteuren_klaarzetten', {
-    door_in: beller.naam || beller.id,
-  })
-  if (klaar) throw new ExactFout(`crediteuren klaarzetten: ${klaar.message}`)
+  const { data: klaar, error: klaarFout } = await admin
+    .rpc('exact_relaties_klaarzetten', { door_in: beller.naam || beller.id })
+  if (klaarFout) throw new ExactFout(`relaties klaarzetten: ${klaarFout.message}`)
 
   await admin.from('exact_sync').upsert({
-    soort: 'crediteuren',
+    soort: 'relaties',
     laatst_at: nu,
-    aantal: uit.length,
+    aantal: totaal,
     laatste_fout: null,
     door: beller.naam || beller.id,
     updated_at: nu,
   }, { onConflict: 'soort' })
 
-  return json({ ok: true, aantal: uit.length, ...await facturenStand() })
+  const gekoppeld = Array.isArray(klaar) ? klaar[0] : klaar
+  return json({
+    ok: true,
+    aantal: totaal,
+    gekoppeldLeveranciers: Number(gekoppeld?.leveranciers ?? 0),
+    gekoppeldBedrijven: Number(gekoppeld?.bedrijven ?? 0),
+    ...await facturenStand(),
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Onze bedrijven naast de relaties van Exact
+ *
+ *  public.companies is geen kopie van Exact. Er hangen wasbeurten aan,
+ *  klantenportalen en profielen; een sync die daar rijen overheen zet sloopt
+ *  verwijzingen die nergens anders vandaan komen. Dus hetzelfde als bij het
+ *  grootboek: een kopie ernaast en een koppeling ertussen.
+ * ------------------------------------------------------------------ */
+
+async function relatiesStand() {
+  const [onze, hunne, links, sync] = await Promise.all([
+    admin.from('companies').select('id, name, city').order('name'),
+    admin.from('exact_relatie').select('*').eq('is_klant', true).order('naam'),
+    admin.from('company_exact').select('*'),
+    admin.from('exact_sync').select('*').eq('soort', 'relaties').maybeSingle(),
+  ])
+
+  const perBedrijf = new Map<string, { division: string; exactId: string; naam: string; bron: string }[]>()
+  for (const l of (links.data ?? [])) {
+    const lijst = perBedrijf.get(String(l.company_id)) ?? []
+    lijst.push({
+      division: String(l.division),
+      exactId: String(l.exact_id),
+      naam: String(l.exact_naam ?? ''),
+      bron: String(l.bron),
+    })
+    perBedrijf.set(String(l.company_id), lijst)
+  }
+
+  const bedrijven = (onze.data ?? []).map((c) => ({
+    id: String(c.id),
+    naam: String(c.name ?? ''),
+    plaats: String(c.city ?? ''),
+    koppelingen: perBedrijf.get(String(c.id)) ?? [],
+  }))
+
+  const gekoppeld = new Set((links.data ?? []).map((l) => `${l.division}|${l.exact_id}`))
+  const klanten = (hunne.data ?? []).map((r) => ({
+    exactId: String(r.exact_id),
+    division: String(r.division),
+    code: (r.code as string) ?? null,
+    naam: String(r.naam ?? ''),
+    plaats: (r.plaats as string) ?? null,
+    email: (r.email as string) ?? null,
+    gekoppeld: gekoppeld.has(`${r.division}|${r.exact_id}`),
+  }))
+
+  return {
+    bedrijven,
+    klanten,
+    zonderKoppeling: bedrijven.filter((b) => b.koppelingen.length === 0).length,
+    alleenInExact: klanten.filter((k) => !k.gekoppeld).length,
+    laatstAt: sync.data?.laatst_at ?? null,
+    laatsteFout: sync.data?.laatste_fout ?? null,
+  }
+}
+
+/** Met de hand zeggen welk bedrijf welke relatie is. Leeg = koppeling weg. */
+async function koppelBedrijf(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const companyId = String(body.companyId ?? '').trim()
+  const division = String(body.division ?? '').trim()
+  if (!companyId || !division) {
+    return json({ ok: false, reden: 'Geen bedrijf of administratie meegestuurd.' }, 400)
+  }
+
+  const exactId = String(body.exactId ?? '').trim()
+  if (!exactId) {
+    await admin.from('company_exact').delete()
+      .eq('company_id', companyId).eq('division', division)
+    return json({ ok: true, ...await relatiesStand() })
+  }
+
+  const { data: rel } = await admin.from('exact_relatie')
+    .select('exact_id, naam').eq('exact_id', exactId).eq('division', division).maybeSingle()
+  if (!rel) return json({ ok: false, reden: 'Die relatie staat niet in de opgehaalde lijst.' }, 404)
+
+  /* Eén relatie hoort bij één bedrijf. De database bewaakt dat ook, maar een
+     nette melding is beter dan een botsing op een unieke index. */
+  const { data: bezet } = await admin.from('company_exact')
+    .select('company_id').eq('division', division).eq('exact_id', exactId).maybeSingle()
+  if (bezet && String(bezet.company_id) !== companyId) {
+    return json({ ok: false, reden: 'Die relatie hangt al aan een ander bedrijf.' }, 409)
+  }
+
+  const { error } = await admin.from('company_exact').upsert({
+    company_id: companyId,
+    division,
+    exact_id: exactId,
+    exact_naam: rel.naam,
+    bron: 'handmatig',
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'company_id,division' })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({ ok: true, ...await relatiesStand() })
 }
 
 /* ------------------------------------------------------------------ *
@@ -1068,7 +1190,8 @@ async function facturenStand() {
   })
 
   const { count: crediteuren } = await admin
-    .from('exact_crediteur').select('exact_id', { count: 'exact', head: true })
+    .from('exact_relatie').select('exact_id', { count: 'exact', head: true })
+    .eq('is_leverancier', true)
 
   return {
     aan: inst.aan,
@@ -1149,7 +1272,7 @@ async function koppelLeverancier(body: Record<string, unknown>, beller: Beller):
     return json({ ok: true, ...await facturenStand() })
   }
 
-  const { data: cred } = await admin.from('exact_crediteur')
+  const { data: cred } = await admin.from('exact_relatie')
     .select('exact_id, naam').eq('exact_id', exactId).maybeSingle()
   if (!cred) return json({ ok: false, reden: 'Die crediteur staat niet in de opgehaalde lijst.' }, 404)
 
@@ -1767,13 +1890,16 @@ Deno.serve(async (req) => {
 
     /* ---- facturen ---- */
 
-    if (actie === 'sync-crediteuren' || actie === 'facturen-stand'
+    if (actie === 'sync-relaties' || actie === 'facturen-stand'
         || actie === 'stuur-facturen' || actie === 'koppel-leverancier'
+        || actie === 'koppel-bedrijf' || actie === 'relaties-stand'
         || actie === 'dagboeken' || actie === 'btw-codes') {
       if (!beller.magSleutels && !(await magAdministratie(req))) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
-      if (actie === 'sync-crediteuren') return await syncCrediteuren(beller)
+      if (actie === 'sync-relaties') return await syncRelaties(beller)
+      if (actie === 'koppel-bedrijf') return await koppelBedrijf(body, beller)
+      if (actie === 'relaties-stand') return json({ ok: true, ...await relatiesStand() })
       if (actie === 'stuur-facturen') return await stuurFacturen(beller)
       if (actie === 'koppel-leverancier') return await koppelLeverancier(body, beller)
       if (actie === 'dagboeken') return await dagboeken()

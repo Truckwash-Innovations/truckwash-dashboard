@@ -1191,10 +1191,26 @@ export async function exactFacturenStand(): Promise<FacturenStand> {
   return alsFacturen(await roepFunctie<FacturenStand>('exact', { actie: 'facturen-stand' }))
 }
 
-export async function exactSyncCrediteuren(): Promise<FacturenStand & { aantal: number }> {
-  const uit = await roepFunctie<FacturenStand & { aantal?: number }>(
-    'exact', { actie: 'sync-crediteuren' })
-  return { ...alsFacturen(uit), aantal: uit.aantal ?? 0 }
+/**
+ * De relaties uit Exact: crediteuren én klanten in één ronde.
+ *
+ * Heette sync-crediteuren tot 0063. Ze staan bij Exact in dezelfde lijst met
+ * alleen een vlaggetje ertussen, en twee syncs op dezelfde resource is twee
+ * keer hetzelfde verkeer en twee plekken waar dezelfde relatie kan
+ * verschillen.
+ */
+export async function exactSyncRelaties(): Promise<
+  FacturenStand & { aantal: number; gekoppeldLeveranciers: number; gekoppeldBedrijven: number }
+> {
+  const uit = await roepFunctie<FacturenStand & {
+    aantal?: number; gekoppeldLeveranciers?: number; gekoppeldBedrijven?: number
+  }>('exact', { actie: 'sync-relaties' })
+  return {
+    ...alsFacturen(uit),
+    aantal: uit.aantal ?? 0,
+    gekoppeldLeveranciers: uit.gekoppeldLeveranciers ?? 0,
+    gekoppeldBedrijven: uit.gekoppeldBedrijven ?? 0,
+  }
 }
 
 /** Nu versturen. Weigert zolang de schakelaar uit staat. */
@@ -1251,4 +1267,70 @@ export async function exactZetAdministratie(
   const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
     'exact', { actie: 'zet-administratie', code, ...velden })
   return uit.administraties ?? []
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  Onze bedrijven naast de relaties van Exact
+ *
+ *  public.companies is geen kopie van Exact -- er hangen wasbeurten aan,
+ *  klantenportalen en profielen. Dus een kopie ernaast en een koppeling
+ *  ertussen, per administratie: dezelfde klant heeft in elke bv een eigen
+ *  relatienummer.
+ * ------------------------------------------------------------------ */
+
+export interface BedrijfKoppeling {
+  division: string
+  exactId: string
+  naam: string
+  bron: string
+}
+
+export interface BedrijfRegel {
+  id: string
+  naam: string
+  plaats: string
+  koppelingen: BedrijfKoppeling[]
+}
+
+export interface ExactKlant {
+  exactId: string
+  division: string
+  code: string | null
+  naam: string
+  plaats: string | null
+  email: string | null
+  gekoppeld: boolean
+}
+
+export interface RelatiesStand {
+  bedrijven: BedrijfRegel[]
+  klanten: ExactKlant[]
+  zonderKoppeling: number
+  alleenInExact: number
+  laatstAt: number | null
+  laatsteFout: string | null
+}
+
+function alsRelaties(uit: Partial<RelatiesStand>): RelatiesStand {
+  return {
+    bedrijven: uit.bedrijven ?? [],
+    klanten: uit.klanten ?? [],
+    zonderKoppeling: uit.zonderKoppeling ?? 0,
+    alleenInExact: uit.alleenInExact ?? 0,
+    laatstAt: uit.laatstAt ?? null,
+    laatsteFout: uit.laatsteFout ?? null,
+  }
+}
+
+export async function exactRelatiesStand(): Promise<RelatiesStand> {
+  return alsRelaties(await roepFunctie<RelatiesStand>('exact', { actie: 'relaties-stand' }))
+}
+
+/** Met de hand koppelen. exactId null = de koppeling weghalen. */
+export async function exactKoppelBedrijf(
+  companyId: string, division: string, exactId: string | null,
+): Promise<RelatiesStand> {
+  return alsRelaties(await roepFunctie<RelatiesStand>(
+    'exact', { actie: 'koppel-bedrijf', companyId, division, exactId }))
 }

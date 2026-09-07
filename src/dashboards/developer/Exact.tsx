@@ -51,10 +51,10 @@ import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
-  exactSyncAdministraties, exactSyncCrediteuren, exactSyncPersoneel,
-  exactVerbindUrl, exactZetAdministratie,
+  exactKoppelBedrijf, exactRelatiesStand, exactSyncAdministraties,
+  exactSyncPersoneel, exactSyncRelaties, exactVerbindUrl, exactZetAdministratie,
   type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
-  type FacturenStand,
+  type FacturenStand, type RelatiesStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand,
 } from '../../lib/trucksupply'
@@ -532,6 +532,10 @@ export default function Exact() {
 
       <div style={{ gridColumn: '1 / -1' }}>
         <Personeel verbonden={stand?.verbonden === true} />
+      </div>
+
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Relaties verbonden={stand?.verbonden === true} />
       </div>
 
       <div style={{ gridColumn: '1 / -1' }}>
@@ -1595,6 +1599,186 @@ function leesbaar(waarde: unknown): string {
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ *
+ *  Onze bedrijven naast de relaties van Exact
+ *
+ *  Casper: "In exact staan natuurlijk relaties, dat worden onze bedrijven,
+ *  sync dit dan ook."
+ *
+ *  Niet door onze lijst te overschrijven. Aan public.companies hangen
+ *  wasbeurten, klantenportalen en profielen; een sync die daar rijen
+ *  overheen zet of weggooit, sloopt verwijzingen die nergens anders vandaan
+ *  komen. Dus hetzelfde als bij het grootboek: een kopie ernaast en een
+ *  koppeling ertussen.
+ *
+ *  Per administratie, want dezelfde klant heeft in elke bv een eigen
+ *  relatienummer -- en een verkoopfactuur wijst naar dat nummer.
+ * ------------------------------------------------------------------ */
+
+function Relaties({ verbonden }: { verbonden: boolean }) {
+  const [stand, setStand] = useState<RelatiesStand | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [alles, setAlles] = useState(false)
+
+  async function laad() {
+    try {
+      setStand(await exactRelatiesStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  async function haalOp() {
+    setBezig(true)
+    setFout(null)
+    try {
+      const uit = await exactSyncRelaties()
+      await laad()
+      toast.ok(uit.gekoppeldBedrijven > 0
+        ? `${uit.aantal} relaties opgehaald, ${uit.gekoppeldBedrijven} bedrijven gekoppeld op naam.`
+        : `${uit.aantal} relaties opgehaald.`)
+    } catch (e) {
+      const b = e instanceof Error ? e.message : 'Ophalen mislukte.'
+      setFout(b)
+      toast.error(b)
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function koppel(companyId: string, division: string, exactId: string | null) {
+    try {
+      setStand(await exactKoppelBedrijf(companyId, division, exactId))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Koppelen mislukte.')
+    }
+  }
+
+  /* Welke bv's er in de opgehaalde relaties voorkomen. Meer dan één betekent
+     dat elk bedrijf per bv een eigen koppeling kan hebben. */
+  const bvs = useMemo(
+    () => [...new Set((stand?.klanten ?? []).map((k) => k.division))].sort(),
+    [stand])
+
+  const bedrijven = stand?.bedrijven ?? []
+  const opvallend = bedrijven.filter((b) => b.koppelingen.length === 0)
+  const tonen = alles ? bedrijven : opvallend
+
+  return (
+    <Card
+      title="Onze bedrijven naast de relaties van Exact"
+      hint="Nodig zodra er verkoopfacturen heen gaan"
+      action={
+        <button className="btn sm" disabled={bezig || !verbonden} onClick={() => void haalOp()}>
+          {bezig ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Relaties ophalen
+        </button>
+      }
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      <p className="help" style={{ marginTop: 0 }}>
+        Onze klantenlijst blijft van ons — er hangen wasbeurten en portalen aan. Wat hier gebeurt
+        is koppelen: welk bedrijf van ons is welke relatie in Exact. Dat gaat automatisch op naam
+        als er precies één relatie met die naam is; bij twee is kiezen raden, en dan doet een mens
+        het.
+      </p>
+
+      <div className="row mb">
+        {stand?.laatstAt
+          ? <span className="ts-sub">Laatst opgehaald {relative(stand.laatstAt)} · {stand.klanten.length} klanten in Exact</span>
+          : <span className="ts-sub">Nog niet opgehaald.</span>}
+      </div>
+
+      {stand && stand.zonderKoppeling > 0 && (
+        <div className="waarschuwing zacht mb">
+          <TriangleAlert size={14} />
+          <span>
+            {stand.zonderKoppeling} bedrijf/bedrijven hangen nog aan geen enkele relatie. Zolang
+            dat zo is kan er voor hen geen verkoopfactuur naar Exact.
+          </span>
+        </div>
+      )}
+
+      {stand && stand.zonderKoppeling === 0 && stand.laatstAt && bedrijven.length > 0 && (
+        <div className="waarschuwing zacht mb" style={{ borderColor: 'var(--ok)' }}>
+          <Check size={14} />
+          <span>Elk bedrijf is aan een relatie in Exact gekoppeld.</span>
+        </div>
+      )}
+
+      {tonen.length === 0 && !stand?.laatstAt && (
+        <Empty text="Haal de relaties op bij Exact om te koppelen." />
+      )}
+
+      {tonen.length > 0 && (
+        <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Bij ons</th>
+                <th>Plaats</th>
+                {bvs.map((bv) => <th key={bv}>In {bv}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {tonen.map((b) => (
+                <tr key={b.id}>
+                  <td className="afgekapt">{b.naam}</td>
+                  <td className="afgekapt">{b.plaats || '—'}</td>
+                  {bvs.map((bv) => {
+                    const link = b.koppelingen.find((k) => k.division === bv)
+                    const keuzes = (stand?.klanten ?? []).filter(
+                      (k) => k.division === bv && (!k.gekoppeld || k.exactId === link?.exactId))
+                    return (
+                      <td key={bv}>
+                        <select
+                          className="input"
+                          style={{ minWidth: 150 }}
+                          value={link?.exactId ?? ''}
+                          onChange={(e) => void koppel(b.id, bv, e.currentTarget.value || null)}
+                        >
+                          <option value="">— niet gekoppeld —</option>
+                          {keuzes.map((k) => (
+                            <option key={k.exactId} value={k.exactId}>
+                              {k.code ? `${k.code} · ` : ''}{k.naam}
+                            </option>
+                          ))}
+                        </select>
+                        {link?.bron === 'naam' && <span className="ts-sub"> op naam</span>}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {bedrijven.length > opvallend.length && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn ghost sm" onClick={() => setAlles((v) => !v)}>
+            {alles
+              ? <><X size={14} /> Alleen wat nog niet gekoppeld is</>
+              : <>Alle {bedrijven.length} bedrijven tonen</>}
+          </button>
+        </div>
+      )}
+
+      {stand && stand.alleenInExact > 0 && (
+        <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
+          Er staan {stand.alleenInExact} relaties in Exact die aan geen bedrijf van ons hangen.
+          Dat hoeft niet fout te zijn — daar zitten leveranciers en oude klanten tussen.
+        </p>
+      )}
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
  *  Goedgekeurde facturen naar Exact
  *
  *  Casper: "uiteindelijk wil ik natuurlijk als er facturen goedgekeurd
@@ -1694,14 +1878,14 @@ function Facturen({ verbonden }: { verbonden: boolean }) {
         <button
           className="btn sm"
           disabled={bezig !== null || !verbonden}
-          onClick={() => void doe('crediteuren', async () => {
-            const uit = await exactSyncCrediteuren()
+          onClick={() => void doe('relaties', async () => {
+            const uit = await exactSyncRelaties()
             setStand(uit)
-            toast.ok(`${uit.aantal} crediteuren opgehaald.`)
+            toast.ok(`${uit.aantal} relaties opgehaald.`)
           })}
         >
-          {bezig === 'crediteuren' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
-          Crediteuren ophalen
+          {bezig === 'relaties' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
+          Relaties ophalen
         </button>
         <button
           className="btn primary sm"

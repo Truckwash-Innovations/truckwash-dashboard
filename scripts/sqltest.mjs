@@ -193,6 +193,7 @@ await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_
 await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 await run(db, '0062_een_factuur_splitsen.sql draait', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
+await run(db, '0063_relaties_uit_exact.sql draait', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
@@ -257,6 +258,7 @@ await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sq
 await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
 await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
 await run(db, '0062 nogmaals', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
+await run(db, '0063 nogmaals', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
 
 
 
@@ -5199,11 +5201,14 @@ check('de schakelaar staat uit', fxInst.exact_facturen === 'uit',
 check('en er staat nog geen dagboek of btw-code',
   (fxInst.exact_dagboek ?? '') === '' && (fxInst.exact_btw_21 ?? '') === '')
 
+/* exact_crediteur is in 0063 opgegaan in exact_relatie: crediteuren en
+   klanten staan bij Exact in dezelfde lijst, en twee kopieën van dezelfde
+   lijst is twee plekken waar dezelfde relatie kan verschillen. */
 check('de twee tabellen bestaan',
   (await db.query(`
     select count(*)::int as n from information_schema.tables
      where table_schema = 'public'
-       and table_name in ('exact_crediteur', 'exact_leverancier')`)).rows[0].n === 2)
+       and table_name in ('exact_relatie', 'exact_leverancier')`)).rows[0].n === 2)
 
 /* ---- namen vergelijkbaar maken ---- */
 
@@ -5239,7 +5244,7 @@ check('een lege naam levert niets op', (await fxKaal('   ')) === null)
 const fxPol = (await db.query(`
   select tablename, cmd from pg_policies
    where schemaname = 'public'
-     and tablename in ('exact_crediteur', 'exact_leverancier')`)).rows
+     and tablename in ('exact_relatie', 'exact_leverancier')`)).rows
 check('lezen mag, schrijven niet',
   fxPol.length === 2 && fxPol.every((r) => r.cmd === 'SELECT'))
 
@@ -5533,6 +5538,116 @@ try {
   await db.exec(`delete from public.expense_regel where id = 'er_2'`)
 } catch { spWeg = true }
 check('en er gaat ook geen regel meer af', spWeg)
+
+/* ==================================================================== *
+ *  Relaties uit Exact (0063)
+ *
+ *  Twee dingen die stil misgaan.
+ *
+ *  Een relatie in Exact hoort bij één bedrijf van ons. Zouden twee klanten
+ *  op dezelfde relatie kunnen hangen, dan is bij een openstaande post niet
+ *  meer te zien van wie hij is.
+ *
+ *  En automatisch koppelen mag alleen als het eenduidig is. Twee relaties
+ *  met dezelfde genormaliseerde naam betekent dat kiezen raden is -- en een
+ *  factuur bij de verkeerde relatie is de fout die niemand terugvindt.
+ * ==================================================================== */
+
+console.log('\n46. Relaties uit Exact (0063)')
+
+check('exact_relatie en company_exact bestaan',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public'
+       and table_name in ('exact_relatie', 'company_exact')`)).rows[0].n === 2)
+
+check('en de oude crediteurenkopie is weg',
+  (await db.query(`
+    select count(*)::int as n from information_schema.tables
+     where table_schema = 'public' and table_name = 'exact_crediteur'`)).rows[0].n === 0)
+
+/* ---- een relatie hoort bij één bedrijf ---- */
+
+await db.exec(`
+  insert into public.companies (id, name, city) values
+    ('co_een', 'Van Dijk Transport B.V.', 'Utrecht'),
+    ('co_twee', 'Van Dijk Verhuur B.V.', 'Amsterdam')
+  on conflict (id) do nothing;
+
+  insert into public.exact_relatie (exact_id, division, naam, is_klant, zoeknaam) values
+    ('rel_1', 'BV1', 'Van Dijk Transport B.V.', true, public.kaal_bedrijf('Van Dijk Transport B.V.')),
+    ('rel_2', 'BV1', 'Van Dijk Verhuur B.V.',   true, public.kaal_bedrijf('Van Dijk Verhuur B.V.'))
+  on conflict (exact_id) do nothing;
+
+  insert into public.company_exact (company_id, division, exact_id)
+  values ('co_een', 'BV1', 'rel_1')
+  on conflict (company_id, division) do nothing;`)
+
+let reDubbel = false
+try {
+  await db.exec(`insert into public.company_exact (company_id, division, exact_id)
+                 values ('co_twee', 'BV1', 'rel_1')`)
+} catch { reDubbel = true }
+check('twee bedrijven kunnen niet aan dezelfde relatie hangen', reDubbel)
+
+let reAnder = true
+try {
+  await db.exec(`insert into public.company_exact (company_id, division, exact_id)
+                 values ('co_twee', 'BV1', 'rel_2')`)
+} catch { reAnder = false }
+check('maar een andere relatie mag gewoon', reAnder)
+
+/* ---- hetzelfde bedrijf in twee bv's mag wel ---- */
+
+await db.exec(`
+  insert into public.exact_relatie (exact_id, division, naam, is_klant)
+  values ('rel_3', 'BV2', 'Van Dijk Transport B.V.', true)
+  on conflict (exact_id) do nothing;`)
+
+let reTweeBv = true
+try {
+  await db.exec(`insert into public.company_exact (company_id, division, exact_id)
+                 values ('co_een', 'BV2', 'rel_3')`)
+} catch { reTweeBv = false }
+check('en hetzelfde bedrijf mag in elke bv een eigen relatie hebben', reTweeBv)
+
+/* ---- automatisch koppelen alleen als het eenduidig is ---- */
+
+await db.exec(`
+  delete from public.company_exact where company_id in ('co_een', 'co_twee');
+  insert into public.companies (id, name, city) values ('co_drie', 'Enexis B.V.', 'Den Bosch')
+  on conflict (id) do nothing;
+
+  -- twee keer dezelfde naam in dezelfde bv: dan is kiezen raden
+  insert into public.exact_relatie (exact_id, division, naam, is_klant) values
+    ('rel_4', 'BV1', 'Enexis B.V.', true),
+    ('rel_5', 'BV1', 'Enexis BV',   true)
+  on conflict (exact_id) do nothing;`)
+
+await db.query(`select * from public.exact_relaties_klaarzetten('test')`)
+
+check('bij twee gelijke namen wordt er niet gekoppeld',
+  (await db.query(`select count(*)::int as n from public.company_exact
+                    where company_id = 'co_drie'`)).rows[0].n === 0)
+
+/* En met één naam wél. */
+await db.exec(`
+  delete from public.exact_relatie where exact_id = 'rel_5';
+  insert into public.companies (id, name) values ('co_vier', 'Prezero Nederland B.V.')
+  on conflict (id) do nothing;
+  insert into public.exact_relatie (exact_id, division, naam, is_klant)
+  values ('rel_6', 'BV1', 'PREZERO NEDERLAND bv', true)
+  on conflict (exact_id) do nothing;`)
+
+await db.query(`select * from public.exact_relaties_klaarzetten('test')`)
+
+check('en bij één eenduidige naam wel -- ook met een andere schrijfwijze',
+  (await db.query(`select exact_id from public.company_exact
+                    where company_id = 'co_vier'`)).rows[0]?.exact_id === 'rel_6')
+
+check('en dan staat erbij dat het op naam ging',
+  (await db.query(`select bron from public.company_exact
+                    where company_id = 'co_vier'`)).rows[0]?.bron === 'naam')
 
 await db.close()
 
