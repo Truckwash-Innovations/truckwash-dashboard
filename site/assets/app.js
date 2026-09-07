@@ -841,9 +841,9 @@ function bouwKaart3D(canvas, locs, opKlik) {
 }
 
 /* ============ MEDEWERKERSPAGINA ============ */
-const REL_REPO = "https://github.com/truckwashgroup/truckwash-dashboard";
+const REL_REPO = "https://github.com/Truckwash-Innovations/truckwash-dashboard";
 
-const REL_API = "https://api.github.com/repos/truckwashgroup/truckwash-dashboard/releases?per_page=20";
+const REL_API = "https://api.github.com/repos/Truckwash-Innovations/truckwash-dashboard/releases?per_page=20";
 
 const REL_MAANDEN = ["januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
 
