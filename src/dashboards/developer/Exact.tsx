@@ -45,7 +45,17 @@ import { db } from '../../lib/db'
 import { enqueue } from '../../lib/sync'
 /* Location moet hier bij naam staan: zonder deze import pakt TypeScript de
    Location van de browser, en dan klopt er niets van de foutmeldingen. */
-import type { Grootboek, Location } from '../../lib/types'
+/*
+ * De rij heet hier GrootboekRij en niet Grootboek.
+ *
+ * Sinds het scherm Grootboek geexporteerd wordt (1.74.0, de administratie
+ * rendert het ook) botsen de twee namen in dit bestand: een type uit types.ts
+ * en een component. TypeScript 5.9 liet dat nog lopen, 7.0 niet -- en de
+ * lockfile staat op 7.0.2, dus CI viel erover terwijl het hier nog bouwde.
+ * De component houdt zijn naam; het type wijkt, want dat is een databaserij
+ * en die naam staat alleen in dit bestand.
+ */
+import type { Grootboek as GrootboekRij, Location } from '../../lib/types'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
@@ -745,7 +755,7 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
 
   /* Onze eigen lijst komt uit de plaatselijke opslag: die is er ook zonder
      verbinding, en wijzigingen gaan via de gewone wachtrij naar de server. */
-  const onze = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
+  const onze = useLiveQuery(() => db.grootboek.toArray(), [], [] as GrootboekRij[])
 
   useEffect(() => {
     void (async () => {
@@ -769,7 +779,7 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
   async function neemOver(rijen: ExactRekening[]) {
     const nu = Date.now()
     for (const r of rijen) {
-      const rij: Grootboek = {
+      const rij: GrootboekRij = {
         id: 'gb_' + r.code,
         code: r.code,
         naam: r.omschrijving || r.code,
@@ -794,7 +804,7 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
   async function zetCategorie(code: string, categorie: string) {
     const rij = onze.find((g) => g.code === code)
     if (!rij) return
-    const nieuw: Grootboek = { ...rij, categorie: categorie.trim() || undefined, updatedAt: Date.now() }
+    const nieuw: GrootboekRij = { ...rij, categorie: categorie.trim() || undefined, updatedAt: Date.now() }
     await db.grootboek.put(nieuw)
     await enqueue('grootboek', 'put', nieuw.id, nieuw)
   }

@@ -48,6 +48,53 @@ function check(name: string, ok: boolean, extra = '') {
   }
 }
 
+/* ====================================================================
+ *  0. Draait deze test op hetzelfde gereedschap als de CI
+ *
+ *  Dit hoofdstuk staat vooraan omdat het alle andere ongeldig maakt als het
+ *  faalt.
+ *
+ *  Wat er gebeurde: package.json staat op typescript ^7.0.2 en de lockfile
+ *  op precies 7.0.2, maar in node_modules stond hier nog 5.9.3. Lokaal gaf
+ *  `npm run build` dus groen licht, en de release viel om op een fout die
+ *  5.9 nog liet lopen en 7.0 niet: een type-import en een component met
+ *  dezelfde naam in een bestand.
+ *
+ *  Een lokale controle die zwakker is dan die van de CI is erger dan geen
+ *  controle -- je denkt dat je hebt nagekeken. Vandaar deze: wat er
+ *  geinstalleerd staat moet zijn wat de lockfile zegt.
+ *
+ *  Alleen de compiler, niet alle pakketten: dit gaat over de vraag of de
+ *  toets die je net hebt gedaan iets waard is.
+ * ==================================================================== */
+
+console.log('\n0. Draait deze test op hetzelfde gereedschap als de CI')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const lees = (pad: string) => JSON.parse(readFileSync(pad, 'utf8'))
+
+  const lock = lees('package-lock.json')
+  const wachters = ['typescript', 'vite', 'tsx']
+
+  for (const naam of wachters) {
+    const uitLock = lock.packages?.[`node_modules/${naam}`]?.version
+    let uitMap: string | null = null
+    try {
+      uitMap = lees(`node_modules/${naam}/package.json`).version
+    } catch {
+      uitMap = null
+    }
+
+    if (!uitLock) {
+      check(`${naam} staat in de lockfile`, false, 'niet gevonden')
+      continue
+    }
+    check(`${naam} ${uitLock} is ook wat er geinstalleerd staat`,
+      uitMap === uitLock, `lockfile ${uitLock}, node_modules ${uitMap ?? 'niets'}`)
+  }
+}
+
 /* ---- modules ophalen na het opzetten van de globals ------------------ */
 
 const { db } = await import('../src/lib/db')
