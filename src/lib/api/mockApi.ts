@@ -8,6 +8,7 @@ import type {
   PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
+  DocMap, DocBestand, DocToegang, TaakDocument,
   PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove, LocationPhoto,
 } from '../types'
 import { SERVICES } from '../types'
@@ -77,6 +78,10 @@ class MockServerDB extends Dexie {
   taakReacties!: Table<TaakReactie, string>
   vacatures!: Table<Vacature, string>
   sollicitaties!: Table<Sollicitatie, string>
+  docMappen!: Table<DocMap, string>
+  docBestanden!: Table<DocBestand, string>
+  docToegang!: Table<DocToegang, string>
+  taakDocumenten!: Table<TaakDocument, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -138,6 +143,10 @@ class MockServerDB extends Dexie {
       taakReacties: 'id, updatedAt',
       vacatures: 'id, updatedAt',
       sollicitaties: 'id, updatedAt',
+      docMappen: 'id, updatedAt',
+      docBestanden: 'id, updatedAt',
+      docToegang: 'id, updatedAt',
+      taakDocumenten: 'id, updatedAt',
     })
   }
 }
@@ -202,6 +211,10 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   taakReacties: () => server.taakReacties,
   vacatures: () => server.vacatures,
   sollicitaties: () => server.sollicitaties,
+  docMappen: () => server.docMappen,
+  docBestanden: () => server.docBestanden,
+  docToegang: () => server.docToegang,
+  taakDocumenten: () => server.taakDocumenten,
 }
 
 /* ------------------------------------------------------------------ *

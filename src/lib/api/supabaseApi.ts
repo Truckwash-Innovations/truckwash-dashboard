@@ -150,6 +150,10 @@ const TABLES: Record<EntityName, string> = {
   taakReacties: 'taak_reactie',
   vacatures: 'vacature',
   sollicitaties: 'sollicitatie',
+  docMappen: 'doc_map',
+  docBestanden: 'doc_bestand',
+  docToegang: 'doc_toegang',
+  taakDocumenten: 'taak_document',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

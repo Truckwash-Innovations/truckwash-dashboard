@@ -17,6 +17,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
+  DocMap, DocBestand, DocToegang, TaakDocument,
   PersonnelDocument, PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
@@ -86,6 +87,10 @@ class TruckwashDB extends Dexie {
   taakReacties!: Table<TaakReactie, string>
   vacatures!: Table<Vacature, string>
   sollicitaties!: Table<Sollicitatie, string>
+  docMappen!: Table<DocMap, string>
+  docBestanden!: Table<DocBestand, string>
+  docToegang!: Table<DocToegang, string>
+  taakDocumenten!: Table<TaakDocument, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -264,6 +269,18 @@ class TruckwashDB extends Dexie {
     this.version(22).stores({
       vacatures: 'id, slug, actief, volgorde, updatedAt',
       sollicitaties: 'id, status, locationId, vacatureId, createdAt, updatedAt',
+    })
+
+    /* v23: documentbeheer.
+
+       mapId staat in de index omdat de verkenner altijd één map tegelijk
+       opvraagt; toegewezenAan omdat "wat is er bij mij neergelegd" de andere
+       vraag is die dit scherm stelt. */
+    this.version(23).stores({
+      docMappen: 'id, ouderId, locationId, eigenaar, updatedAt',
+      docBestanden: 'id, mapId, locationId, toegewezenAan, bron, createdAt, updatedAt',
+      docToegang: 'id, documentId, profileId, updatedAt',
+      taakDocumenten: 'id, taakId, documentId, updatedAt',
     })
   }
 }

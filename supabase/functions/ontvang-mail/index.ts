@@ -419,6 +419,56 @@ function veiligeNaam(naam: string): string {
  *  ergste wat een postbus kan doen.
  * ------------------------------------------------------------------ */
 
+/**
+ * Is deze post voor het documentbeheer?
+ *
+ * Casper: "Je moet documenten@domein doen, als het daarnaartoe gestuurd
+ * wordt, dan moet het daarin komen, in een algemene postvak."
+ *
+ * Twee vormen, en de tweede scheelt later sorteerwerk:
+ *
+ *   documenten@domein        komt in het algemene postvak
+ *   documenten.venlo@domein  idem, maar meteen met de vestiging erbij
+ *
+ * Het voorvoegsel staat als instelling (documenten_voorvoegsel, 0071); leeg
+ * laten zet het uit en dan gedraagt alle post zich als vanouds.
+ *
+ * Let op de volgorde in de aanroeper: dit wordt VÓÓR de kostenpost gevraagd.
+ * Een bijlage kan een bon zijn of een document, niet allebei -- anders staat
+ * hetzelfde bestand twee keer in het systeem en weet niemand welke de echte
+ * is.
+ */
+async function isDocumentPost(aanAdres: string): Promise<{ raak: boolean; vestiging: string | null }> {
+  const bak = (aanAdres ?? '').trim().toLowerCase()
+  if (!bak.includes('@')) return { raak: false, vestiging: null }
+
+  const [postvak, domein] = bak.split('@')
+
+  const { data: rijen } = await admin
+    .from('instellingen')
+    .select('sleutel, waarde')
+    .in('sleutel', ['inkoop_domein', 'documenten_voorvoegsel'])
+
+  const instelling = (sleutel: string, terugval: string) =>
+    String((rijen ?? []).find((r: Willekeurig) => r.sleutel === sleutel)?.waarde ?? terugval)
+      .trim().toLowerCase()
+
+  const voorvoegsel = instelling('documenten_voorvoegsel', 'documenten')
+  if (!voorvoegsel) return { raak: false, vestiging: null }
+
+  const verwachtDomein = instelling('inkoop_domein', '')
+  if (verwachtDomein && domein !== verwachtDomein) return { raak: false, vestiging: null }
+
+  if (postvak === voorvoegsel) return { raak: true, vestiging: null }
+  if (!postvak.startsWith(voorvoegsel + '.')) return { raak: false, vestiging: null }
+
+  /* Achter de punt staat de slug van de website, net als bij inkoop. */
+  const slug = postvak.slice(voorvoegsel.length + 1)
+  const { data } = await admin.from('locations')
+    .select('id').eq('website_slug', slug).eq('active', true).maybeSingle()
+  return { raak: true, vestiging: data?.id ?? null }
+}
+
 async function welkeVestiging(aanAdres: string): Promise<string | null> {
   const bak = (aanAdres ?? '').trim().toLowerCase()
   if (!bak.includes('@')) return null
@@ -769,6 +819,63 @@ Deno.serve(async (req) => {
   if (bijlagen.length === 0) {
     const { error } = await admin.from('mailbox').update({ soort: 'overig' }).eq('id', berichtId)
     if (error) console.warn('[ontvang-mail] soort zetten: ' + error.message)
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Post aan documenten@ wordt geen kostenpost
+   *
+   *  Deze aftakking staat VÓÓR de kostenposten, en dat is de hele truc: een
+   *  bijlage is een bon of een document, niet allebei. Zou dit eronder staan,
+   *  dan kwam elk document ook nog als lege kostenpost in de boekhouding.
+   * ------------------------------------------------------------------ */
+
+  const documentPost = await isDocumentPost(aan.adres)
+  if (documentPost.raak) {
+    const opgeslagenDocs = bijlagen.filter((b) => b.path)
+    let gemaakteDocs = 0
+
+    for (const bijlage of opgeslagenDocs) {
+      /*
+       * Het bericht-id en het pad samen zijn de sleutel (unieke index in
+       * 0071). Een webhook die opnieuw wordt aangeboden -- en dat gebeurt --
+       * levert daarmee geen tweede rij in het postvak op.
+       */
+      const { error } = await admin.from('doc_bestand').insert({
+        id: 'doc_mail_' + berichtId.slice(3, 15) + '_' + gemaakteDocs,
+        naam: bijlage.naam,
+        omschrijving: `Per mail van ${van.naam ?? van.adres}: ${onderwerp}`.slice(0, 300),
+        /* map_id leeg: dit IS het algemene postvak. Iemand zet het straks
+           ergens neer. */
+        map_id: null,
+        opslag: 'supabase',
+        /* De bijlage staat al in de emmer "post"; hem overzetten naar
+           "documenten" zou hetzelfde bestand twee keer opslaan. De rij zegt
+           waar hij ligt, dus dat hoeft niet. */
+        emmer: EMMER,
+        pad: bijlage.path,
+        mime: bijlage.mime,
+        grootte: bijlage.size,
+        bron: 'mail',
+        bron_id: berichtId,
+        /* Binnengekomen post is nog van niemand: iedereen met documentrechten
+           moet erbij kunnen om het te kunnen sorteren. Zodra het ergens wordt
+           neergezet, wordt het smaller. */
+        zichtbaarheid: 'iedereen',
+        location_id: documentPost.vestiging,
+        door_naam: van.naam ?? van.adres,
+      })
+      if (error) {
+        if (error.code !== '23505') {
+          console.error(`[ontvang-mail] document niet aangemaakt: ${error.message}`)
+        }
+        continue
+      }
+      gemaakteDocs++
+    }
+
+    console.log(`[ontvang-mail] ${gemaakteDocs} document(en) in het postvak van het documentbeheer`)
+    await admin.from('mailbox').update({ soort: 'overig' }).eq('id', berichtId)
+    return json({ ok: true, documenten: gemaakteDocs })
   }
 
   /* ---- een kostenpost eruit halen ---- */

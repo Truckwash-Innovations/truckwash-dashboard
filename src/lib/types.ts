@@ -2292,6 +2292,95 @@ export interface Sollicitatie {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Documentbeheer
+ *
+ *  Er stonden al bestanden in dit systeem, maar allemaal als bijlage bij iets
+ *  anders: een bon, een dossier, een vestiging. Dit is de plek waar een
+ *  document zelf het onderwerp is -- met mappen om doorheen te bladeren, een
+ *  postvak waar de post binnenkomt, en een afscherming per stuk.
+ * ------------------------------------------------------------------ */
+
+export interface DocMap {
+  id: string
+  naam: string
+  /** Leeg = bovenin de verkenner. */
+  ouderId?: string
+  /** Leeg = van het hele bedrijf. */
+  locationId?: string
+  /** Gevuld = een privémap; alleen deze persoon ziet hem. */
+  eigenaar?: string
+  volgorde: number
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * Wie een document mag zien.
+ *
+ * Standaard 'vestiging' en niet 'iedereen': een document hoort niet breder te
+ * staan dan waar het over gaat, en de smalle stand is de stand die je per
+ * ongeluk goed hebt.
+ */
+export type DocZichtbaarheid = 'prive' | 'personen' | 'vestiging' | 'rollen' | 'iedereen'
+
+export type DocBron = 'upload' | 'mail' | 'scan'
+
+export interface DocBestand {
+  id: string
+  naam: string
+  omschrijving?: string
+  /** Leeg = het algemene postvak. */
+  mapId?: string
+
+  /** Waar het bestand ligt. 'nas' bestaat nog niet, maar de plek is een
+   *  gegeven en geen aanname -- zie migratie 0071. */
+  opslag: 'supabase' | 'nas'
+  emmer: string
+  pad: string
+  mime?: string
+  grootte?: number
+
+  bron: DocBron
+  /** Bij bron 'mail': het bericht waar hij uit kwam. */
+  bronId?: string
+
+  zichtbaarheid: DocZichtbaarheid
+  eigenaar?: string
+  locationId?: string
+  rollen: Role[]
+
+  /** Bij wie het is neergelegd; die ziet het altijd. */
+  toegewezenAan?: string
+  toegewezenNaam?: string
+
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface DocToegang {
+  id: string
+  documentId: string
+  profileId: string
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TaakDocument {
+  id: string
+  taakId: string
+  documentId: string
+  door?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -2313,6 +2402,7 @@ export type EntityName =
   | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
   | 'taken' | 'taakProjecten' | 'taakReacties'
   | 'vacatures' | 'sollicitaties'
+  | 'docMappen' | 'docBestanden' | 'docToegang' | 'taakDocumenten'
 
 export type SyncOp = 'put' | 'delete'
 

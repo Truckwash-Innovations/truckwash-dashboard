@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarClock, Check, Flag, FolderKanban, ListTodo, MessageSquare, Plus,
-  Trash2, User as UserIcon, X,
+  CalendarClock, Check, Download, FileText, Flag, FolderKanban, ListTodo,
+  MessageSquare, Paperclip, Plus, Trash2, User as UserIcon, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import { useAuth } from '../store/useAuth'
@@ -13,9 +13,13 @@ import {
   opBord, opDringendheid, projecten as projectRepo, reacties as reactieRepo,
   taken as taakRepo,
 } from '../lib/werk'
+import {
+  aanTaak, documenten as docRepo, leesbaarFormaat, magZien,
+} from '../lib/documenten'
 import { Badge, Card, Empty, Field, Modal } from './ui'
 import type {
-  Location, Role, Taak, TaakPrioriteit, TaakProject, TaakReactie, TaakStatus, User,
+  DocBestand, DocToegang, Location, Role, Taak, TaakDocument, TaakPrioriteit,
+  TaakProject, TaakReactie, TaakStatus, User,
 } from '../lib/types'
 
 /* ------------------------------------------------------------------ *
@@ -562,6 +566,9 @@ function TaakVenster({
         </Field>
       </div>
 
+      {/* --- de documenten --- */}
+      <TaakDocumenten taakId={taak.id} />
+
       {/* --- het gesprek --- */}
       <h4 style={{ marginTop: 18, marginBottom: 8 }}>
         <MessageSquare size={15} /> Overleg
@@ -721,6 +728,111 @@ function NieuweTaak({
         </button>
       </div>
     </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Documenten aan een taak
+ *
+ *  Casper: "deze documenten moet je ook aan een todo kunnen neerhangen".
+ *
+ *  Wat je hier kunt kiezen is beperkt tot documenten die je zelf mag zien.
+ *  Dat is niet alleen netjes maar noodzakelijk: zou je een afgeschermd
+ *  document aan een taak kunnen hangen die door iemand anders wordt opgepakt,
+ *  dan is de afscherming te omzeilen door hem ergens anders neer te leggen.
+ *  De database weigert het ook (taak_document_insert in 0071), maar een lijst
+ *  waaruit je iets kunt kiezen dat daarna wordt geweigerd is een lijst die
+ *  liegt.
+ * ------------------------------------------------------------------ */
+
+function TaakDocumenten({ taakId }: { taakId: string }) {
+  const user = useAuth((s) => s.user)!
+  const [kies, setKies] = useState('')
+
+  const koppelingen = useLiveQuery(
+    () => db.taakDocumenten.where('taakId').equals(taakId).toArray(),
+    [taakId], [] as TaakDocument[])
+  const alleDocs = useLiveQuery(() => db.docBestanden.toArray(), [], [] as DocBestand[])
+  const delingen = useLiveQuery(() => db.docToegang.toArray(), [], [] as DocToegang[])
+
+  const mijne = useMemo(
+    () => alleDocs.filter((d) => magZien(d, user, delingen)),
+    [alleDocs, user, delingen])
+
+  const eraan = koppelingen
+    .map((k) => ({ koppeling: k, doc: mijne.find((d) => d.id === k.documentId) }))
+    .filter((x): x is { koppeling: TaakDocument; doc: DocBestand } => !!x.doc)
+
+  return (
+    <>
+      <h4 style={{ marginTop: 18, marginBottom: 8 }}>
+        <Paperclip size={15} /> Documenten
+      </h4>
+
+      {eraan.length === 0 && (
+        <p className="ts-sub" style={{ marginTop: 0 }}>
+          Nog geen documenten. Wat je hier aanhangt blijft bij de taak staan.
+        </p>
+      )}
+
+      <div className="verkenner-lijst">
+        {eraan.map(({ koppeling, doc }) => (
+          <div key={koppeling.id} className="verkenner-regel">
+            <span className="verkenner-open" style={{ cursor: 'default' }}>
+              <FileText size={16} />
+              <span className="verkenner-tekst">
+                <strong>{doc.naam}</strong>
+                <span className="verkenner-meta">
+                  <span>{leesbaarFormaat(doc.grootte)}</span>
+                  {doc.bron === 'mail' && <span>per mail</span>}
+                </span>
+              </span>
+            </span>
+            <button
+              className="btn ghost sm"
+              title="Downloaden"
+              onClick={async () => {
+                const url = await docRepo.link(doc)
+                if (!url) { toast.error('Het bestand is nu niet op te halen.'); return }
+                window.open(url, '_blank', 'noopener')
+              }}
+            >
+              <Download size={14} />
+            </button>
+            <button
+              className="btn ghost sm"
+              title="Loshalen"
+              onClick={() => void aanTaak.loshalen(koppeling.id)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <select className="input" value={kies} onChange={(e) => setKies(e.target.value)}>
+          <option value="">Een document erbij…</option>
+          {mijne
+            .filter((d) => !koppelingen.some((k) => k.documentId === d.id))
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 200)
+            .map((d) => <option key={d.id} value={d.id}>{d.naam}</option>)}
+        </select>
+        <button
+          className="btn"
+          disabled={!kies}
+          onClick={() => {
+            void aanTaak.hangen(taakId, kies, user).then(() => {
+              toast.ok('Erbij gezet')
+              setKies('')
+            })
+          }}
+        >
+          <Paperclip size={14} /> Aanhangen
+        </button>
+      </div>
+    </>
   )
 }
 

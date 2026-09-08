@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
   Briefcase, Building2, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
-  Bot, Send, Settings, Users, Wrench, ListTodo, BriefcaseBusiness,
+  Bot, Send, Settings, Users, Wrench, ListTodo, BriefcaseBusiness, FolderOpen,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -30,6 +30,7 @@ import { useNavTarget, usePerms } from '../../store/useNav'
 import { startOfDay } from '../../lib/analytics'
 import Werk from '../../components/Werk'
 import Werving from '../../components/Werving'
+import Documenten from '../../components/Documenten'
 import type {
   Expense, Fault, InventoryItem, MailBericht, Signup, TruckyContact, User, WashJob,
   Werkgever,
@@ -131,6 +132,7 @@ export default function ManagementDashboard() {
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
     { key: 'werk', label: 'Werk', icon: ListTodo },
     { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
+    { key: 'documenten', label: 'Documenten', icon: FolderOpen },
     { key: 'overzicht', label: 'Overzicht', icon: LayoutDashboard },
     { key: 'financieel', label: 'Financieel', icon: Receipt, badge: cijfers.openKosten || undefined },
     { key: 'planning', label: 'Planning', icon: CalendarRange },
@@ -406,6 +408,7 @@ export default function ManagementDashboard() {
       {page === 'overleg' && <Overleg />}
       {page === 'werk' && <Werk />}
       {page === 'werving' && <Werving />}
+      {page === 'documenten' && <Documenten />}
       {page === 'postbus' && <Postbus />}
       {page === 'agenda' && <Agenda />}
       {page === 'werkgevers' && <Werkgevers />}

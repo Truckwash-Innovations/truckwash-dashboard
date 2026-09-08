@@ -331,6 +331,8 @@ export const PUSH_ORDER: EntityName[] = [
   'taakProjecten', 'taken', 'taakReacties',
   // Een sollicitatie verwijst naar een vacature.
   'vacatures', 'sollicitaties',
+  // Een bestand hangt aan een map; een deling en een taakkoppeling aan een bestand.
+  'docMappen', 'docBestanden', 'docToegang', 'taakDocumenten',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -526,6 +528,10 @@ const TABLE_OF: Record<EntityName, () => any> = {
   taakReacties: () => db.taakReacties,
   vacatures: () => db.vacatures,
   sollicitaties: () => db.sollicitaties,
+  docMappen: () => db.docMappen,
+  docBestanden: () => db.docBestanden,
+  docToegang: () => db.docToegang,
+  taakDocumenten: () => db.taakDocumenten,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

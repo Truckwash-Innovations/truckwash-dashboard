@@ -5885,6 +5885,166 @@ console.log('\n49. Een sollicitatie wordt werk')
     dubbelGoed && drie === 1, String(drie))
 }
 
+/* ====================================================================
+ *  50. Wie mag bij welk document
+ *
+ *  Casper: "Je moet dingen kunnen afschermen, zichtbaar voor jezelf hebben
+ *  (...) Zorg dat alles netjes is, veilig en gestructureerd."
+ *
+ *  Dit is het hoofdstuk dat ertoe doet. Een documentsysteem waarin de
+ *  afscherming lekt ziet er precies hetzelfde uit als een dat klopt -- tot
+ *  iemand een loonstrook van een collega opent. En de fout is stil: er komt
+ *  geen melding, er staat alleen iets in een lijst dat er niet hoorde te
+ *  staan.
+ *
+ *  Gemeten wordt mag_document(), want daar hangen alle vier de regels aan:
+ *  het document zelf, de losse deling, de koppeling aan een taak, en het
+ *  bestand in de opslag.
+ * ==================================================================== */
+
+console.log('\n50. Wie mag bij welk document')
+
+{
+  /*
+   * Een account aanmaken maakt hier vanzelf een profiel: er hangt een trigger
+   * aan auth.users. Daarom bijwerken en niet invoegen -- een tweede profiel
+   * met hetzelfde auth_id botst op de unieke sleutel, en dat is precies wat
+   * die trigger hoort te voorkomen.
+   */
+  await asServer(db)
+  await db.exec(`
+    insert into auth.users (id, email) values
+      ('00000000-0000-4000-8000-00000000d001', 'dv@t.nl'),
+      ('00000000-0000-4000-8000-00000000d002', 'de@t.nl'),
+      ('00000000-0000-4000-8000-00000000d003', 'dw@t.nl')
+    on conflict (id) do nothing;
+
+    insert into public.locations (id, code, name, kind, address, postcode, city, bays, active)
+    values ('loc_d_venlo', 'TW-DVE', 'Venlo (doc)', 'vestiging', 'S 1', '5900 AA', 'Venlo', 2, true),
+           ('loc_d_ede',   'TW-DED', 'Ede (doc)',   'vestiging', 'S 2', '6710 AA', 'Ede',   2, true)
+    on conflict (id) do nothing;
+
+    update public.profiles set name = 'Leiding Venlo', roles = array['supervisor'],
+           active = true, location_id = 'loc_d_venlo', all_locations = false
+     where auth_id = '00000000-0000-4000-8000-00000000d001';
+    update public.profiles set name = 'Leiding Ede', roles = array['supervisor'],
+           active = true, location_id = 'loc_d_ede', all_locations = false
+     where auth_id = '00000000-0000-4000-8000-00000000d002';
+    update public.profiles set name = 'Wasser', roles = array['employee'],
+           active = true, location_id = 'loc_d_venlo', all_locations = false
+     where auth_id = '00000000-0000-4000-8000-00000000d003';
+  `)
+
+  const profielVan = async (auth) => (await db.query(
+    `select id from public.profiles where auth_id = '${auth}'`)).rows[0].id
+
+  const idVenlo = await profielVan('00000000-0000-4000-8000-00000000d001')
+  const idEde   = await profielVan('00000000-0000-4000-8000-00000000d002')
+  const idWas   = await profielVan('00000000-0000-4000-8000-00000000d003')
+
+  await db.exec(`
+    insert into public.doc_bestand (id, naam, pad, zichtbaarheid, location_id, eigenaar)
+    values
+      ('doc_venlo', 'Keuring Venlo.pdf', 'p/1', 'vestiging', 'loc_d_venlo', null),
+      ('doc_prive', 'Mijn aantekening.pdf', 'p/2', 'prive', null, '${idVenlo}'),
+      ('doc_bijwasser', 'Contract.pdf', 'p/3', 'prive', null, '${idVenlo}'),
+      ('doc_gedeeld', 'Rapport.pdf', 'p/4', 'personen', null, '${idVenlo}'),
+      ('doc_iedereen', 'Handboek.pdf', 'p/5', 'iedereen', null, null)
+    on conflict (id) do nothing;
+
+    update public.doc_bestand set toegewezen_aan = '${idWas}' where id = 'doc_bijwasser';
+
+    insert into public.doc_toegang (id, document_id, profile_id)
+    values ('dtg_1', 'doc_gedeeld', '${idEde}')
+    on conflict (id) do nothing;
+  `)
+
+  const mag = async (uid, doc) => {
+    await asUser(db, uid)
+    const r = await db.query(`select public.mag_document('${doc}') as m`)
+    await asServer(db)
+    return r.rows[0].m === true
+  }
+
+  const VENLO = '00000000-0000-4000-8000-00000000d001'
+  const EDE   = '00000000-0000-4000-8000-00000000d002'
+  const WAS   = '00000000-0000-4000-8000-00000000d003'
+
+  /* --- de vestiging --- */
+
+  check('de leiding van Venlo ziet een document van Venlo',
+    await mag(VENLO, 'doc_venlo'))
+  /*
+   * Dit is de belangrijkste regel van het hele hoofdstuk. Beide zijn
+   * leidinggevende, allebei mogen ze bij het documentbeheer -- het enige
+   * verschil is de vestiging.
+   */
+  check('de leiding van Ede niet',
+    !(await mag(EDE, 'doc_venlo')))
+  check('en een wasser al helemaal niet',
+    !(await mag(WAS, 'doc_venlo')))
+
+  /* --- privé --- */
+
+  check('een privédocument is van de eigenaar',
+    await mag(VENLO, 'doc_prive'))
+  /*
+   * "Alleen ik" moet ook alleen ik betekenen. Zou een andere leidinggevende
+   * hier wel bij mogen, dan is de stand een belofte die het systeem niet
+   * waarmaakt -- en dat is erger dan hem niet aanbieden.
+   */
+  check('en van niemand anders',
+    !(await mag(EDE, 'doc_prive')))
+
+  /* --- bij iemand neergelegd --- */
+
+  /*
+   * De wasser heeft geen documentrechten. Zonder deze regel kun je een
+   * contract wel bij iemand neerleggen maar krijgt hij het nooit te zien, en
+   * dan is "bij iemand zetten" een knop die niets doet.
+   */
+  check('wat bij iemand is neergelegd ziet hij, ook zonder documentrechten',
+    await mag(WAS, 'doc_bijwasser'))
+  check('maar niet wat er verder van die eigenaar is',
+    !(await mag(WAS, 'doc_prive')))
+
+  /* --- los gedeeld --- */
+
+  check('een los gedeeld document ziet de ontvanger',
+    await mag(EDE, 'doc_gedeeld'))
+  check('en wie niet in de lijst staat niet',
+    !(await mag(WAS, 'doc_gedeeld')))
+
+  /* --- iedereen --- */
+
+  check('een document voor iedereen ziet elke leidinggevende',
+    (await mag(VENLO, 'doc_iedereen')) && (await mag(EDE, 'doc_iedereen')))
+  /*
+   * "Iedereen" is iedereen MET documentrechten, niet iedereen. Anders is het
+   * postvak -- waar binnenkomende post op 'iedereen' staat -- voor de hele
+   * werkvloer te lezen.
+   */
+  check('maar niet iemand zonder documentrechten',
+    !(await mag(WAS, 'doc_iedereen')))
+
+  /* --- en de tabel zelf laat hetzelfde zien --- */
+
+  /*
+   * Let op de "set role authenticated". Zonder die regel draait de vraag als
+   * de eigenaar van de tabel, en die gaat langs RLS heen -- dan krijg je alle
+   * vijf de rijen terug en lijkt de afscherming stuk terwijl er niets mis is.
+   * countAs() hierboven doet het om dezelfde reden.
+   */
+  await asUser(db, EDE)
+  await db.exec('set role authenticated;')
+  const zichtbaar = (await db.query(`select id from public.doc_bestand order by id`))
+    .rows.map((r) => r.id)
+  await db.exec('reset role;')
+  await asServer(db)
+  check('de lijst van de leiding van Ede bevat precies wat zij mag zien',
+    zichtbaar.join(',') === 'doc_gedeeld,doc_iedereen', zichtbaar.join(','))
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

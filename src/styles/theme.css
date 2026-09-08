@@ -5367,3 +5367,134 @@ table.data tr.aan td { font-weight: 600; }
   .sol-uren > div { grid-template-columns: 84px 1fr; }
   .sol-uren > div > em { grid-column: 1 / -1; }
 }
+
+/* ==================================================================
+   Documentbeheer: de verkenner
+
+   Links de mappen, rechts wat erin zit. Twee kolommen en geen boom-in-een-
+   tabel, want dat laatste leest niet: je wilt tegelijk zien wáár je bent en
+   wat daar staat.
+
+   Bovenaan links staan twee dingen die geen map zijn -- het postvak en "bij
+   mij". Dat zijn geen plekken maar vragen, en daarom staan ze los boven de
+   mappen in plaats van ertussen.
+   ================================================================== */
+
+.verkenner {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.verkenner-zij {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  /* De boom kan lang worden; dan schuift hij mee in plaats van de pagina
+     eindeloos te rekken. */
+  max-height: 70vh; overflow-y: auto;
+}
+
+.verkenner-plek {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px;
+  border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text-2);
+  font: inherit; font-size: .87rem; text-align: left; cursor: pointer;
+  transition: background .13s var(--ease), color .13s var(--ease);
+}
+.verkenner-plek:hover { background: var(--surface-2); color: var(--text); }
+.verkenner-plek.actief {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--text); font-weight: 600;
+}
+/* De naam mag afknippen; het slotje en de teller erachter niet. */
+.verkenner-naam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.verkenner-tel {
+  margin-left: auto; font-size: .72rem; font-variant-numeric: tabular-nums;
+  background: var(--brand); color: #fff; border-radius: 999px; padding: 1px 7px;
+}
+.verkenner-scheiding {
+  height: 1px; background: var(--line-soft); margin: 8px 4px;
+}
+
+.verkenner-inhoud { min-width: 0; }
+
+.verkenner-kruimels {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  margin-bottom: 12px; font-size: .85rem; color: var(--text-3);
+}
+.verkenner-kruimels span { display: inline-flex; align-items: center; gap: 4px; }
+.verkenner-kruimels button {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; color: var(--text-2); text-decoration: underline;
+}
+.verkenner-kruimels button:hover { color: var(--brand); }
+
+.verkenner-map {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 14px; margin-bottom: 6px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: var(--surface-2); color: inherit; font: inherit; cursor: pointer;
+  text-align: left;
+}
+.verkenner-map:hover { border-color: var(--line); background: var(--surface); }
+.verkenner-map strong { font-size: .9rem; font-weight: 620; }
+
+.verkenner-lijst { display: flex; flex-direction: column; gap: 6px; }
+
+.verkenner-regel {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: var(--surface);
+}
+.verkenner-regel:hover { border-color: var(--line); }
+
+.verkenner-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: inherit; font: inherit; text-align: left;
+}
+.verkenner-open > svg { flex: none; color: var(--text-3); }
+.verkenner-tekst { display: grid; gap: 2px; min-width: 0; }
+.verkenner-tekst strong {
+  font-size: .9rem; font-weight: 620;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.verkenner-meta {
+  display: flex; flex-wrap: wrap; gap: 3px 10px;
+  font-size: .74rem; color: var(--text-3);
+}
+
+/* Een zoekveld met het vergrootglas erin. */
+.zoekveld {
+  display: flex; align-items: center; gap: 8px; flex: 1 1 240px; max-width: 380px;
+  padding-left: 11px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.zoekveld > svg { flex: none; color: var(--text-3); }
+.zoekveld .input { border: 0; background: none; padding-left: 0; flex: 1; min-width: 0; }
+.zoekveld .input:focus { outline: none; box-shadow: none; }
+
+/* Een naam met een kruisje erachter, voor wie een document met je deelt. */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 6px 3px 11px; border-radius: 999px;
+  background: var(--surface-3); font-size: .8rem;
+}
+.chip button {
+  display: grid; place-items: center; width: 18px; height: 18px;
+  border: 0; border-radius: 50%; background: none; color: var(--text-3); cursor: pointer;
+}
+.chip button:hover { background: var(--danger); color: #fff; }
+
+@media (max-width: 860px) {
+  /* Onder elkaar: twee kolommen van elk 200px is geen verkenner meer. */
+  .verkenner { grid-template-columns: minmax(0, 1fr); }
+  .verkenner-zij { max-height: 240px; }
+}
