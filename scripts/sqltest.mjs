@@ -6045,6 +6045,219 @@ console.log('\n50. Wie mag bij welk document')
     zichtbaar.join(',') === 'doc_gedeeld,doc_iedereen', zichtbaar.join(','))
 }
 
+/* ==================================================================== *
+ *  51. De administratie zonder losse rechten
+ *
+ *  Dit hoofdstuk bestaat omdat de bestaande test hem miste, en wel op de
+ *  gevaarlijkste manier: hoofdstuk 28 zet bij het administratieaccount
+ *  `grants = array['expenses.approve', 'hours.approve']` neer. Daarmee test
+ *  hij een medewerker die niet bestaat. De app schrijft een recht dat uit de
+ *  ROL komt juist NIET in grants (permissions.ts, togglePermission:
+ *  `if (enabled && !fromRole) grants.add(...)`), en het management heeft geen
+ *  knop die dat alsnog doet.
+ *
+ *  Een echte administratiemedewerker heeft dus roles=['administratie'] en
+ *  grants=[]. En voor die persoon gaf heeft_recht('admin.desk') false, en
+ *  bleven 22 policies dicht. Dat gold al voor het scherm dat ze vandaag
+ *  gebruiken; het viel niet op omdat Casper ook management is.
+ *
+ *  Wat hier wordt vastgelegd is dus twee dingen tegelijk:
+ *
+ *    1. de administratie komt er nu wel bij -- ZONDER dat iemand handmatig
+ *       een recht heeft toegekend;
+ *    2. er is verder niets opengegaan. Dat tweede is het punt. De brug
+ *       (rol_recht) is met opzet een korte lijst en geen "lees alle rollen
+ *       maar uit", want dat laatste zou en passant staff.view aan elke
+ *       leidinggevende geven -- iets wat 0056 juist expliciet dichtzet.
+ * ==================================================================== */
+
+console.log('\n51. De administratie zonder losse rechten')
+
+{
+  const BOEK = 'b0e00000-0000-0000-0000-00000000b0e0'
+  const LEID = '1e1d0000-0000-0000-0000-00000000131d'
+
+  await asServer(db)
+  await db.exec(`
+    insert into auth.users (id, email) values
+      ('${BOEK}', 'boekhouding@truckwash1group.nl'),
+      ('${LEID}', 'leiding-51@truckwash1group.nl')
+    on conflict (id) do nothing;
+
+    /* Precies zoals een echt account eruitziet: de rol, en verder niets. */
+    update public.profiles
+       set roles = array['administratie']::text[], active = true,
+           all_locations = true, grants = '{}'::text[], revokes = '{}'::text[]
+     where email = 'boekhouding@truckwash1group.nl';
+
+    update public.profiles
+       set roles = array['supervisor']::text[], active = true,
+           all_locations = false, grants = '{}'::text[], revokes = '{}'::text[]
+     where email = 'leiding-51@truckwash1group.nl';
+  `)
+
+  const alsBoek = async (sql) => {
+    await asUser(db, BOEK)
+    await db.exec('set role authenticated;')
+    try {
+      return (await db.query(sql)).rows[0]
+    } finally {
+      await db.exec('reset role;')
+      await asServer(db)
+    }
+  }
+  const rechtVan = async (uid, recht) => {
+    await asUser(db, uid)
+    await db.exec('set role authenticated;')
+    try {
+      return (await db.query(`select public.heeft_recht('${recht}') as ja`)).rows[0].ja
+    } finally {
+      await db.exec('reset role;')
+      await asServer(db)
+    }
+  }
+
+  /* --- de brug zelf --- */
+
+  check('een rolrecht telt nu mee, ook zonder losse toekenning',
+    (await rechtVan(BOEK, 'admin.desk')) === true)
+  check('en de andere rechten van de rol ook',
+    (await rechtVan(BOEK, 'finance.view')) === true
+      && (await rechtVan(BOEK, 'expenses.approve')) === true)
+
+  /*
+   * Hier zit het hele verschil met "heeft_recht() leest gewoon alle rollen".
+   * signups.decide staat wel in ADMINISTRATIE in permissions.ts, maar niet in
+   * rol_recht -- want geen enkele policy vraagt ernaar. Wat de database niet
+   * nodig heeft, hoort ze niet te weten.
+   */
+  check('maar alleen wat er in de brug staat',
+    (await rechtVan(BOEK, 'signups.decide')) === false)
+
+  /*
+   * En dit is de regel waarvoor het hele ontwerp is gekozen. staff.view zit
+   * in SUPERVISOR in permissions.ts. Was heeft_recht() alle roldefaults gaan
+   * lezen, dan stond hier true -- en dan had elke leidinggevende er stilletjes
+   * het personeelsdossier bij gekregen. 0056 legt vast dat dit false hoort te
+   * zijn. Deze check is de rem daarop.
+   */
+  check('een leidinggevende krijgt er NIETS bij',
+    (await rechtVan(LEID, 'staff.view')) === false
+      && (await rechtVan(LEID, 'hours.approve')) === false
+      && (await rechtVan(LEID, 'chat.manage')) === false)
+
+  /* --- een intrekking wint van de rol --- */
+
+  await db.exec(`
+    update public.profiles set revokes = array['admin.desk']::text[]
+     where email = 'boekhouding@truckwash1group.nl';
+  `)
+  check('wat het management intrekt, gaat dicht',
+    (await rechtVan(BOEK, 'admin.desk')) === false)
+  check('en de rest van de rol blijft staan',
+    (await rechtVan(BOEK, 'finance.view')) === true)
+  await db.exec(`
+    update public.profiles set revokes = '{}'::text[]
+     where email = 'boekhouding@truckwash1group.nl';
+  `)
+
+  /* --- en dan de tabellen waar het om begonnen was --- */
+
+  await db.exec(`
+    insert into public.verkoopfactuur
+      (id, company_id, company_naam, status, periode, bedrag_excl, btw_bedrag, bedrag_incl)
+    values ('vf_51', 'co_a', 'Transport Jansen', 'concept', '2026-05', 100, 21, 121)
+    on conflict (id) do nothing;
+  `)
+
+  check('de boekhouding ziet de verkoopfacturen',
+    (await alsBoek(`select count(*)::int as n from public.verkoopfactuur
+                     where id = 'vf_51'`)).n === 1)
+
+  /*
+   * De postbus. De app liet deze persoon al binnen (permissions.ts geeft de
+   * rol mail.read), de database niet -- en dat gaf geen foutmelding maar een
+   * leeg scherm.
+   */
+  await db.exec(`
+    insert into public.mailbox (id, van, onderwerp)
+    values ('mb_51', 'leverancier@example.nl', 'Factuur mei')
+    on conflict (id) do nothing;
+  `)
+  check('en de postbus is niet langer leeg',
+    (await alsBoek(`select count(*)::int as n from public.mailbox
+                     where id = 'mb_51'`)).n === 1)
+
+  /*
+   * Lezen zonder markeren-als-gelezen is een val: Postbus doet die put zodra
+   * je op een bericht klikt, en een weigering daar blijft in de wachtrij
+   * hangen en wordt elke ronde opnieuw geprobeerd.
+   */
+  /*
+   * Let op de `returning id`. Zonder die regel meet deze check niets: een
+   * update die door RLS niets te pakken krijgt raakt nul rijen en geeft geen
+   * fout, dus "gelukt" zou ook groen zijn met de policy potdicht. Nagegaan
+   * door de policy terug te draaien -- toen bleef hij staan.
+   */
+  await asUser(db, BOEK)
+  await db.exec('set role authenticated;')
+  let markeren = 'geweigerd'
+  try {
+    const r = await db.query(
+      `update public.mailbox set status = 'gelezen' where id = 'mb_51' returning id`)
+    markeren = r.rows.length === 1 ? 'gelukt' : 'geweigerd'
+  } catch (e) {
+    markeren = e.message
+  }
+  await db.exec('reset role;')
+  await asServer(db)
+  check('en een bericht als gelezen markeren mag ook', markeren === 'gelukt', markeren)
+
+  /* --- de instellingen: wel de boekhoudsleutels, niet de rest --- */
+
+  /*
+   * Bijwerken en niet invoegen. Beide sleutels bestaan al in het schema, en
+   * een insert struikelt dan over instellingen_sleutel_key voordat RLS eraan
+   * toekomt -- dan meet je de unieke index in plaats van de policy, en dan
+   * slaagt de negatieve check hieronder om de verkeerde reden. Dat is precies
+   * hoe deze test er eerst uitzag.
+   *
+   * Bijwerken is trouwens ook wat de app doet: zetInstelling() schrijft via de
+   * gewone upsert, en de rij staat er al.
+   */
+  const zet = async (sleutel, waarde) => {
+    await asUser(db, BOEK)
+    await db.exec('set role authenticated;')
+    let uit = 'geweigerd'
+    try {
+      const r = await db.query(
+        `update public.instellingen set waarde = '${waarde}'
+          where sleutel = '${sleutel}' returning id`)
+      uit = r.rows.length === 1 ? 'gelukt' : 'geweigerd'
+    } catch (e) {
+      uit = e.message
+    }
+    await db.exec('reset role;')
+    await asServer(db)
+    return uit
+  }
+
+  /* Eerst nagaan dat de rijen er zijn -- anders bewijst 'geweigerd' niets. */
+  const staanEr = (await db.query(`
+    select count(*)::int as n from public.instellingen
+     where sleutel in ('exact_dagboek', 'app_url')`)).rows[0].n
+  check('de twee sleutels bestaan allebei in het schema', staanEr === 2, String(staanEr))
+
+  const dagboek = await zet('exact_dagboek', '70')
+  check('de boekhouding mag een boekhoudsleutel zetten', dagboek === 'gelukt', dagboek)
+  /*
+   * app_url niet. Daar wijst elke knop in elke mail heen; die hoort bij het
+   * management. De lijst in is_boekhoud_instelling() is met opzet kort.
+   */
+  check('maar app_url niet',
+    (await zet('app_url', 'https://kwaad.example')) === 'geweigerd')
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

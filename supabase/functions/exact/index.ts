@@ -340,6 +340,29 @@ function sleutelsVan(k: Koppeling | null): Sleutels {
  *  Die tweede controle staat op de rol en niet op een recht uit
  *  permissions.ts. Dat bestand deelt de kassa-repo mee; er een recht bij
  *  verzinnen is een wijziging aan twee projecten voor één scherm.
+ *
+ *  Sinds 0072 een derde niveau: de boekhouding.
+ *  ---------------------------------------------
+ *
+ *  Dit was een gat waar geen enkele test op stond. Elke administratieactie
+ *  hieronder stond achter een tweede controle die het recht admin.desk
+ *  navroeg -- keurig geschreven voor de administratie. Maar
+ *  wieBelt() draait ervoor, en die liet alleen developer, management,
+ *  trucksupply en het losse recht supply.settings door. De rol administratie
+ *  zat in geen van drieen. Gevolg: verkoop-stand, betaal-stand,
+ *  relaties-stand en facturen-stand gaven 403 'Hier mag je niet bij.'
+ *  voordat de controle die speciaal voor haar geschreven is werd bereikt.
+ *  magAdministratie() was dode code voor precies de mensen die hem nodig
+ *  hadden.
+ *
+ *  Het viel niet op omdat het account dat ermee test ook management is.
+ *  Daarom staat er nu een zelftest op die een account nabootst met ALLEEN de
+ *  rol administratie -- een test met management erbij bewijst niets.
+ *
+ *  magBoekhouding is nu een veld op Beller in plaats van een tweede
+ *  netwerkronde per actie: magAdministratie() deed zijn eigen getUser() plus
+ *  een eigen profielquery, boven op die van wieBelt. Dezelfde vraag, twee
+ *  keer gesteld.
  * ------------------------------------------------------------------ */
 
 interface Beller {
@@ -347,6 +370,8 @@ interface Beller {
   naam: string
   /** Mag de sleutels van de Exact-app zien en zetten. */
   magSleutels: boolean
+  /** Mag de boekhouding doen: facturen, betalen, relaties, verkoop. */
+  magBoekhouding: boolean
 }
 
 async function wieBelt(req: Request): Promise<Beller | null> {
@@ -369,7 +394,16 @@ async function wieBelt(req: Request): Promise<Beller | null> {
 
   const magSleutels = rollen.includes('developer') || rollen.includes('management')
 
-  const mag = magSleutels || (!ingetrokken.includes('supply.settings')
+  /* De boekhouding. Zelfde vorm als hierboven: de rol geeft het, een los
+     toegekend recht ook, en een intrekking wint. Dit is letterlijk wat
+     magAdministratie() al deed -- heeftRecht(req, 'admin.desk',
+     ['administratie', 'management']) -- alleen nu voor de deur in plaats van
+     erachter, en zonder tweede ronde naar de database. */
+  const magBoekhouding = magSleutels
+    || (!ingetrokken.includes('admin.desk')
+      && (rollen.includes('administratie') || toegekend.includes('admin.desk')))
+
+  const mag = magBoekhouding || (!ingetrokken.includes('supply.settings')
     && (rollen.includes('trucksupply') || toegekend.includes('supply.settings')))
 
   if (!mag) return null
@@ -377,6 +411,7 @@ async function wieBelt(req: Request): Promise<Beller | null> {
     id: profiel.id as string,
     naam: (profiel.name ?? '') as string,
     magSleutels,
+    magBoekhouding,
   }
 }
 
@@ -2139,11 +2174,13 @@ async function magPersoneel(req: Request): Promise<boolean> {
  *  Het ophalen van het rekeningschema is administratiewerk en geen
  *  ontwikkelwerk. wieBelt() kijkt naar de rollen rond Trucksupply; hier gaat
  *  het om het recht admin.desk, en dat weet alleen de database.
+ *
+ *  magAdministratie() stond hier tot 0072. Die is weg: hij vroeg hetzelfde
+ *  wat wieBelt() twee regels eerder al had opgehaald, en hij stond ACHTER de
+ *  deur die de administratie buitenhield -- dus hij liep nooit voor de mensen
+ *  waarvoor hij bedoeld was. Het antwoord staat nu als beller.magBoekhouding
+ *  op de Beller zelf.
  * ------------------------------------------------------------------ */
-
-async function magAdministratie(req: Request): Promise<boolean> {
-  return await heeftRecht(req, 'admin.desk', ['administratie', 'management'])
-}
 
 /**
  * Heeft de beller dit recht, via een rol of los toegekend?
@@ -2249,7 +2286,7 @@ Deno.serve(async (req) => {
     /* ---- de administraties ---- */
 
     if (actie === 'sync-administraties' || actie === 'zet-administratie') {
-      if (!beller.magSleutels && !(await magAdministratie(req))) {
+      if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       if (actie === 'sync-administraties') return await syncAdministraties()
@@ -2259,7 +2296,7 @@ Deno.serve(async (req) => {
     /* ---- het rekeningschema ophalen ---- */
 
     if (actie === 'sync-grootboek') {
-      if (!beller.magSleutels && !(await magAdministratie(req))) {
+      if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       return await syncGrootboek(beller)
@@ -2288,7 +2325,7 @@ Deno.serve(async (req) => {
 
     if (actie === 'betaal-stand' || actie === 'sepa-maken'
         || actie === 'batch-uitvoeren' || actie === 'zet-betaald') {
-      if (!beller.magSleutels && !(await magAdministratie(req))) {
+      if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       if (actie === 'sepa-maken') return await sepaMaken(body, beller)
@@ -2301,7 +2338,7 @@ Deno.serve(async (req) => {
 
     if (actie === 'verkoop-stand' || actie === 'verkoop-opmaken'
         || actie === 'verkoop-versturen' || actie === 'stuur-verkoop') {
-      if (!beller.magSleutels && !(await magAdministratie(req))) {
+      if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       if (actie === 'verkoop-opmaken') return await verkoopOpmaken(body, beller)
@@ -2314,7 +2351,7 @@ Deno.serve(async (req) => {
         || actie === 'stuur-facturen' || actie === 'koppel-leverancier'
         || actie === 'koppel-bedrijf' || actie === 'relaties-stand'
         || actie === 'dagboeken' || actie === 'btw-codes') {
-      if (!beller.magSleutels && !(await magAdministratie(req))) {
+      if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       if (actie === 'sync-relaties') return await syncRelaties(beller)

@@ -37,3 +37,6 @@ supabase/.temp/
 # Persoonlijke Claude Code-instellingen: hierin staan absolute paden van deze
 # machine, en deze repo is publiek.
 .claude/settings.local.json
+
+# Uitvoer van analysegereedschap, geen broncode.
+graphify-out/

@@ -268,8 +268,22 @@ Deno.serve(async (req) => {
   /*
    * De postbus is van het kantoor. Wie de post niet mag lezen, hoort hem ook
    * niet te kunnen delen -- een deelbare link is een factuur zonder slot.
+   *
+   * `rechten` is profiles.grants en verder niets. Daar zit precies het
+   * probleem dat deze regel tot 0072 had: mail.read komt bij de ontwikkelaar
+   * en de administratie uit de ROL, en de app schrijft een rolrecht bewust
+   * niet in grants. Alleen 'management' stond in de rollijst. Gevolg: de
+   * knoppen 'Delen' en 'Bijlagen opnieuw ophalen' staan bij de ontwikkelaar
+   * gewoon in beeld (Postbus.tsx kijkt naar perms.can('mail.read'), en die
+   * kijkt wel naar de rol) en geven 403. Dat was dus al stuk, los van welke
+   * verbouwing dan ook.
+   *
+   * Nu de drie rollen die mail.read uit hun rol krijgen, plus de losse
+   * toekenning voor wie hem apart kreeg.
    */
-  const mag = beller.rollen.includes('management') || beller.rechten.includes('mail.read')
+  const POSTROLLEN = ['management', 'developer', 'administratie']
+  const mag = beller.rollen.some((r) => POSTROLLEN.includes(r))
+    || beller.rechten.includes('mail.read')
   if (!mag) return json({ error: 'Geen rechten' }, 403)
 
   let body: Record<string, unknown>

@@ -4992,8 +4992,24 @@ console.log('\n37. Het rekeningschema blijft van ons')
   check('wat verdwenen is wordt opgeruimd',
     /delete\(\)\.lt\('updated_at', nu\)/.test(bron))
 
-  check('het schema ophalen mag ook de administratie',
-    bron.includes('magAdministratie'))
+  /*
+   * Dit stond hier als `bron.includes('magAdministratie')` -- de naam van de
+   * functie moest in het bestand voorkomen. Dat was hij ook, netjes, vijf keer
+   * zelfs. Alleen stond hij ACHTER wieBelt(), en die liet de rol administratie
+   * niet binnen. De check was groen en het scherm gaf 403.
+   *
+   * Een check op een naam is geen check op een pad. Deze kijkt naar de deur.
+   */
+  check('de administratie komt door de deur van wieBelt',
+    /const magBoekhouding = magSleutels[\s\S]{0,220}rollen\.includes\('administratie'\)/
+      .test(bron))
+  check('en die uitkomst bepaalt of het mag',
+    bron.includes('const mag = magBoekhouding ||'))
+  check('de boekhoudacties hangen aan dat veld',
+    (bron.match(/if \(!beller\.magBoekhouding\)/g) ?? []).length === 5)
+  /* De sleutels blijven bij ontwikkeling en management. */
+  check('maar de sleutels van de Exact-app niet',
+    bron.includes('if (!beller.magSleutels) {'))
 }
 
 /* ==================================================================== *
@@ -5739,6 +5755,83 @@ console.log('\n46. Welke vestiging mag je kiezen')
     alle.every((l) =>
       mijnVestigingen(alle, leiding).some((x) => x.id === l.id)
         === magVestigingKiezen(l.id, leiding)))
+}
+
+/* ====================================================================
+ *  47. De brug tussen de rollen en de database
+ *
+ *  De database kende rollen niet. heeft_recht() keek alleen naar
+ *  profiles.grants, en de app schrijft een recht dat uit de ROL komt daar
+ *  bewust niet in. Gevolg: 22 policies stonden dicht voor precies de mensen
+ *  voor wie ze geschreven waren.
+ *
+ *  0072 lost dat op met een tabel rol_recht: een korte, leesbare lijst van
+ *  rolrechten die de database mag afleiden. Bewust een lijst en niet "lees
+ *  permissions.ts maar uit", want dat laatste zou en passant staff.view aan
+ *  elke leidinggevende geven.
+ *
+ *  Maar een tweede lijst is een tweede waarheid, en twee waarheden lopen uit
+ *  elkaar. Dit hoofdstuk is de klem: wat de database aanneemt moet de app ook
+ *  echt geven. Zet iemand later een regel in rol_recht die in permissions.ts
+ *  niet bestaat, dan valt dit om -- en niet een half jaar later op een
+ *  maandagochtend.
+ * ==================================================================== */
+
+console.log('\n47. De brug tussen de rollen en de database')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const { ROLE_DEFAULTS } = await import('../src/lib/permissions.ts')
+
+  const sql = readFileSync(
+    'supabase/migrations/0072_de_administratie_komt_binnen.sql', 'utf8')
+
+  /* De regels uit de insert lezen, zoals ze er staan. */
+  const blok = sql.slice(sql.indexOf('insert into public.rol_recht'))
+  /* Ruim genoeg voor elke naam die permissions.ts kan bevatten. Een rij die
+     dit patroon niet leest, is een rij die niemand controleert -- en dat is
+     precies het gat dat dit hoofdstuk moet dichten. */
+  const rijen = [...blok.matchAll(/\('([a-z0-9_]+)',\s*'([a-z0-9._]+)'/g)]
+    .map(([, rol, recht]) => ({ rol, recht }))
+
+  check('de brug bevat regels', rijen.length >= 5, String(rijen.length))
+
+  /*
+   * De klem zelf. Elk paar in rol_recht moet in ROLE_DEFAULTS staan --
+   * anders neemt de database iets aan wat de app niet geeft, en dan mag
+   * iemand in de database meer dan op zijn scherm.
+   */
+  const mist = rijen.filter(({ rol, recht }) =>
+    !((ROLE_DEFAULTS as Record<string, string[]>)[rol] ?? []).includes(recht))
+  check('en geeft niets wat de rol in de app niet geeft',
+    mist.length === 0, mist.map((m) => `${m.rol}/${m.recht}`).join(', '))
+
+  /*
+   * En andersom NIET. De administratie heeft in de app ruim dertig rechten;
+   * de database hoort er maar een handvol te kennen. Een brug die alles
+   * overzet is dezelfde generieke oplossing die staff.view zou opengooien.
+   */
+  const adm = rijen.filter((r) => r.rol === 'administratie').length
+  const inApp = (ROLE_DEFAULTS as Record<string, string[]>).administratie.length
+  check('maar bewust niet alles wat de rol geeft', adm < inApp / 3,
+    `${adm} van ${inApp}`)
+
+  /* Een intrekking hoort te winnen, anders is het management machteloos. */
+  check('een intrekking sluit de brug',
+    /not \(recht = any\(\s*\n?\s*coalesce\(\(select revokes/.test(sql))
+
+  /* --- en de tweede functie die op grants alleen keek --- */
+
+  const postbus = readFileSync('supabase/functions/postbus-actie/index.ts', 'utf8')
+  /*
+   * Deze was al stuk voor de ontwikkelaar, los van welke verbouwing dan ook:
+   * de knoppen Delen en Bijlagen-opnieuw stonden in beeld en gaven 403, omdat
+   * mail.read bij hem uit de rol komt en de controle alleen naar grants keek.
+   */
+  check('postbus-actie kijkt naar de rollen en niet alleen naar grants',
+    /POSTROLLEN = \['management', 'developer', 'administratie'\]/.test(postbus))
+  check('en laat een los toegekend recht ook nog toe',
+    postbus.includes("beller.rechten.includes('mail.read')"))
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
