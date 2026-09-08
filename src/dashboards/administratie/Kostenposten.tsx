@@ -61,7 +61,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'alles', label: 'Alles' },
 ]
 
-export default function Kostenposten() {
+export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
   const user = useAuth((s) => s.user)!
   const perms = usePerms()
   const [tab, setTab] = useState<Tab>('open')
@@ -75,7 +75,21 @@ export default function Kostenposten() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [afkeuren, setAfkeuren] = useState<Expense | null>(null)
   const [reden, setReden] = useState('')
-  const [open, setOpen] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(openBon ?? null)
+
+  /*
+   * Binnenkomen op een bon.
+   *
+   * Uit de werklijst ("Openen") of uit een mail met ?open=kosten&id=exp_123.
+   * Het tabblad gaat mee naar 'alles': staat de bon op goedgekeurd en kijk je
+   * naar 'open', dan schuift het venster open boven een lijst waar hij niet
+   * in staat, en na sluiten ben je hem kwijt.
+   */
+  useEffect(() => {
+    if (!openBon) return
+    setOpen(openBon)
+    setTab('alles')
+  }, [openBon])
 
   const alle = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
 
@@ -84,7 +98,9 @@ export default function Kostenposten() {
       .filter((e) => (tab === 'alles' ? true : e.status === tab))
       .filter((e) => pastBijZoek(e, zoek))
       .sort((a, b) => b.date - a.date),
-    [alle, tab],
+    /* `zoek` hoort hier ook in. Zonder dat werd de lijst pas opnieuw
+       gefilterd als je van tabblad wisselde, en leek het zoekveld stuk. */
+    [alle, tab, zoek],
   )
 
   const teValideren = alle.filter((e) => e.status === 'open')

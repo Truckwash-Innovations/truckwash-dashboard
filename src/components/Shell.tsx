@@ -1,8 +1,8 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  AlertTriangle, Bug, Compass, LayoutGrid, LogOut, MessageSquarePlus, Mic,
-  MoreHorizontal,
+  AlertTriangle, Bug, ChevronDown, Compass, LayoutGrid, LogOut,
+  MessageSquarePlus, Mic, MoreHorizontal,
   PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
@@ -34,6 +34,18 @@ export interface NavItem {
   label: string
   icon: LucideIcon
   badge?: number
+  /**
+   * Een tweede niveau.
+   *
+   * Optioneel, en dat is de hele truc: een item zonder kinderen rendert
+   * precies zoals het altijd deed. Negen dashboards delen deze Shell; acht
+   * daarvan hoeven van dit hoofdstuk niets te merken.
+   *
+   * Alleen de administratie gebruikt het, en om een reden: die had zeven
+   * losse knoppen die er straks vijftien zouden worden. Vijftien knoppen op
+   * een rij is geen menu meer maar een lijst waar je in zoekt.
+   */
+  kinderen?: NavItem[]
 }
 
 interface Props {
@@ -65,6 +77,52 @@ export default function Shell({
   const [storing, setStoring] = useState(false)
   const [devmelding, setDevmelding] = useState(false)
   const [instellingen, setInstellingen] = useState(false)
+
+  /* ---------------------------------------------------------------- *
+   *  Het tweede niveau
+   *
+   *  In de smalle zijbalk staan alleen icoontjes. Een groepskop is daar
+   *  onbruikbaar -- je ziet een icoon dat niets doet behalve iets openvouwen
+   *  wat je niet kunt lezen. Dus daar plat: de kinderen komen los in de rij te
+   *  staan, precies zoals het menu voor deze verbouwing was.
+   * ---------------------------------------------------------------- */
+  const zichtbaar = useMemo(
+    () => (klein
+      ? items.flatMap((it) => (it.kinderen?.length ? it.kinderen : [it]))
+      : items),
+    [items, klein],
+  )
+
+  /*
+   * Welke groepen open staan onthouden we per dashboard. Iemand die elke
+   * ochtend bij Inkoop begint, hoort dat niet elke ochtend opnieuw open te
+   * hoeven klikken.
+   *
+   * De groep waar je nu in zit staat altijd open; dat regelt Groep zelf. Deze
+   * verzameling gaat alleen over wat je met de hand hebt opengezet.
+   */
+  const [openGroepen, setOpenGroepen] = useState<Set<string>>(() => {
+    try {
+      const bewaard = localStorage.getItem(`menu-open:${roleLabel}`)
+      return new Set<string>(bewaard ? (JSON.parse(bewaard) as string[]) : [])
+    } catch {
+      return new Set<string>()
+    }
+  })
+
+  const wisselGroep = (sleutel: string) => {
+    setOpenGroepen((oud) => {
+      const nieuw = new Set(oud)
+      if (nieuw.has(sleutel)) nieuw.delete(sleutel)
+      else nieuw.add(sleutel)
+      /* Een voorkeur die niet bewaard kan worden is geen reden om niet te
+         kunnen klikken. */
+      try {
+        localStorage.setItem(`menu-open:${roleLabel}`, JSON.stringify([...nieuw]))
+      } catch { /* prive-venster, volle schijf -- niet erg */ }
+      return nieuw
+    })
+  }
 
   // Elk schermwissel in het spoor, zodat een melding laat zien waar iemand
   // liep vlak voordat er iets misging.
@@ -181,23 +239,28 @@ export default function Shell({
         </div>
 
         <nav className="nav">
-          {items.map((it) => {
-            const Icon = it.icon
-            return (
-              <button
-                key={it.key}
-                className={`nav-item ${active === it.key ? 'active' : ''}`}
-                onClick={() => onNavigate(it.key)}
-                title={klein ? it.label : undefined}
-                data-rondleiding={`nav-${it.key}`}
-                aria-current={active === it.key ? 'page' : undefined}
-              >
-                <Icon size={18} />
-                <span>{it.label}</span>
-                {!!it.badge && <span className="badge brand">{it.badge}</span>}
-              </button>
-            )
-          })}
+          {zichtbaar.map((it) => (
+            it.kinderen && it.kinderen.length > 0
+              ? (
+                <Groep
+                  key={it.key}
+                  item={it}
+                  active={active}
+                  open={openGroepen.has(it.key)}
+                  onToggle={() => wisselGroep(it.key)}
+                  onNavigate={onNavigate}
+                />
+              )
+              : (
+                <Knop
+                  key={it.key}
+                  item={it}
+                  active={active}
+                  klein={klein}
+                  onNavigate={onNavigate}
+                />
+              )
+          ))}
         </nav>
 
         <div className="sidebar-foot">
@@ -377,3 +440,85 @@ export default function Shell({
 
 /** Het overlegscherm, zodat dashboards het als pagina kunnen tonen. */
 export { Overleg }
+
+/* ------------------------------------------------------------------ *
+ *  Het menu
+ *
+ *  Twee niveaus, maar alleen waar een dashboard erom vraagt. Een item zonder
+ *  kinderen gaat door Knop en komt eruit als de knop die er altijd stond --
+ *  zelfde klassen, zelfde data-rondleiding, zelfde aria-current. Dat is
+ *  bewust: de rondleiding haakt aan `nav-<sleutel>` en de acht andere
+ *  dashboards mogen hier niets van merken.
+ * ------------------------------------------------------------------ */
+
+function Knop({ item, active, klein, onNavigate, kind }: {
+  item: NavItem
+  active: string
+  klein?: boolean
+  onNavigate: (key: string) => void
+  kind?: boolean
+}) {
+  const Icon = item.icon
+  return (
+    <button
+      className={`nav-item ${kind ? 'nav-kind' : ''} ${active === item.key ? 'active' : ''}`}
+      onClick={() => onNavigate(item.key)}
+      title={klein ? item.label : undefined}
+      data-rondleiding={`nav-${item.key}`}
+      aria-current={active === item.key ? 'page' : undefined}
+    >
+      <Icon size={kind ? 16 : 18} />
+      <span>{item.label}</span>
+      {!!item.badge && <span className="badge brand">{item.badge}</span>}
+    </button>
+  )
+}
+
+/**
+ * Een groep met kinderen.
+ *
+ * De kop is geen pagina. Erop klikken vouwt open en dicht en navigeert niet
+ * -- anders spring je naar een scherm terwijl je alleen wilde kijken wat
+ * eronder zit.
+ *
+ * Staat de groep dicht en ligt er werk in, dan telt de kop de badges van zijn
+ * kinderen bij elkaar op. Zonder dat is inklappen een manier om werk te
+ * verstoppen, en dan klapt niemand ooit iets in.
+ */
+function Groep({ item, active, open, onToggle, onNavigate }: {
+  item: NavItem
+  active: string
+  open: boolean
+  onToggle: () => void
+  onNavigate: (key: string) => void
+}) {
+  const kinderen = item.kinderen ?? []
+  const heeftActieve = kinderen.some((k) => k.key === active)
+  const uit = open || heeftActieve
+  const samen = kinderen.reduce((n, k) => n + (k.badge ?? 0), 0)
+  const Icon = item.icon
+
+  return (
+    <div className={`nav-groep ${uit ? 'uit' : ''}`}>
+      <button
+        className={`nav-item nav-kop ${heeftActieve ? 'bevat' : ''}`}
+        onClick={onToggle}
+        aria-expanded={uit}
+        data-rondleiding={`nav-${item.key}`}
+      >
+        <Icon size={18} />
+        <span>{item.label}</span>
+        {!uit && samen > 0 && <span className="badge brand">{samen}</span>}
+        <ChevronDown size={15} className="nav-pijl" />
+      </button>
+
+      {uit && (
+        <div className="nav-kinderen">
+          {kinderen.map((k) => (
+            <Knop key={k.key} item={k} active={active} onNavigate={onNavigate} kind />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

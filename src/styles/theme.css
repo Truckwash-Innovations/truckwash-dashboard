@@ -346,6 +346,48 @@ input, select, textarea { font: inherit; }
 .nav-item.active svg { color: var(--brand); }
 .nav-item .badge { margin-left: auto; }
 
+/* ------------------------------------------------------------------ *
+ *  Het menu met twee niveaus
+ *
+ *  Alleen de administratie gebruikt het. Alles hieronder hangt aan .nav-groep
+ *  of .nav-kind, dus een gewoon menu-item raakt er niets van.
+ * ------------------------------------------------------------------ */
+
+.nav-groep { display: flex; flex-direction: column; }
+
+/* De kop is geen pagina, dus geen gele streep en geen vetgedrukt. Wel iets
+   rustiger dan een gewone knop: hij is een label met een klepje. */
+.nav-item.nav-kop { color: var(--muted); }
+.nav-item.nav-kop:hover { color: var(--text); }
+/* Zit je in deze groep, dan mag je dat aan de kop zien -- ook als hij is
+   dichtgeklapt en je alleen dit nog in beeld hebt. */
+.nav-item.nav-kop.bevat { color: var(--text); }
+.nav-item.nav-kop.bevat svg:first-child { color: var(--brand); }
+
+.nav-pijl {
+  margin-left: auto;
+  opacity: .55;
+  transition: transform .16s var(--ease);
+}
+.nav-groep.uit .nav-pijl { transform: rotate(180deg); }
+/* De kop heeft twee svg's; alleen de eerste schuift mee op hover. */
+.nav-item.nav-kop:hover .nav-pijl { transform: none; }
+.nav-groep.uit .nav-item.nav-kop:hover .nav-pijl { transform: rotate(180deg); }
+
+.nav-kinderen {
+  display: flex; flex-direction: column;
+  /* Een lijn die zegt: dit hoort bij de kop erboven. Zonder die lijn is
+     inspringen alleen maar witruimte. */
+  margin: 2px 0 4px 20px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line-soft);
+}
+
+.nav-item.nav-kind { font-size: .92em; padding-top: 7px; padding-bottom: 7px; }
+/* De gele streep van het actieve item staat op de rand van de knop; bij een
+   kind zou hij op de lijn hierboven vallen. Iets naar binnen dus. */
+.nav-item.nav-kind.active::before { left: -9px; }
+
 .sidebar-foot { padding: 12px; border-top: 1px solid var(--line-soft); }
 
 .main {
@@ -5138,6 +5180,82 @@ table.data tr.aan td { font-weight: 600; }
 @media (min-width: 901px) {
   .verdeel-veld > span { display: none; }
 }
+
+/* ==================================================================
+   Te verwerken: de werklijst van de administratie
+
+   Bewust geen tweede kanban. Dit is een lijst met kopjes, want de volgorde
+   waarin je hem afwerkt ligt vast (eerst wat stuk is) en kolommen naast
+   elkaar suggereren dat je mag kiezen. .werklijst was al bezet door het
+   takenbord; vandaar .verwerklijst.
+   ================================================================== */
+
+.verwerklijst { display: flex; flex-direction: column; gap: 14px; }
+
+.verwerklijst-kop {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: .95em;
+}
+
+.verwerkrij-lijst { display: flex; flex-direction: column; }
+
+.verwerkrij {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 2px;
+  border-top: 1px solid var(--line-soft);
+}
+.verwerkrij:first-child { border-top: 0; padding-top: 4px; }
+
+.verwerkrij-wie { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.verwerkrij-wie strong { font-weight: 600; }
+.verwerkrij-wie .muted { font-size: .92em; }
+
+/* Wat er ontbreekt. Geen bolletjes: het zijn zinnen, geen opsomming van
+   eigenschappen. Een streepje links houdt ze bij elkaar zonder ze op een
+   waarschuwing te laten lijken. */
+.verwerkrij-mist {
+  margin: 0; padding: 0 0 0 10px;
+  list-style: none;
+  border-left: 2px solid var(--line-soft);
+  color: var(--muted);
+  font-size: .9em;
+}
+.verwerkrij-mist li { padding: 1px 0; }
+
+.verwerkrij-fout {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0;
+  color: var(--text-danger);
+  font-size: .9em;
+}
+
+.verwerkrij-knoppen { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+/* De ladder: wat er is geprobeerd toen het lezen niet lukte. Staat er ook
+   als het uiteindelijk wel lukte -- dan zie je in welke bijlage het zat. */
+.leesladder {
+  flex-basis: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: .9em;
+}
+.leesladder > p { margin: 0 0 6px; font-weight: 600; }
+.leesladder ol { margin: 0; padding-left: 0; list-style: none; }
+.leesladder li {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 3px 0;
+  color: var(--muted);
+}
+.leesladder li.ok { color: var(--text); }
+.leesladder li svg { flex: none; align-self: center; }
+.leesladder li em { font-style: normal; opacity: .8; }
+/* De reden op een eigen regel als hij niet meer past: een afgekapte
+   foutmelding is een foutmelding die je alsnog moet gaan opzoeken. */
+.leesladder li em::before { content: "— "; }
 
 /* ==================================================================
    Werk: de lijst, het bord en de kaarten

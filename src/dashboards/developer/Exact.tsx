@@ -734,7 +734,7 @@ function Administraties({ verbonden }: { verbonden: boolean }) {
  *  geweigerd wordt. Dat wil je zien voordat de factuur weg is.
  * ------------------------------------------------------------------ */
 
-function Grootboek({ verbonden }: { verbonden: boolean }) {
+export function Grootboek({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<GrootboekStand | null>(null)
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
@@ -1610,6 +1610,20 @@ function leesbaar(waarde: unknown): string {
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ *
+ *  Gedeeld met de administratie
+ *
+ *  Relaties, Facturen, Betalen en Verkoop staan hier omdat ze bij de
+ *  Exact-koppeling zijn ontstaan, maar het werk erin is boekhouding en geen
+ *  ontwikkelwerk. Sinds 1.74 staan ze ook in het administratiedashboard.
+ *
+ *  Ze zijn geexporteerd en niet verplaatst. Dat scheelt niet alleen een
+ *  verhuizing van 900 regels: het ontwikkeldashboard houdt zijn tabbladen
+ *  precies zoals ze waren, en er is maar een plek waar de logica staat. Twee
+ *  kopieen van een betaalscherm is hoe een SEPA-bestand op twee manieren
+ *  wordt opgebouwd.
+ * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
  *  Onze bedrijven naast de relaties van Exact
  *
  *  Casper: "In exact staan natuurlijk relaties, dat worden onze bedrijven,
@@ -1625,7 +1639,7 @@ function leesbaar(waarde: unknown): string {
  *  relatienummer -- en een verkoopfactuur wijst naar dat nummer.
  * ------------------------------------------------------------------ */
 
-function Relaties({ verbonden }: { verbonden: boolean }) {
+export function Relaties({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<RelatiesStand | null>(null)
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
@@ -1802,7 +1816,7 @@ function Relaties({ verbonden }: { verbonden: boolean }) {
  *  roepen.
  * ------------------------------------------------------------------ */
 
-function Facturen({ verbonden }: { verbonden: boolean }) {
+export function Facturen({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<FacturenStand | null>(null)
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
@@ -2065,7 +2079,7 @@ function Facturen({ verbonden }: { verbonden: boolean }) {
  *  betaald.
  * ------------------------------------------------------------------ */
 
-function Betalen() {
+export function Betalen() {
   const [stand, setStand] = useState<BetaalStand | null>(null)
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
@@ -2315,7 +2329,7 @@ function Betalen() {
  *    naar Exact als verkoopboeking, met de klant als relatie
  * ------------------------------------------------------------------ */
 
-function Verkoop({ verbonden }: { verbonden: boolean }) {
+export function Verkoop({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<VerkoopStand | null>(null)
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)

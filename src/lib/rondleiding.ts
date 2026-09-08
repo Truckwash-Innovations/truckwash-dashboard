@@ -693,40 +693,50 @@ const ADMINISTRATIE: Rondleiding = {
       icoon: 'ShieldCheck',
     },
   ],
+  /*
+   * De aanwijzers wijzen naar het menu, en dat menu heeft sinds 1.74 twee
+   * niveaus. Wat in een groep zit is er alleen als die groep openstaat, en
+   * een aanwijzer die zijn doel niet vindt wordt stilzwijgend overgeslagen
+   * (Rondleiding.tsx: `if (!el) { onVolgende(); return }`). Vandaar de
+   * groepskoppen: die staan er altijd.
+   *
+   * 'nav-tedoen' stond hier en heeft nooit bestaan -- de sleutel is 'start'.
+   * Die aanwijzer werd dus vanaf dag een overgeslagen. Zelftest 50 rekent nu
+   * na dat elk doel een sleutel is die het dashboard echt kent.
+   */
   aanwijzers: [
     {
-      id: 'nav-tedoen',
-      doel: 'nav-tedoen',
-      titel: 'Te doen',
-      tekst: 'Alles wat op een beslissing wacht, nieuwste eerst.',
+      id: 'nav-start',
+      doel: 'nav-start',
+      titel: 'Dashboard',
+      tekst: 'Alles wat op een beslissing wacht, als aanklikbare kaarten.',
     },
     {
-      id: 'nav-kosten',
-      doel: 'nav-kosten',
-      titel: 'Kostenposten',
-      tekst: 'Goedkeuren, afkeuren, en de factuur laten uitlezen.',
+      id: 'nav-verwerken',
+      doel: 'nav-verwerken',
+      titel: 'Te verwerken',
+      tekst:
+        'De werklijst: wat er binnenkwam en nog een stap nodig heeft. Wat ' +
+        'vastliep staat bovenaan, want dat komt zonder jou niet verder.',
       recht: 'expenses.approve',
     },
     {
-      id: 'nav-uren',
-      doel: 'nav-uren',
-      titel: 'Urenwijzigingen',
-      tekst: 'Wie niet op tijd geklokt heeft, vraagt hier een correctie aan.',
+      id: 'nav-inkoop-groep',
+      doel: 'nav-inkoop-groep',
+      titel: 'Inkoop',
+      tekst:
+        'De inkoopfacturen, het postvak waar ze binnenkomen en de ' +
+        'leveranciers. Klap open om te zien wat eronder zit.',
+      recht: 'expenses.approve',
+    },
+    {
+      id: 'nav-personeel-groep',
+      doel: 'nav-personeel-groep',
+      titel: 'Personeel',
+      tekst:
+        'Urenwijzigingen, dossierwijzigingen en aanmeldingen. Een gewijzigd ' +
+        'rekeningnummer neem je niet zomaar over.',
       recht: 'hours.approve',
-    },
-    {
-      id: 'nav-dossiers',
-      doel: 'nav-dossiers',
-      titel: 'Dossierwijzigingen',
-      tekst: 'Een gewijzigd rekeningnummer of adres wil je niet zomaar overnemen.',
-      recht: 'staff.view',
-    },
-    {
-      id: 'nav-aanmeldingen',
-      doel: 'nav-aanmeldingen',
-      titel: 'Aanmeldingen',
-      tekst: 'Wie zich via de app heeft gemeld, en of die erin mag.',
-      recht: 'signups.decide',
     },
   ],
 }

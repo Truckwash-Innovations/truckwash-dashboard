@@ -5834,5 +5834,325 @@ console.log('\n47. De brug tussen de rollen en de database')
     postbus.includes("beller.rechten.includes('mail.read')"))
 }
 
+/* ====================================================================
+ *  48. Te verwerken: welke stand heeft een factuur
+ *
+ *  Casper vroeg om een werklijst met statussen, en om iets wat niet meteen
+ *  opgeeft als een bestand niet te lezen is: "Probeer opnieuw of gebruik een
+ *  andere aanpak. Ga niet zomaar gokken."
+ *
+ *  De standen zijn geen nieuw veld maar een antwoord dat uit de bestaande
+ *  velden wordt afgeleid -- lees_status, status, exact_id, exact_fout. Dat
+ *  antwoord hangt af van de VOLGORDE waarin de vragen worden gesteld, en
+ *  precies daar gaat zoiets stuk: een goedgekeurde factuur die Exact heeft
+ *  teruggestuurd, hoort bij "er is iets mis" en niet bij "moet nog geboekt".
+ *  Verwissel je die twee vragen, dan verdwijnt de fout in de gewone stapel.
+ * ==================================================================== */
+
+console.log('\n48. Te verwerken: welke stand heeft een factuur')
+
+{
+  const {
+    LEZEN_DUURT_HOOGSTENS, STANDEN, ontbreekt, standVan, telStuk, telWerk, verdeel,
+  } = await import('../src/lib/werklijst.ts')
+
+  const NU = 1_800_000_000_000
+
+  const bon = (extra: Record<string, unknown> = {}) => ({
+    id: 'e1', locationId: 'loc_a', date: NU - 86_400_000, category: 'materiaal',
+    supplier: 'Chemtrans', description: '', amountExcl: 100, vatPct: 21,
+    status: 'open', submittedBy: 'u1', submittedByName: 'Wim', updatedAt: NU,
+    ...extra,
+  }) as never
+
+  /* --- de gewone gang van zaken --- */
+
+  check('een complete bon wacht op akkoord',
+    standVan(bon(), NU) === 'akkoord')
+  check('met de eerste handtekening erop wacht hij op de tweede',
+    standVan(bon({ status: 'eerste_akkoord' }), NU) === 'tweede')
+  check('goedgekeurd betekent: moet naar Exact',
+    standVan(bon({ status: 'goedgekeurd' }), NU) === 'boeken')
+  check('en met een exact-id is hij klaar',
+    standVan(bon({ status: 'goedgekeurd', exactId: '12345' }), NU) === 'klaar')
+
+  /*
+   * De volgorde waar het om draait. Deze bon is goedgekeurd EN Exact gaf een
+   * fout. Zou 'goedgekeurd' eerst worden nagevraagd, dan stond hij tussen het
+   * werk dat nog moet gebeuren -- en dan probeert iemand hem morgen weer, en
+   * overmorgen weer.
+   */
+  check('een fout van Exact wint van "moet nog geboekt worden"',
+    standVan(bon({ status: 'goedgekeurd', exactFout: 'Dagboek 70 bestaat niet' }), NU)
+      === 'geweigerd')
+
+  /* --- het lezen --- */
+
+  check('wat in de wachtrij staat wordt gelezen',
+    standVan(bon({ leesStatus: 'wacht', amountExcl: 0 }), NU) === 'lezen')
+  check('en wat mislukte is vastgelopen',
+    standVan(bon({ leesStatus: 'mislukt', amountExcl: 0 }), NU) === 'vastgelopen')
+
+  /*
+   * De stilste van allemaal. De leescomputer eist een bon op, zet hem op
+   * 'bezig', en valt uit. Zonder een grens blijft die bon eeuwig op 'bezig'
+   * staan: hij is niet vastgelopen, want er is technisch iemand mee bezig, en
+   * hij staat dus in geen enkele lijst die om aandacht vraagt.
+   */
+  check('bezig is bezig, zolang het niet te lang duurt',
+    standVan(bon({ leesStatus: 'bezig', leesGeclaimdAt: NU - 60_000, amountExcl: 0 }), NU)
+      === 'lezen')
+  check('maar te lang bezig is vastgelopen',
+    standVan(bon({
+      leesStatus: 'bezig',
+      leesGeclaimdAt: NU - LEZEN_DUURT_HOOGSTENS - 1,
+      amountExcl: 0,
+    }), NU) === 'vastgelopen')
+
+  /* --- wat er ontbreekt --- */
+
+  check('zonder bedrag valt er niets goed te keuren',
+    standVan(bon({ amountExcl: 0 }), NU) === 'aanvullen')
+  check('zonder leverancier ook niet',
+    standVan(bon({ supplier: '  ' }), NU) === 'aanvullen')
+
+  /*
+   * "Ga niet zomaar gokken." Een model dat zelf zegt dat het ergens niet uit
+   * kwam, hoort niet stil tussen "wacht op akkoord" te belanden alsof er
+   * niets aan de hand is.
+   */
+  const twijfelt = bon({
+    gelezen: { gelezenOp: NU, twijfel: ['Er staan twee btw-tarieven op.'] },
+  })
+  check('twijfel van de lezer telt als ontbrekend',
+    standVan(twijfelt, NU) === 'aanvullen')
+  check('en die twijfel staat er ook bij',
+    ontbreekt(twijfelt).includes('Er staan twee btw-tarieven op.'))
+
+  /* Een eigen verkoopfactuur tussen de inkoop: dan boek je je eigen omzet
+     als kosten. */
+  check('een factuur van onszelf wordt niet stil goedgekeurd',
+    standVan(bon({ gelezen: { gelezenOp: NU, richting: 'verkoop' } }), NU) === 'aanvullen')
+
+  /* --- de verdeling --- */
+
+  const stapel = [
+    bon({ id: 'a', status: 'goedgekeurd', exactId: 'X' }),          // klaar
+    bon({ id: 'b', status: 'afgekeurd' }),                           // afgekeurd
+    bon({ id: 'c', leesStatus: 'mislukt', amountExcl: 0 }),          // vastgelopen
+    bon({ id: 'd' }),                                                // akkoord
+    bon({ id: 'e', leesStatus: 'wacht', amountExcl: 0 }),            // lezen
+  ]
+  const vakken = verdeel(stapel, NU)
+
+  /*
+   * Wat af is doet niet mee. Een werklijst waar het afgehandelde werk in
+   * blijft staan, wordt elke maand langer en elke maand minder gelezen.
+   */
+  check('afgeronde bonnen staan niet in de werklijst',
+    !vakken.some((v) => v.stand.sleutel === 'klaar' || v.stand.sleutel === 'afgekeurd'))
+  check('en wat kapot is staat bovenaan',
+    vakken[0]?.stand.sleutel === 'vastgelopen')
+  check('wat vanzelf verdergaat staat onderaan',
+    vakken[vakken.length - 1]?.stand.sleutel === 'lezen')
+
+  /* De badge telt alleen wat op een mens wacht. */
+  check('de teller telt het werk en niet het wachten',
+    telWerk(stapel, NU) === 2, String(telWerk(stapel, NU)))
+  check('en apart wat er stuk is',
+    telStuk(stapel, NU) === 1)
+
+  /* Elke stand heeft een zin die zegt wat er van je verwacht wordt. Zonder
+     die zin is een kopje "Aanvullen" een raadsel. */
+  check('elke stand legt zichzelf uit',
+    Object.values(STANDEN).every((st) => st.uitleg.length > 20 && st.uitleg.endsWith('.')))
+}
+
+/* ====================================================================
+ *  49. De leesladder: niet meteen opgeven, en ook niet gokken
+ *
+ *  Een mail met een factuur heeft zelden precies een bijlage. Er zit een
+ *  logo in de handtekening, algemene voorwaarden, soms een briefje. De
+ *  server pakt er een, en als dat de verkeerde is kwam er "niet gelukt"
+ *  terug -- terwijl de factuur in dezelfde mail zat. Wie op Opnieuw drukte
+ *  kreeg exact dezelfde poging nog een keer.
+ * ==================================================================== */
+
+console.log('\n49. De leesladder')
+
+{
+  const { leesOpnieuw, opVolgorde, samenvat } = await import('../src/lib/leesladder.ts')
+
+  const bijlage = (naam: string, mime: string, size: number, extra = {}) =>
+    ({ naam, mime, size, path: `post/${naam}`, ...extra }) as never
+
+  const bon = { id: 'e1', attachmentPath: 'post/oud.pdf' } as never
+
+  /* --- de volgorde --- */
+
+  const gemengd = [
+    bijlage('logo.png', 'image/png', 4_000),
+    bijlage('voorwaarden.pdf', 'application/pdf', 12_000),
+    bijlage('factuur.pdf', 'application/pdf', 180_000),
+    bijlage('foto.jpg', 'image/jpeg', 900_000),
+  ]
+  check('PDF gaat voor plaatje, en binnen een soort het grootste eerst',
+    opVolgorde(gemengd).map((b) => b.naam).join(',')
+      === 'factuur.pdf,voorwaarden.pdf,foto.jpg,logo.png')
+
+  /* Een tegengehouden bijlage proberen we niet: die mag niet eens open. */
+  check('een geweigerde bijlage doet niet mee',
+    opVolgorde([...gemengd, bijlage('virus.pdf', 'application/pdf', 999_999,
+      { controle: 'geweigerd', controleReden: 'Scanner sloeg aan' })])
+      .every((b) => b.naam !== 'virus.pdf'))
+
+  /* --- de ladder zelf --- */
+
+  /* Eerste poging raak: dan hoort hij niet alsnog vier bijlagen af te gaan. */
+  {
+    const gedaan: (string | undefined)[] = []
+    const uit = await leesOpnieuw(bon, gemengd, async (_id, pad) => {
+      gedaan.push(pad)
+      return { ok: true }
+    })
+    check('lukt het meteen, dan stopt hij meteen',
+      uit.gelukt && gedaan.length === 1 && gedaan[0] === undefined)
+  }
+
+  /* De derde poging raak: hij moet doorgaan tot daar, en dan stoppen. */
+  {
+    const gedaan: (string | undefined)[] = []
+    const uit = await leesOpnieuw(bon, gemengd, async (_id, pad) => {
+      gedaan.push(pad)
+      return gedaan.length === 3
+        ? { ok: true }
+        : { ok: false, reden: 'Geen factuur gevonden in dit bestand.' }
+    })
+    check('en anders gaat hij door tot het lukt',
+      uit.gelukt && gedaan.length === 3)
+    check('in de volgorde van kansrijk naar minst kansrijk',
+      gedaan[1] === 'post/factuur.pdf' && gedaan[2] === 'post/voorwaarden.pdf')
+    check('en hij zegt waar het in zat',
+      uit.samenvatting.includes('voorwaarden.pdf'), uit.samenvatting)
+  }
+
+  /* Niets lukt. Het punt van dit hoofdstuk: dan komt er GEEN lezing terug,
+     maar een lijstje van wat er is geprobeerd. Niet gokken. */
+  {
+    const uit = await leesOpnieuw(bon, gemengd, async () =>
+      ({ ok: false, reden: 'Onleesbaar.' }))
+    check('lukt niets, dan is er niets gelukt', !uit.gelukt)
+    check('en is elke bijlage langsgeweest',
+      uit.pogingen.length === 1 + gemengd.length, String(uit.pogingen.length))
+    check('met per poging een reden erbij',
+      uit.pogingen.every((pg) => !pg.gelukt && !!pg.reden))
+    check('en een zin die zegt dat doorklikken geen zin heeft',
+      uit.samenvatting.includes('met de hand'), uit.samenvatting)
+  }
+
+  /* Een bon zonder mail: een poging, en een eerlijke zin. */
+  {
+    const uit = await leesOpnieuw(bon, [], async () => ({ ok: false, reden: 'Te wazig.' }))
+    check('zonder andere bijlagen blijft het bij een poging',
+      uit.pogingen.length === 1)
+    check('en zegt hij dat er niets anders te proberen was',
+      uit.samenvatting.includes('geen andere bijlagen'), uit.samenvatting)
+  }
+
+  /* De bijlage die al aan de bon hangt heeft de server net geprobeerd; die
+     nog een keer doen is precies de knop die niets deed. */
+  {
+    const gedaan: (string | undefined)[] = []
+    await leesOpnieuw(
+      { id: 'e1', attachmentPath: 'post/factuur.pdf' } as never,
+      gemengd,
+      async (_id, pad) => { gedaan.push(pad); return { ok: false, reden: 'nee' } },
+    )
+    check('dezelfde bijlage wordt niet twee keer geprobeerd',
+      !gedaan.slice(1).includes('post/factuur.pdf'), gedaan.join(','))
+  }
+
+  check('en een geslaagde eerste poging heet gewoon "Gelezen."',
+    samenvat([{ wat: 'x', gelukt: true }]) === 'Gelezen.')
+}
+
+/* ====================================================================
+ *  50. De rondleiding wijst naar knoppen die bestaan
+ *
+ *  Een aanwijzer zoekt zijn doel met een querySelector op
+ *  data-rondleiding="nav-<sleutel>". Vindt hij niets, dan gaat hij zonder
+ *  mopperen door naar de volgende (Rondleiding.tsx: als het element er niet
+ *  is, roept hij meteen onVolgende aan).
+ *
+ *  Dat is goed gedrag, en het is precies waarom dit hoofdstuk er moet zijn:
+ *  een aanwijzer die nergens heen wijst is niet stuk, hij is er gewoon niet
+ *  meer. In de administratierondleiding stond 'nav-tedoen', en die sleutel
+ *  heeft nooit bestaan -- de pagina heet 'start'. Die stap werd dus vanaf de
+ *  eerste dag overgeslagen, en niemand die het merkte.
+ *
+ *  Dit werd urgent door het menu met twee niveaus (1.74): wat in een groep
+ *  zit is er alleen als die groep openstaat, dus een aanwijzer naar een kind
+ *  mist zijn doel zodra iemand de groep dichtklapt.
+ * ==================================================================== */
+
+console.log('\n50. De rondleiding wijst naar knoppen die bestaan')
+
+{
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const { RONDLEIDINGEN } = await import('../src/lib/rondleiding.ts')
+  const { DASHBOARDS_MET } = await import('../src/lib/schermen.ts')
+
+  /* De bronnen van alle dashboards bij elkaar: daar staan de groepssleutels
+     in, en die zijn geen pagina en staan dus niet in DASHBOARDS_MET. */
+  const bronnen = readdirSync('src/dashboards', { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .flatMap((d) => readdirSync('src/dashboards/' + d.name)
+      .filter((f) => f.endsWith('.tsx'))
+      .map((f) => readFileSync('src/dashboards/' + d.name + '/' + f, 'utf8')))
+    .join('\n')
+
+  const kapot: string[] = []
+  const nietZichtbaar: string[] = []
+
+  for (const [rol, rondleiding] of Object.entries(RONDLEIDINGEN)) {
+    for (const a of rondleiding.aanwijzers ?? []) {
+      if (!a.doel.startsWith('nav-')) continue
+      const sleutel = a.doel.slice(4)
+
+      /*
+       * Een groep is geen pagina; die staat alleen in de bron van het
+       * dashboard. Wel nakijken dat hij daar echt staat, anders is een
+       * hernoemde groep net zo stil weg als een hernoemde pagina.
+       */
+      if (sleutel.endsWith('-groep')) {
+        if (!bronnen.includes("'" + sleutel + "'")) kapot.push(rol + ': ' + a.doel)
+        continue
+      }
+
+      const dashboards = DASHBOARDS_MET[sleutel]
+      if (!dashboards) { kapot.push(rol + ': ' + a.doel); continue }
+      /* En hij moet in DIT dashboard staan, niet ergens anders. */
+      if (!dashboards.includes(rol as never)) nietZichtbaar.push(rol + ': ' + a.doel)
+    }
+  }
+
+  check('elke aanwijzer wijst naar een sleutel die bestaat',
+    kapot.length === 0, kapot.join(', '))
+  check('en naar een die in dat dashboard staat',
+    nietZichtbaar.length === 0, nietZichtbaar.join(', '))
+
+  /*
+   * En het omgekeerde voor de administratie: de knoppen die in een groep
+   * zitten horen geen aanwijzer meer te hebben, want die is er niet zodra de
+   * groep dichtstaat. Wijs naar de kop.
+   */
+  const adm = RONDLEIDINGEN.administratie.aanwijzers ?? []
+  const inGroepen = ['nav-kosten', 'nav-uren', 'nav-dossiers', 'nav-aanmeldingen',
+    'nav-postbus', 'nav-betalen', 'nav-grootboek']
+  const risico = adm.filter((a) => inGroepen.includes(a.doel)).map((a) => a.doel)
+  check('de administratie wijst niet naar iets dat kan dichtklappen',
+    risico.length === 0, risico.join(', '))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

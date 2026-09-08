@@ -43,7 +43,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   aanmeldingen: ['administratie', 'management'],
   bericht:      ['supervisor', 'management'],
   trucky:       ['administratie', 'management'],
-  postbus:      ['management', 'developer'],
+  postbus:      ['management', 'developer', 'administratie'],
   werk:         ['supervisor', 'management', 'developer'],
   werving:      ['supervisor', 'management', 'developer'],
   documenten:   ['supervisor', 'management', 'developer'],
@@ -78,7 +78,18 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   afspraken:    ['employer'],
 
   // Alleen bij de administratie
-  dossiers:     ['administratie'],
+  //
+  // De boekhouding kreeg eigen sleutels en geen bestaande. 'facturen' is van
+  // de klant, 'financieel' en 'klanten' van het management, en 'instellingen'
+  // hangt in SCHERMEN aan trucksupply. Een sleutel delen betekent dat
+  // kiesDashboard bij iemand met twee rollen de verkeerde kant op kan gaan.
+  dossiers:      ['administratie'],
+  verwerken:     ['administratie'],
+  leveranciers:  ['administratie'],
+  verkoopfacturen: ['administratie'],
+  betalen:       ['administratie'],
+  grootboek:     ['administratie'],
+  boekhouding:   ['administratie'],
 
   // Alleen bij het management (klanten via useNavTarget, zonder eigen menu-item)
   planning:     ['management'],
@@ -219,6 +230,15 @@ export const SCHERMEN: Scherm[] = [
   { page: 'exact',      label: 'Exact-koppeling', hint: 'De sleutels van de Exact-app en de koppeling', icon: Link2, recht: 'dev.logs', ook: ['exact', 'boekhouding', 'oauth', 'sleutels', 'client', 'blue10'] },
   { page: 'beheer',     label: 'Beheer',       hint: 'Vestigingen, klanten, instellingen', icon: Settings,     recht: 'admin.settings', ook: ['locaties', 'instellingen'] },
   { page: 'postbus',    label: 'Postbus',      hint: 'Wat er binnenkomt op het mailadres', icon: Inbox,        recht: 'mail.read', ook: ['post', 'mail', 'email', 'facturen', 'bijlagen'] },
+  /* De boekhouding. Eigen sleutels met een vaste rol, want de namen die je
+     hier zou verwachten -- facturen, financieel, klanten -- zijn al van
+     iemand anders. */
+  { page: 'verwerken',  label: 'Te verwerken', hint: 'Alles wat binnenkwam en nog een stap nodig heeft', icon: Inbox, rol: 'administratie', recht: 'admin.desk', ook: ['werklijst', 'wachtrij', 'binnengekomen', 'vastgelopen', 'lezen'] },
+  { page: 'leveranciers', label: 'Leveranciers', hint: 'Wie er factureert, en hoe dat in Exact heet', icon: Truck, rol: 'administratie', recht: 'admin.desk', ook: ['relaties', 'crediteuren', 'exact'] },
+  { page: 'verkoopfacturen', label: 'Verkoopfacturen', hint: 'Wat wij versturen', icon: Receipt, rol: 'administratie', recht: 'admin.desk', ook: ['verkoop', 'debiteuren', 'factureren', 'uitgaand'] },
+  { page: 'betalen',    label: 'Betalen',      hint: 'Betaalbatches en SEPA-bestanden', icon: Wallet, rol: 'administratie', recht: 'admin.desk', ook: ['sepa', 'batch', 'bank', 'overboeken', 'crediteuren'] },
+  { page: 'grootboek',  label: 'Grootboek',    hint: 'Het rekeningschema uit Exact',    icon: ScrollText, rol: 'administratie', recht: 'admin.desk', ook: ['rekeningschema', 'grootboekrekening', 'boeken'] },
+  { page: 'boekhouding', label: 'Boekhouding instellen', hint: 'Hoe facturen worden gelezen, geboekt en goedgekeurd', icon: Settings, rol: 'administratie', recht: 'admin.desk', ook: ['instellingen', 'vier ogen', 'automatisch', 'dagboek', 'btw'] },
   { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },
   { page: 'werkgevers', label: 'Klanten',      hint: 'Bedrijven waarvan de chauffeurs hier wassen', icon: Briefcase, recht: 'employer.view', ook: ['bedrijven', 'transporteur', 'chauffeurs', 'werkgevers', 'werkgever'] },
   { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
