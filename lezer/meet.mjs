@@ -72,19 +72,35 @@ const RONDES = Math.max(1, Number(arg('--rondes', '1')) || 1)
 /*
  * De standaardlijst.
  *
- * gemma4:26b is wat er nu staat. De andere twee zijn er niet om er drie te
- * hebben maar omdat ze een echt verschil laten zien:
+ * Opgehaald uit de bibliotheek van Ollama zelf, niet uit het hoofd -- de
+ * maten hieronder zijn de downloadgroottes zoals ze daar stonden. Drie
+ * modellen die elk een ander uiterste van de vraag beantwoorden:
  *
- *   gemma4:26b        26B totaal, 4B actief (a4b) -- een MoE, dus snel voor
- *                     zijn omvang
- *   qwen3-vl:30b-a3b  30B totaal, 3B actief -- dezelfde soort, van een ander
- *                     huis. Dít is de eerlijke vergelijking met wat er staat.
- *   qwen3-vl:32b      32B DENSE. Even groot op papier, maar acht keer zoveel
- *                     rekenwerk per token. Verwacht hier de beste lezing en
- *                     de langste wachttijd -- en dat is precies wat gemeten
- *                     moet worden voordat je hem kiest.
+ *   gemma4:26b        19 GB. Wat er nu staat, dus het ijkpunt. 26B op papier
+ *                     maar 4B actief (a4b, een mixture-of-experts): hij
+ *                     rekent als een klein model.
+ *
+ *   qwen3.6:35b-a3b   23 GB. Dezelfde soort (3B actief) maar een generatie
+ *                     nieuwer. Dít is de eerlijke uitwisseling tegen wat er
+ *                     staat -- niet een dense 32B, want die is even groot op
+ *                     papier en acht keer zoveel rekenwerk per token.
+ *
+ *   glm-ocr           2,2 GB. Gemaakt om documenten te lezen, en klein genoeg
+ *                     om naast een ander model in het geheugen te blijven.
+ *                     Als er iets "sneller en beter" gaat zijn, is het dit --
+ *                     MAAR: een leesmodel leest, het oordeelt niet. Of het
+ *                     ook inkoop van verkoop kan onderscheiden en weet wanneer
+ *                     het moet twijfelen, is precies wat hier gemeten wordt.
+ *                     Kan het dat niet, dan is de uitkomst niet "afvallen"
+ *                     maar "in twee stappen": glm-ocr leest de bon, een
+ *                     tekstmodel doet het oordeel. Beide passen ruim naast
+ *                     elkaar in 32 GB.
+ *
+ * Andere kandidaten die er zijn en die je met --modellen kunt toevoegen:
+ * qwen3-vl:30b-a3b (20 GB), qwen3-vl:32b (21 GB, dense), qwen3.6:27b (18 GB,
+ * dense), qwen3.5:35b-a3b (24 GB), minicpm-v4.6:1b.
  */
-const MODELLEN = (arg('--modellen', 'gemma4:26b,qwen3-vl:30b-a3b,qwen3-vl:32b'))
+const MODELLEN = (arg('--modellen', 'gemma4:26b,qwen3.6:35b-a3b,glm-ocr'))
   .split(',').map((m) => m.trim()).filter(Boolean)
 
 /** De velden waar een fout geld of een verkeerde boeking kost. */
