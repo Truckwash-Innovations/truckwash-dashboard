@@ -327,6 +327,8 @@ export const PUSH_ORDER: EntityName[] = [
   // Een regel hangt aan een bestelling; een alarm aan een artikel (dat staat
   // hoger, bij inventory).
   'voorraadAlarmen', 'bestellingen', 'bestelregels',
+  // Een taak kan aan een project hangen, en een reactie aan een taak.
+  'taakProjecten', 'taken', 'taakReacties',
 ]
 
 const RANG = new Map(PUSH_ORDER.map((e, i) => [e, i]))
@@ -517,6 +519,9 @@ const TABLE_OF: Record<EntityName, () => any> = {
   employers: () => db.employers,
   employerLinks: () => db.employerLinks,
   employerRules: () => db.employerRules,
+  taken: () => db.taken,
+  taakProjecten: () => db.taakProjecten,
+  taakReacties: () => db.taakReacties,
 }
 
 async function pullChanges(): Promise<{ serverTime: number; opgehaald: number }> {

@@ -145,6 +145,9 @@ const TABLES: Record<EntityName, string> = {
   employers: 'employers',
   employerLinks: 'employer_links',
   employerRules: 'employer_rules',
+  taken: 'taak',
+  taakProjecten: 'taak_project',
+  taakReacties: 'taak_reactie',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

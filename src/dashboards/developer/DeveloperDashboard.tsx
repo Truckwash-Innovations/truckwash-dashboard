@@ -4,7 +4,7 @@ import {
   ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
   MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
   Cpu, Link2, TriangleAlert, Wallet, Wand2,
-  ShieldAlert,
+  ShieldAlert, ListTodo,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -35,6 +35,7 @@ import Inkoop from './Inkoop'
 import EigenAI from './EigenAI'
 import Exact from './Exact'
 import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
+import Werk from '../../components/Werk'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
@@ -90,6 +91,7 @@ export default function DeveloperDashboard() {
     ...(perms.can('dev.logs')
       ? [{ key: 'meekijken', label: 'Meekijken', icon: Radio }]
       : []),
+    { key: 'werk', label: 'Werk', icon: ListTodo },
     { key: 'systeem', label: 'Systeem', icon: Server },
     { key: 'inkoop', label: 'Inkoop', icon: Wallet },
     { key: 'eigenai', label: 'Eigen AI', icon: Cpu },
@@ -129,6 +131,7 @@ export default function DeveloperDashboard() {
       {page === 'eigenai' && <EigenAI />}
       {page === 'exact' && <Exact />}
       {page === 'post' && <Post />}
+      {page === 'werk' && <Werk />}
       {page === 'postbus' && <Postbus />}
       {page === 'overleg' && <Overleg />}
     </Shell>

@@ -2,7 +2,7 @@ import {
   AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
-  Timer, Truck, Users, Wallet, Wrench,
+  ListTodo, Timer, Truck, Users, Wallet, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -44,6 +44,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   bericht:      ['supervisor', 'management'],
   trucky:       ['administratie', 'management'],
   postbus:      ['management', 'developer'],
+  werk:         ['supervisor', 'management', 'developer'],
   plannen:      ['customer', 'developer'],
   kosten:       ['employee', 'administratie'],
   materiaal:    ['employee', 'management'],
@@ -190,6 +191,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'kosten',     label: 'Kosten',       hint: 'Bonnen indienen',                 icon: Receipt,         recht: 'expenses.submit', ook: ['bon', 'declaratie'] },
   { page: 'financieel', label: 'Financieel',   hint: 'Kosten valideren en resultaat',   icon: Receipt,         recht: 'finance.view', ook: ['omzet', 'marge', 'bonnen'] },
   { page: 'overzicht',  label: 'Overzicht',    hint: 'Cijfers en grafieken',            icon: LayoutDashboard, ook: ['kpi', 'cijfers'] },
+  { page: 'werk',       label: 'Werk',         hint: 'Je taken, het bord en de projecten', icon: ListTodo,     ook: ['taken', 'todo', 'bord', 'kanban', 'project'] },
   { page: 'personeel',  label: 'Personeel',    hint: 'Dossiers, rechten en vestigingen', icon: Users,          recht: 'staff.view', ook: ['medewerkers', 'dossier'] },
   { page: 'aanmeldingen', label: 'Aanmeldingen', hint: 'Wie zich heeft aangemeld',      icon: Inbox,           recht: 'signups.view' },
   { page: 'dossier',    label: 'Mijn dossier', hint: 'Je contract en documenten',       icon: FolderLock,      ook: ['contract', 'documenten', 'loonstrook'] },

@@ -128,146 +128,37 @@ const asServer = (db) => db.exec(`set test.uid = '';`)
 console.log('\n1. Schema opbouwen zoals jij het plakt')
 
 let db = await fresh()
-await run(db, '0001_init.sql draait', sqlFile('supabase/migrations/0001_init.sql'))
-await run(db, '0002_personeel_en_rooster.sql draait', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
-await run(db, '0003_rechten_berichten_opleiding.sql draait', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
-await run(db, '0004_locaties.sql draait', sqlFile('supabase/migrations/0004_locaties.sql'))
-await run(db, '0005_technische_dienst.sql draait', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
-await run(db, '0006_meldingen_en_logboek.sql draait', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
-await run(db, '0007_aanmelden_en_overleg.sql draait', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
-await run(db, '0008_rechten_in_het_overleg.sql draait', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
-await run(db, '0009_personeelsdossier.sql draait', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
-await run(db, '0010_leestekens_en_rooster.sql draait', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
-await run(db, '0011_postbus.sql draait', sqlFile('supabase/migrations/0011_postbus.sql'))
-await run(db, '0012_kassa.sql draait', sqlFile('supabase/migrations/0012_kassa.sql'))
-await run(db, '0013_berichten_mogen_van_iedereen.sql draait', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
-await run(db, '0014_wijzigingsverzoeken.sql draait', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
-await run(db, '0015_agenda.sql draait', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016_werkgevers.sql draait', sqlFile('supabase/migrations/0016_werkgevers.sql'))
+/*
+ * Alle migraties, op volgorde, uit de map zelf.
+ *
+ * Hier stond een lijst van vijfenzestig regels die met de hand werd
+ * bijgehouden -- en die was al twee migraties achter: 0066 en 0067 stonden er
+ * niet in. Zoiets valt niet op, want de test wordt er alleen maar korter van:
+ * hij draait wat er staat, en meldt braaf dat alles goed is.
+ *
+ * Hoofdstuk 48 ving het uiteindelijk wel op (het vergelijkt de tabellen uit
+ * bijwerken.sql met die uit de migraties), maar alleen omdat 0067 tabellen
+ * aanmaakte. 0066 zet alleen een instelling, en die is er zo doorheen gekomen.
+ *
+ * Een lus kan niet achterlopen.
+ */
+for (const naam of migratieBestanden()) {
+  await run(db, `${naam} draait`, sqlFile(`supabase/migrations/${naam}`))
+}
 
-await run(db, '0017_berichten_over_de_grens.sql draait', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
-
-await run(db, '0018_klokken_gaat_via_de_kassa.sql draait', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
-
-await run(db, '0019_een_bericht_gelezen_melden.sql draait', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-
-await run(db, '0020_van_melding_naar_plan.sql draait', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-
-await run(db, '0021_je_eigen_dossier_en_de_rondleiding.sql draait', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-
-await run(db, '0022_bijwerken_is_geen_versturen.sql draait', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
-
-await run(db, '0023_uitnodigen_en_uitschrijven.sql draait', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
-
-await run(db, '0024_uren_en_kilometers.sql draait', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
-await run(db, '0025_de_kluis_en_het_koppelen_van_een_kassa.sql draait', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
-await run(db, '0026_de_vestigingen_beheren.sql draait', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
-await run(db, '0027_een_foto_bij_het_artikel.sql draait', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
-await run(db, '0028_een_kassa_is_geen_aanmelding.sql draait', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
-await run(db, '0029_de_administratie.sql draait', sqlFile('supabase/migrations/0029_de_administratie.sql'))
-await run(db, '0030_gewone_facturen_waren_verdacht.sql draait', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
-await run(db, '0031_bijwerken_is_nog_steeds_geen_aanmaken.sql draait', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
-await run(db, '0032_wat_weg_is_moet_ook_weg_blijven.sql draait', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
-await run(db, '0033_de_vestiging_vult_de_website.sql draait', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
-await run(db, '0034_anon_hoort_hier_niet_bij_te_kunnen.sql draait', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
-await run(db, '0035_de_achttien_vestigingen_komen_naar_binnen.sql draait', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
-await run(db, '0036_utrecht_bleef_op_kasweg_2112_staan.sql draait', sqlFile('supabase/migrations/0036_utrecht_bleef_op_kasweg_2112_staan.sql'))
-await run(db, '0037_een_kassa_mag_klokken.sql draait', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
-await run(db, '0038_een_verwijdering_moet_zichzelf_melden.sql draait', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
-await run(db, '0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql draait', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
-await run(db, '0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql draait', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
-await run(db, '0041_trucky_praat_met_bezoekers.sql draait', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
-await run(db, '0042_trucky_kent_de_antwoorden_zelf.sql draait', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
-await run(db, '0043_de_app_en_de_database_oneens_over_kanalen.sql draait', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
-await run(db, '0044_facturen_boeken_zichzelf.sql draait', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
-await run(db, '0045_een_kassa_ziet_wie_er_mag_werken.sql draait', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
-await run(db, '0046_de_fotos_gaan_mee_naar_de_website.sql draait', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
-await run(db, '0047_een_verkoopfactuur_is_geen_kostenpost.sql draait', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
-await run(db, '0048_trucksupply_ziet_de_voorraad.sql draait', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
-await run(db, '0049_de_factuur_kan_ook_thuis_gelezen_worden.sql draait', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
-await run(db, '0050_wat_drie_keer_hetzelfde_was.sql draait', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
-await run(db, '0051_de_eigen_ai_mag_ook_meedenken.sql draait', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
-await run(db, '0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql draait', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
-await run(db, '0053_exact_kent_het_rekeningschema.sql draait', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
-await run(db, '0054_exact_kent_het_personeel.sql draait', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
-await run(db, '0055_terugkomen_in_de_app.sql draait', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
-await run(db, '0056_het_dossier_valt_uiteen.sql draait', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
-await run(db, '0057_het_grootboek_komt_uit_exact.sql draait', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
-await run(db, '0058_goedgekeurde_facturen_naar_exact.sql draait', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
-await run(db, '0059_meerdere_bvs.sql draait', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
-await run(db, '0060_vier_ogen.sql draait', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
-await run(db, '0061_de_historie_van_een_factuur.sql draait', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
-await run(db, '0062_een_factuur_splitsen.sql draait', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
-await run(db, '0063_relaties_uit_exact.sql draait', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
-await run(db, '0064_verkoopfacturen.sql draait', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
-await run(db, '0065_betalen_en_sepa.sql draait', sqlFile('supabase/migrations/0065_betalen_en_sepa.sql'))
 await run(db, 'seed.sql draait', sqlFile('supabase/seed.sql'))
 
 console.log('\n2. Opnieuw draaien mag geen schade doen')
-await run(db, '0001 nogmaals', sqlFile('supabase/migrations/0001_init.sql'))
-await run(db, '0002 nogmaals', sqlFile('supabase/migrations/0002_personeel_en_rooster.sql'))
-await run(db, '0003 nogmaals', sqlFile('supabase/migrations/0003_rechten_berichten_opleiding.sql'))
-await run(db, '0004 nogmaals', sqlFile('supabase/migrations/0004_locaties.sql'))
-await run(db, '0005 nogmaals', sqlFile('supabase/migrations/0005_technische_dienst.sql'))
-await run(db, '0006 nogmaals', sqlFile('supabase/migrations/0006_meldingen_en_logboek.sql'))
-await run(db, '0007 nogmaals', sqlFile('supabase/migrations/0007_aanmelden_en_overleg.sql'))
-await run(db, '0008 nogmaals', sqlFile('supabase/migrations/0008_rechten_in_het_overleg.sql'))
-await run(db, '0009 nogmaals', sqlFile('supabase/migrations/0009_personeelsdossier.sql'))
-await run(db, '0010 nogmaals', sqlFile('supabase/migrations/0010_leestekens_en_rooster.sql'))
-await run(db, '0011 nogmaals', sqlFile('supabase/migrations/0011_postbus.sql'))
-await run(db, '0012 nogmaals', sqlFile('supabase/migrations/0012_kassa.sql'))
-await run(db, '0013 nogmaals', sqlFile('supabase/migrations/0013_berichten_mogen_van_iedereen.sql'))
-await run(db, '0014 nogmaals', sqlFile('supabase/migrations/0014_wijzigingsverzoeken.sql'))
-await run(db, '0015 nogmaals', sqlFile('supabase/migrations/0015_agenda.sql'))
-await run(db, '0016 nogmaals', sqlFile('supabase/migrations/0016_werkgevers.sql'))
-await run(db, '0017 nogmaals', sqlFile('supabase/migrations/0017_berichten_over_de_grens.sql'))
-await run(db, '0018 nogmaals', sqlFile('supabase/migrations/0018_klokken_gaat_via_de_kassa.sql'))
-await run(db, '0019 nogmaals', sqlFile('supabase/migrations/0019_een_bericht_gelezen_melden.sql'))
-await run(db, '0020 nogmaals', sqlFile('supabase/migrations/0020_van_melding_naar_plan.sql'))
-await run(db, '0021 nogmaals', sqlFile('supabase/migrations/0021_je_eigen_dossier_en_de_rondleiding.sql'))
-await run(db, '0022 nogmaals', sqlFile('supabase/migrations/0022_bijwerken_is_geen_versturen.sql'))
-await run(db, '0023 nogmaals', sqlFile('supabase/migrations/0023_uitnodigen_en_uitschrijven.sql'))
-await run(db, '0024 nogmaals', sqlFile('supabase/migrations/0024_uren_en_kilometers.sql'))
-await run(db, '0025 nogmaals', sqlFile('supabase/migrations/0025_de_kluis_en_het_koppelen_van_een_kassa.sql'))
-await run(db, '0026 nogmaals', sqlFile('supabase/migrations/0026_de_vestigingen_beheren.sql'))
-await run(db, '0027 nogmaals', sqlFile('supabase/migrations/0027_een_foto_bij_het_artikel.sql'))
-await run(db, '0028 nogmaals', sqlFile('supabase/migrations/0028_een_kassa_is_geen_aanmelding.sql'))
-await run(db, '0029 nogmaals', sqlFile('supabase/migrations/0029_de_administratie.sql'))
-await run(db, '0030 nogmaals', sqlFile('supabase/migrations/0030_gewone_facturen_waren_verdacht.sql'))
-await run(db, '0031 nogmaals', sqlFile('supabase/migrations/0031_bijwerken_is_nog_steeds_geen_aanmaken.sql'))
-await run(db, '0032 nogmaals', sqlFile('supabase/migrations/0032_wat_weg_is_moet_ook_weg_blijven.sql'))
-await run(db, '0033 nogmaals', sqlFile('supabase/migrations/0033_de_vestiging_vult_de_website.sql'))
-await run(db, '0034 nogmaals', sqlFile('supabase/migrations/0034_anon_hoort_hier_niet_bij_te_kunnen.sql'))
-await run(db, '0035 nogmaals', sqlFile('supabase/migrations/0035_de_achttien_vestigingen_komen_naar_binnen.sql'))
-await run(db, '0037 nogmaals', sqlFile('supabase/migrations/0037_een_kassa_mag_klokken.sql'))
-await run(db, '0038 nogmaals', sqlFile('supabase/migrations/0038_een_verwijdering_moet_zichzelf_melden.sql'))
-await run(db, '0039 nogmaals', sqlFile('supabase/migrations/0039_verdwaalde_regeleindes_in_de_vestigingsteksten.sql'))
-await run(db, '0040 nogmaals', sqlFile('supabase/migrations/0040_bijwerken_is_geen_aanmaken_op_alle_tabellen.sql'))
-await run(db, '0041 nogmaals', sqlFile('supabase/migrations/0041_trucky_praat_met_bezoekers.sql'))
-await run(db, '0042 nogmaals', sqlFile('supabase/migrations/0042_trucky_kent_de_antwoorden_zelf.sql'))
-await run(db, '0043 nogmaals', sqlFile('supabase/migrations/0043_de_app_en_de_database_oneens_over_kanalen.sql'))
-await run(db, '0044 nogmaals', sqlFile('supabase/migrations/0044_facturen_boeken_zichzelf.sql'))
-await run(db, '0045 nogmaals', sqlFile('supabase/migrations/0045_een_kassa_ziet_wie_er_mag_werken.sql'))
-await run(db, '0046 nogmaals', sqlFile('supabase/migrations/0046_de_fotos_gaan_mee_naar_de_website.sql'))
-await run(db, '0047 nogmaals', sqlFile('supabase/migrations/0047_een_verkoopfactuur_is_geen_kostenpost.sql'))
-await run(db, '0048 nogmaals', sqlFile('supabase/migrations/0048_trucksupply_ziet_de_voorraad.sql'))
-await run(db, '0049 nogmaals', sqlFile('supabase/migrations/0049_de_factuur_kan_ook_thuis_gelezen_worden.sql'))
-await run(db, '0050 nogmaals', sqlFile('supabase/migrations/0050_wat_drie_keer_hetzelfde_was.sql'))
-await run(db, '0051 nogmaals', sqlFile('supabase/migrations/0051_de_eigen_ai_mag_ook_meedenken.sql'))
-await run(db, '0052 nogmaals', sqlFile('supabase/migrations/0052_de_exact_sleutels_horen_niet_in_de_omgeving.sql'))
-await run(db, '0053 nogmaals', sqlFile('supabase/migrations/0053_exact_kent_het_rekeningschema.sql'))
-await run(db, '0054 nogmaals', sqlFile('supabase/migrations/0054_exact_kent_het_personeel.sql'))
-await run(db, '0055 nogmaals', sqlFile('supabase/migrations/0055_terugkomen_in_de_app.sql'))
-await run(db, '0056 nogmaals', sqlFile('supabase/migrations/0056_het_dossier_valt_uiteen.sql'))
-await run(db, '0057 nogmaals', sqlFile('supabase/migrations/0057_het_grootboek_komt_uit_exact.sql'))
-await run(db, '0058 nogmaals', sqlFile('supabase/migrations/0058_goedgekeurde_facturen_naar_exact.sql'))
-await run(db, '0059 nogmaals', sqlFile('supabase/migrations/0059_meerdere_bvs.sql'))
-await run(db, '0060 nogmaals', sqlFile('supabase/migrations/0060_vier_ogen.sql'))
-await run(db, '0061 nogmaals', sqlFile('supabase/migrations/0061_de_historie_van_een_factuur.sql'))
-await run(db, '0062 nogmaals', sqlFile('supabase/migrations/0062_een_factuur_splitsen.sql'))
-await run(db, '0063 nogmaals', sqlFile('supabase/migrations/0063_relaties_uit_exact.sql'))
-await run(db, '0064 nogmaals', sqlFile('supabase/migrations/0064_verkoopfacturen.sql'))
-await run(db, '0065 nogmaals', sqlFile('supabase/migrations/0065_betalen_en_sepa.sql'))
+/*
+ * En dan nog een keer, want elke migratie belooft in zijn kop dat dat mag.
+ *
+ * Ook dit was een handlijst, met dezelfde kwaal: 0036 ontbrak erin, en 0066 en
+ * 0067 ook. Een lus draait ze allemaal, dus een migratie die niet tegen een
+ * tweede keer kan valt hier meteen om in plaats van bij Casper.
+ */
+for (const naam of migratieBestanden()) {
+  await run(db, `${naam.slice(0, 4)} nogmaals`, sqlFile(`supabase/migrations/${naam}`))
+}
 
 
 

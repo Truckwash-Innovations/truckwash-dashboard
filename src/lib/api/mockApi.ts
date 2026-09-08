@@ -7,6 +7,7 @@ import type {
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
   PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
+  Taak, TaakProject, TaakReactie,
   PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove, LocationPhoto,
 } from '../types'
 import { SERVICES } from '../types'
@@ -71,6 +72,9 @@ class MockServerDB extends Dexie {
   employers!: Table<Werkgever, string>
   employerLinks!: Table<WerkgeverKoppeling, string>
   employerRules!: Table<WerkgeverRegel, string>
+  taken!: Table<Taak, string>
+  taakProjecten!: Table<TaakProject, string>
+  taakReacties!: Table<TaakReactie, string>
 
   constructor() {
     super('truckwash-mock-server')
@@ -127,6 +131,9 @@ class MockServerDB extends Dexie {
       employers: 'id, updatedAt',
       employerLinks: 'id, updatedAt',
       employerRules: 'id, updatedAt',
+      taken: 'id, updatedAt',
+      taakProjecten: 'id, updatedAt',
+      taakReacties: 'id, updatedAt',
     })
   }
 }
@@ -186,6 +193,9 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   employers: () => server.employers,
   employerLinks: () => server.employerLinks,
   employerRules: () => server.employerRules,
+  taken: () => server.taken,
+  taakProjecten: () => server.taakProjecten,
+  taakReacties: () => server.taakReacties,
 }
 
 /* ------------------------------------------------------------------ *

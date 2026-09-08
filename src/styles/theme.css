@@ -1949,14 +1949,19 @@ table.data.matrix th { vertical-align: bottom; }
 .tegel.urgent::after { opacity: 1; }
 .tegel.urgent::before { opacity: .7; }
 
-.tegel.t-brand    { --tegel-kleur: var(--brand); }
-.tegel.t-ok       { --tegel-kleur: var(--ok); }
-.tegel.t-warn     { --tegel-kleur: var(--warn); }
-.tegel.t-danger   { --tegel-kleur: var(--danger); }
-.tegel.t-info     { --tegel-kleur: var(--info); }
-.tegel.t-paars    { --tegel-kleur: var(--paars); }
-.tegel.t-oranje   { --tegel-kleur: var(--oranje); }
-.tegel.t-neutraal { --tegel-kleur: var(--text-3); }
+/* De tinten stonden vastgeklonken aan .tegel, en waren daarmee alleen bruikbaar
+   op een tegel. Ze doen niets tegelspecifieks -- ze zetten één variabele -- en
+   zodra iets anders ook een kleurtje wil (een prioriteitslabel, een stip bij
+   een project) moest je die regels overschrijven of overtypen. Zonder .tegel
+   ervoor werken ze overal, en op een tegel precies zoals eerst. */
+.t-brand    { --tegel-kleur: var(--brand); }
+.t-ok       { --tegel-kleur: var(--ok); }
+.t-warn     { --tegel-kleur: var(--warn); }
+.t-danger   { --tegel-kleur: var(--danger); }
+.t-info     { --tegel-kleur: var(--info); }
+.t-paars    { --tegel-kleur: var(--paars); }
+.t-oranje   { --tegel-kleur: var(--oranje); }
+.t-neutraal { --tegel-kleur: var(--text-3); }
 
 
 /* ================================================================== *
@@ -5132,4 +5137,169 @@ table.data tr.aan td { font-weight: 600; }
 
 @media (min-width: 901px) {
   .verdeel-veld > span { display: none; }
+}
+
+/* ==================================================================
+   Werk: de lijst, het bord en de kaarten
+
+   Bewust weinig nieuws. De knoppen, kaarten en velden komen uit wat er al
+   staat; alleen de twee vormen die er nog niet waren staan hier: een regel
+   met een vinkje ervoor, en vier kolommen met kaarten erin.
+   ================================================================== */
+
+.werklijst { display: flex; flex-direction: column; gap: 8px; }
+
+.werkregel {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color .15s var(--ease), transform .15s var(--ease);
+}
+.werkregel:hover { border-color: var(--line); transform: translateX(2px); }
+/* Over de datum: een rode rand links, geen rood vlak. Een lijst van tien
+   rode blokken leest als een storing en niet als een lijstje. */
+.werkregel.telaat { border-left: 3px solid var(--danger); }
+
+.werk-vink {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  border: 1.5px solid var(--line); background: transparent; color: transparent;
+  display: grid; place-items: center; cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.werk-vink:hover { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+.werk-open {
+  flex: 1; min-width: 0; display: grid; gap: 3px; text-align: left;
+  background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit;
+}
+.werk-open strong { font-size: .95rem; font-weight: 620; }
+.werk-meta {
+  display: flex; flex-wrap: wrap; gap: 4px 10px;
+  font-size: .76rem; color: var(--text-3);
+}
+
+.werk-datum {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  font-size: .78rem; color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.werk-datum.telaat { color: var(--text-danger); font-weight: 600; }
+
+.werk-prio {
+  font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  padding: 1px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--tegel-kleur, var(--info)) 18%, transparent);
+  color: var(--tegel-kleur, var(--info));
+}
+
+/* Een gekleurde stip voor een project. Klein met opzet: het is een
+   herkenningsteken, geen mededeling. */
+.punt {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: var(--tegel-kleur, var(--brand));
+}
+
+/* ---- het bord ---- */
+
+.bord {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+  /* Vier kolommen passen niet altijd; dan schuift het bord in plaats van dat
+     de kaarten onleesbaar smal worden. */
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.bord-kolom {
+  background: var(--bg-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 180px;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+/* De kolom waar je boven zweeft tijdens het slepen. Zonder dit weet je niet
+   waar je loslaat. */
+.bord-kolom.raak {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 7%, var(--bg-2));
+}
+
+.bord-kop { display: flex; align-items: center; gap: 8px; }
+.bord-kop strong { font-size: .9rem; }
+.bord-tel {
+  font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums;
+  background: var(--surface-3); border-radius: 999px; padding: 1px 8px;
+}
+.bord-hint { margin: 2px 0 10px; font-size: .72rem; color: var(--text-3); }
+.bord-leeg { margin: 0; font-size: .78rem; color: var(--text-3); text-align: center; padding: 14px 0; }
+
+.bord-stapel { display: flex; flex-direction: column; gap: 8px; }
+
+.bord-kaart {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  cursor: grab;
+}
+.bord-kaart:active { cursor: grabbing; }
+.bord-kaart.telaat { border-left: 3px solid var(--danger); }
+
+.bord-kaart-open {
+  display: grid; gap: 5px; width: 100%; text-align: left;
+  background: none; border: 0; padding: 0; cursor: pointer; color: inherit; font: inherit;
+}
+.bord-kaart-open strong { font-size: .87rem; font-weight: 620; overflow-wrap: anywhere; }
+.bord-kaart-meta {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-size: .72rem; color: var(--text-3);
+}
+.bord-kaart-meta .telaat { color: var(--text-danger); font-weight: 600; }
+.bord-kaart-wie {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .72rem; color: var(--text-3);
+}
+
+/* Pijltjes om zonder slepen op te schuiven. Op een telefoon kan het niet
+   anders, en met een muis is het vaak sneller. */
+.bord-kaart-pijlen {
+  position: absolute; right: 6px; top: 6px;
+  display: flex; gap: 2px; opacity: 0;
+  transition: opacity .15s var(--ease);
+}
+.bord-kaart:hover .bord-kaart-pijlen,
+.bord-kaart:focus-within .bord-kaart-pijlen { opacity: 1; }
+.bord-kaart-pijlen button {
+  width: 20px; height: 20px; border-radius: 5px; line-height: 1;
+  border: 1px solid var(--line-soft); background: var(--surface-2);
+  color: var(--text-2); cursor: pointer; font-size: 13px;
+}
+.bord-kaart-pijlen button:disabled { opacity: .3; cursor: default; }
+.bord-kaart-pijlen button:not(:disabled):hover { background: var(--brand); color: #fff; }
+
+/* Op een telefoon is slepen geen optie; dan staan de pijltjes er gewoon. */
+@media (hover: none) {
+  .bord-kaart-pijlen { opacity: 1; }
+  .bord-kaart { cursor: default; }
+}
+
+/* ---- het gesprek bij een taak ---- */
+
+.werk-gesprek { display: flex; flex-direction: column; gap: 8px; }
+.werk-reactie {
+  padding: 8px 11px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+}
+.werk-reactie-wie { font-size: .8rem; font-weight: 650; }
+.werk-reactie-wanneer { font-size: .7rem; color: var(--text-3); margin-left: 8px; }
+.werk-reactie p { margin: 3px 0 0; font-size: .86rem; line-height: 1.5; white-space: pre-wrap; }
+
+@media (max-width: 720px) {
+  .bord { grid-template-columns: repeat(4, minmax(200px, 1fr)); }
+  .werkregel { flex-wrap: wrap; }
 }

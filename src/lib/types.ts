@@ -2099,6 +2099,92 @@ export interface WerkgeverRegel {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Werk: taken, projecten en het bord
+ *
+ *  Eén plek waar staat wat er gedaan moet worden. Niet ter vervanging van de
+ *  tabbladen die er al zijn -- een factuur blijft een factuur -- maar wel als
+ *  de lijst waar je 's ochtends naar kijkt.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Vier vaste kolommen. Zie de kop van migratie 0067: zodra elk bord zijn eigen
+ * kolommen mag verzinnen, betekent "klaar" op het ene bord iets anders dan op
+ * het andere en kun je er niets meer over zeggen.
+ */
+export type TaakStatus = 'te_doen' | 'bezig' | 'wacht' | 'klaar'
+export type TaakPrioriteit = 'laag' | 'normaal' | 'hoog' | 'urgent'
+
+/** Waar een taak vandaan komt. Alles behalve 'handmatig' is door het systeem gezet. */
+export type TaakBron =
+  'handmatig' | 'sollicitatie' | 'factuur' | 'storing' | 'wijziging' | 'aanmelding'
+
+export interface TaakProject {
+  id: string
+  naam: string
+  omschrijving?: string
+  /** Een naam uit de huisstijl ('brand', 'ok', 'warn', ...), geen hexcode. */
+  kleur: string
+  /** Leeg = niet aan een vestiging gebonden. */
+  locationId?: string
+  archief: boolean
+  volgorde: number
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Taak {
+  id: string
+  titel: string
+  omschrijving?: string
+  status: TaakStatus
+  prioriteit: TaakPrioriteit
+  projectId?: string
+  locationId?: string
+
+  /**
+   * Aan een persoon, aan een rol, of aan geen van beide.
+   *
+   * Dat tweede is er voor werk dat uit het systeem komt: een nieuwe
+   * sollicitatie is niet van Jan, hij is van "de leiding op deze vestiging".
+   * Wie hem oppakt zet hem op zijn naam. Zonder die tussenstand krijg je of
+   * een taak die aan niemand hangt en dus blijft liggen, of een willekeurige
+   * eigenaar die er niets van weet.
+   */
+  toegewezenAan?: string
+  toegewezenNaam?: string
+  toegewezenRol?: Role
+
+  deadline?: number
+  /** Plek binnen de kolom; slepen op het bord verandert dit en niets anders. */
+  volgorde: number
+
+  bron: TaakBron
+  /** Waar deze taak over gaat, als hij uit het systeem komt. */
+  bronId?: string
+
+  klaarAt?: number
+  klaarDoor?: string
+  klaarDoorNaam?: string
+
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TaakReactie {
+  id: string
+  taakId: string
+  tekst: string
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -2118,6 +2204,7 @@ export type EntityName =
   | 'truckyVragen' | 'truckyContact' | 'instellingen'
   | 'grootboek' | 'kostenTags'
   | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
+  | 'taken' | 'taakProjecten' | 'taakReacties'
 
 export type SyncOp = 'put' | 'delete'
 

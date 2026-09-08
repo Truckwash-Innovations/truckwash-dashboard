@@ -16,6 +16,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
+  Taak, TaakProject, TaakReactie,
   PersonnelDocument, PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
@@ -80,6 +81,9 @@ class TruckwashDB extends Dexie {
   employers!: Table<Werkgever, string>
   employerLinks!: Table<WerkgeverKoppeling, string>
   employerRules!: Table<WerkgeverRegel, string>
+  taken!: Table<Taak, string>
+  taakProjecten!: Table<TaakProject, string>
+  taakReacties!: Table<TaakReactie, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -235,6 +239,19 @@ class TruckwashDB extends Dexie {
       voorraadAlarmen: 'id, itemId, locationId, opgelostAt, updatedAt',
       bestellingen: 'id, locationId, status, aangemaaktAt, updatedAt',
       bestelregels: 'id, bestellingId, updatedAt',
+    })
+
+    /* v21: het werk.
+
+       status en volgorde staan samen in de index omdat het bord altijd één
+       kolom tegelijk opvraagt, op volgorde. toegewezenAan en toegewezenRol
+       apart, want "wat ligt er bij mij" en "wat ligt er bij de leiding" zijn
+       de twee vragen die het lijstscherm stelt -- en die van de mail om
+       zeven uur. */
+    this.version(21).stores({
+      taken: 'id, status, [status+volgorde], projectId, locationId, toegewezenAan, toegewezenRol, deadline, updatedAt',
+      taakProjecten: 'id, locationId, archief, volgorde, updatedAt',
+      taakReacties: 'id, taakId, createdAt, updatedAt',
     })
   }
 }
