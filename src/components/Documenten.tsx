@@ -10,7 +10,8 @@ import { toast } from '../store/useToasts'
 import { dateShort } from '../lib/format'
 import {
   ZICHTBAARHEID, delen as deelRepo, documenten as docRepo, leesbaarFormaat,
-  magDocumentbeheer, magMap, magZien, mappen as mapRepo, padNaar, soortVan,
+  magDocumentbeheer, magMap, magZien, mappen as mapRepo, mijnVestigingen,
+  padNaar, soortVan,
 } from '../lib/documenten'
 import { Badge, Empty, Field, Modal } from './ui'
 import type {
@@ -109,11 +110,7 @@ export default function Documenten() {
             <button className="btn ghost" onClick={() => setNieuweMap(true)}>
               <FolderPlus size={15} /> Map
             </button>
-            <Uploaden
-              plek={plek}
-              vestigingen={vestigingen.filter((l) => magMap(
-                { locationId: l.id } as DocMap, user) || user.allLocations)}
-            />
+            <Uploaden plek={plek} />
           </>
         )}
       </div>
@@ -362,7 +359,7 @@ function Downloaden({ doc }: { doc: DocBestand }) {
  *  Uploaden
  * ------------------------------------------------------------------ */
 
-function Uploaden({ plek, vestigingen }: { plek: Plek; vestigingen: Location[] }) {
+function Uploaden({ plek }: { plek: Plek }) {
   const user = useAuth((s) => s.user)!
   const invoer = useRef<HTMLInputElement>(null)
   const [bezig, setBezig] = useState(false)
@@ -401,7 +398,6 @@ function Uploaden({ plek, vestigingen }: { plek: Plek; vestigingen: Location[] }
       <button className="btn primary" disabled={bezig} onClick={() => invoer.current?.click()}>
         <Upload size={15} /> {bezig ? 'Bezig…' : 'Uploaden'}
       </button>
-      {vestigingen.length === 0 && null}
     </>
   )
 }
@@ -449,15 +445,23 @@ function DocumentVenster({
                 {mappen.map((m) => <option key={m.id} value={m.id}>{m.naam}</option>)}
               </select>
             </Field>
+            {/* Alleen de vestigingen waar deze persoon over gaat. Stonden ze
+                er allemaal in, dan koos iemand er een waar hij niet bij mag en
+                weigerde de server het record -- waarna het onzichtbaar in de
+                wachtrij bleef staan. */}
             <Field label="Vestiging">
               <select
                 className="input"
                 value={doc.locationId ?? ''}
-                onChange={(e) => void docRepo.opbergen(doc.id,
-                  { locationId: e.target.value || undefined })}
+                onChange={(e) => {
+                  void docRepo.opbergen(doc.id,
+                    { locationId: e.target.value || undefined }, user)
+                    .catch((err: Error) => toast.error(err.message))
+                }}
               >
                 <option value="">Geen vestiging</option>
-                {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name))
+                {mijnVestigingen(vestigingen, user)
+                  .sort((a, b) => a.name.localeCompare(b.name))
                   .map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </Field>
@@ -605,7 +609,8 @@ function NieuweMap({
         <select className="input" value={locatie} disabled={prive}
                 onChange={(e) => setLocatie(e.target.value)}>
           <option value="">Geen vestiging</option>
-          {[...vestigingen].sort((a, b) => a.name.localeCompare(b.name))
+          {mijnVestigingen(vestigingen, user)
+            .sort((a, b) => a.name.localeCompare(b.name))
             .map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
       </Field>

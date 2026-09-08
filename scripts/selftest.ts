@@ -5666,5 +5666,80 @@ console.log('\n45. Werk en werving')
     !magVacature(['loc_venlo'], mens({ roles: ['employee'], locationId: 'loc_venlo' })))
 }
 
+/* ====================================================================
+ *  46. Welke vestiging mag je kiezen
+ *
+ *  Casper zag dit: "De database weigert dit voor doc_bestand: new row
+ *  violates row-level security policy. Dat gaat over rechten, niet over dit
+ *  record -- het blijft in de wachtrij staan."
+ *
+ *  De regel in de database was goed; het SCHERM was fout. In het
+ *  documentvenster stonden alle achttien vestigingen in de keuzelijst, ook die
+ *  waar je niet over gaat. Koos je zo'n vestiging, dan schreef de app het
+ *  lokaal weg, weigerde de server het, en bleef het record in de wachtrij
+ *  hangen -- met een melding waar je niets aan hebt, want die zegt "rechten"
+ *  en niet "je koos Ede".
+ *
+ *  Een keuzelijst die iets aanbiedt wat de server terugstuurt is geen
+ *  keuzelijst maar een val. Vandaar hier een toets: wat de app aanbiedt is
+ *  precies wat in_my_locations() op de server doorlaat.
+ * ==================================================================== */
+
+console.log('\n46. Welke vestiging mag je kiezen')
+
+{
+  const { mijnVestigingen, magVestigingKiezen } = await import('../src/lib/documenten.ts')
+
+  const mens = (extra: Record<string, unknown> = {}) => ({
+    id: 'u1', email: 'a@b.nl', password: '', name: 'Test',
+    roles: ['supervisor'], active: true, updatedAt: 0, ...extra,
+  }) as never
+
+  const alle = [{ id: 'loc_a' }, { id: 'loc_b' }, { id: 'loc_c' }]
+  const namen = (xs: { id: string }[]) => xs.map((x) => x.id).join(',')
+
+  check('het hoofdkantoor mag alles kiezen',
+    namen(mijnVestigingen(alle, mens({ allLocations: true }))) === 'loc_a,loc_b,loc_c')
+
+  check('een leidinggevende alleen zijn eigen vestiging',
+    namen(mijnVestigingen(alle, mens({ locationId: 'loc_a' }))) === 'loc_a')
+
+  check('en zijn eigen plus wat hij beheert',
+    namen(mijnVestigingen(alle, mens({ locationId: 'loc_a', manages: ['loc_c'] })))
+      === 'loc_a,loc_c')
+
+  /*
+   * Iemand zonder vestiging krijgt een LEGE lijst en niet alles. Dat is het
+   * verschil dat de val maakte: de oude lijst gaf alles, en dan koos hij iets
+   * dat de server weigerde.
+   */
+  check('wie geen vestiging heeft, krijgt er ook geen te kiezen',
+    mijnVestigingen(alle, mens({})).length === 0)
+
+  /* --- en de rem die hetzelfde zegt --- */
+
+  check('geen vestiging mag altijd',
+    magVestigingKiezen(undefined, mens({ locationId: 'loc_a' })))
+  check('de eigen vestiging mag',
+    magVestigingKiezen('loc_a', mens({ locationId: 'loc_a' })))
+  /*
+   * Dit is de regel die de wachtrij liet vastlopen. Hij hoort nu op het scherm
+   * te falen met een zin die zegt wat er aan de hand is, en niet stil in de
+   * wachtrij.
+   */
+  check('die van een ander niet',
+    !magVestigingKiezen('loc_b', mens({ locationId: 'loc_a' })))
+  check('tenzij je overal mag',
+    magVestigingKiezen('loc_b', mens({ allLocations: true })))
+
+  /* Wat de lijst aanbiedt en wat de rem doorlaat, horen hetzelfde te zijn --
+     anders is de een een val voor de ander. */
+  const leiding = mens({ locationId: 'loc_a', manages: ['loc_c'] })
+  check('de lijst en de rem zijn het overal over eens',
+    alle.every((l) =>
+      mijnVestigingen(alle, leiding).some((x) => x.id === l.id)
+        === magVestigingKiezen(l.id, leiding)))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

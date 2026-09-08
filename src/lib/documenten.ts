@@ -81,6 +81,32 @@ export function magMap(map: DocMap, wie: User): boolean {
   return magDocumentbeheer(wie) && bijLocatie(map.locationId, wie)
 }
 
+/**
+ * De vestigingen die deze persoon mag kiezen.
+ *
+ * Dit bestond niet, en dat was de fout: het documentvenster bood ALLE
+ * vestigingen aan. Koos een leidinggevende er een waar hij niet over gaat, dan
+ * schreef de app het lokaal weg en weigerde de server het met "new row
+ * violates row-level security policy" -- waarna het record in de wachtrij
+ * bleef staan. Een keuzelijst die iets aanbiedt wat de server terugstuurt is
+ * geen keuzelijst maar een val.
+ */
+export function mijnVestigingen<T extends { id: string }>(alle: T[], wie: User): T[] {
+  if (wie.allLocations) return alle
+  const mijne = new Set([...(wie.manages ?? []), ...(wie.locationId ? [wie.locationId] : [])])
+  return alle.filter((l) => mijne.has(l.id))
+}
+
+/**
+ * Mag deze persoon iets op deze vestiging zetten?
+ *
+ * Dezelfde vraag als in_my_locations() op de server. Staat hier omdat een
+ * scherm het moet kunnen vragen vóórdat het iets wegschrijft.
+ */
+export function magVestigingKiezen(locationId: string | undefined, wie: User): boolean {
+  return bijLocatie(locationId, wie)
+}
+
 export const ZICHTBAARHEID: { key: DocZichtbaarheid; label: string; uitleg: string }[] = [
   { key: 'prive', label: 'Alleen ik', uitleg: 'Niemand anders ziet dit, ook het management niet.' },
   { key: 'personen', label: 'Alleen wie ik kies', uitleg: 'Je wijst er zelf mensen bij aan.' },
@@ -240,9 +266,20 @@ export const documenten = {
     return put('docBestanden', db.docBestanden, doc)
   },
 
-  async bijwerken(id: string, wijziging: Partial<DocBestand>) {
+  /**
+   * Bijwerken.
+   *
+   * `wie` is optioneel maar hoort meegegeven te worden zodra er een vestiging
+   * in de wijziging zit: dan wordt hier geweigerd wat de server ook zou
+   * weigeren, mét een melding op het scherm in plaats van een record dat
+   * onzichtbaar in de wachtrij blijft hangen.
+   */
+  async bijwerken(id: string, wijziging: Partial<DocBestand>, wie?: User) {
     const bestaand = await db.docBestanden.get(id)
     if (!bestaand) return null
+    if (wie && 'locationId' in wijziging && !magVestigingKiezen(wijziging.locationId, wie)) {
+      throw new Error('Je kunt een document niet op een vestiging zetten waar je niet over gaat.')
+    }
     return put('docBestanden', db.docBestanden, { ...bestaand, ...wijziging, id })
   },
 
@@ -253,8 +290,8 @@ export const documenten = {
     toegewezenAan?: string
     toegewezenNaam?: string
     zichtbaarheid?: DocZichtbaarheid
-  }) {
-    return documenten.bijwerken(id, waar)
+  }, wie?: User) {
+    return documenten.bijwerken(id, waar, wie)
   },
 
   /**
