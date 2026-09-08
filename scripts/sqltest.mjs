@@ -6258,6 +6258,123 @@ console.log('\n51. De administratie zonder losse rechten')
     (await zet('app_url', 'https://kwaad.example')) === 'geweigerd')
 }
 
+/* ==================================================================== *
+ *  52. Een nagekomen wasbeurt blokkeert niet de hele ronde
+ *
+ *  Dit is geen theoretisch geval. Het gebeurt zodra iemand een wasbeurt
+ *  achteraf gereedmeldt, en dat gebeurt.
+ *
+ *  verkoopfacturen_opmaken() bouwde het factuur-id volledig uit de maand en
+ *  het klantnummer, en zocht alleen naar een CONCEPT om in bij te vullen.
+ *  Stond de factuur van die klant al op 'verstuurd', dan bouwde hij hetzelfde
+ *  id opnieuw, deed de insert niets, en schoot hij de nieuwe regel in de
+ *  VERSTUURDE factuur. De trigger verkoopregel_op_slot gooide daar terecht een
+ *  fout op -- en omdat dat in een functie gebeurt, draaide de hele ronde
+ *  terug. Alle andere klanten kregen die ronde dus ook niets.
+ *
+ *  Wat hier wordt vastgelegd is niet "de fout is weg" maar iets specifieker:
+ *  dat de klant die er niets mee te maken heeft, zijn factuur wel krijgt.
+ * ==================================================================== */
+
+console.log('\n52. Een nagekomen wasbeurt blokkeert niet de hele ronde')
+
+{
+  await asServer(db)
+  await db.exec(`
+    insert into public.companies (id, name) values
+      ('co_na_a', 'Klant A B.V.'),
+      ('co_na_b', 'Klant B B.V.')
+    on conflict (id) do nothing;
+
+    /* Klant A heeft in mei een beurt gehad. */
+    insert into public.wash_jobs
+      (id, ticket, company_id, company_name, plate, service, status, scheduled_at,
+       completed_at, price_excl)
+    values
+      ('wj_na_a1', 'NA1', 'co_na_a', 'Klant A B.V.', 'AA-11-AA', 'buitenwas', 'gereed',
+       (extract(epoch from '2026-05-06'::date) * 1000)::bigint,
+       (extract(epoch from '2026-05-06'::date) * 1000)::bigint, 200)
+    on conflict (id) do nothing;
+  `)
+
+  const opmaken = async () =>
+    (await db.query(`select public.verkoopfacturen_opmaken('2026-05', 'test') as n`)).rows[0].n
+
+  check('ronde 1 maakt een concept voor klant A', Number(await opmaken()) === 1)
+
+  const facA = (await db.query(`
+    select id from public.verkoopfactuur
+     where company_id = 'co_na_a' and periode = '2026-05'`)).rows[0]
+  check('en dat is het voor de hand liggende id',
+    facA.id === 'vf_202605_co_na_a', facA.id)
+
+  /* Versturen: nu ligt hij vast. */
+  await db.query(`select public.verkoopfactuur_versturen('${facA.id}')`)
+  check('na versturen is hij geen concept meer',
+    (await db.query(`select status from public.verkoopfactuur where id = '${facA.id}'`))
+      .rows[0].status === 'verstuurd')
+
+  /*
+   * En dan komt het: een nagekomen beurt van A over dezelfde maand, en een
+   * eerste beurt van B. Hier viel de oude functie om.
+   */
+  await db.exec(`
+    insert into public.wash_jobs
+      (id, ticket, company_id, company_name, plate, service, status, scheduled_at,
+       completed_at, price_excl)
+    values
+      ('wj_na_a2', 'NA2', 'co_na_a', 'Klant A B.V.', 'AA-22-AA', 'buitenwas', 'gereed',
+       (extract(epoch from '2026-05-20'::date) * 1000)::bigint,
+       (extract(epoch from '2026-05-20'::date) * 1000)::bigint, 300),
+      ('wj_na_b1', 'NB1', 'co_na_b', 'Klant B B.V.', 'BB-11-BB', 'buitenwas', 'gereed',
+       (extract(epoch from '2026-05-08'::date) * 1000)::bigint,
+       (extract(epoch from '2026-05-08'::date) * 1000)::bigint, 400)
+    on conflict (id) do nothing;
+  `)
+
+  let ronde2 = 'geweigerd'
+  try {
+    ronde2 = String(await opmaken())
+  } catch (e) {
+    ronde2 = 'FOUT: ' + e.message
+  }
+  check('ronde 2 loopt door in plaats van de hele ronde terug te draaien',
+    ronde2 === '2', ronde2)
+
+  /* Dit is de check waar het om begonnen was. */
+  check('klant B krijgt zijn factuur, ook al ligt die van A vast',
+    (await db.query(`select count(*)::int as n from public.verkoopfactuur
+                      where company_id = 'co_na_b' and periode = '2026-05'`)).rows[0].n === 1)
+
+  /* En de nagekomen beurt van A staat op een eigen naregel-factuur. */
+  const facsA = (await db.query(`
+    select id, status, opmerking, bedrag_excl from public.verkoopfactuur
+     where company_id = 'co_na_a' and periode = '2026-05' order by id`)).rows
+  check('klant A heeft er twee: de verstuurde en een naregel',
+    facsA.length === 2, facsA.map((f) => f.id).join(', '))
+  check('de naregel heeft een eigen id',
+    facsA.some((f) => f.id === 'vf_202605_co_na_a_na2'),
+    facsA.map((f) => f.id).join(', '))
+  check('en zegt op de factuur zelf waarom hij er is',
+    facsA.some((f) => (f.opmerking || '').includes('nagekomen')),
+    facsA.map((f) => f.opmerking).join(' | '))
+
+  /* De verstuurde factuur is niet aangeraakt: 200, niet 500. */
+  const verstuurd = facsA.find((f) => f.status === 'verstuurd')
+  check('de verstuurde factuur is niet gewijzigd',
+    Number(verstuurd.bedrag_excl) === 200, String(verstuurd.bedrag_excl))
+
+  /*
+   * En nog een keer opmaken doet niets. Zonder deze check zou een functie die
+   * bij elke ronde een nieuwe naregel-factuur maakt ook groen zijn -- en dan
+   * heeft de klant na een week zeven facturen.
+   */
+  check('nog een ronde levert niets nieuws', Number(await opmaken()) === 0)
+  check('en er staan nog steeds twee facturen voor A',
+    (await db.query(`select count(*)::int as n from public.verkoopfactuur
+                      where company_id = 'co_na_a' and periode = '2026-05'`)).rows[0].n === 2)
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

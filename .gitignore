@@ -40,3 +40,6 @@ supabase/.temp/
 
 # Uitvoer van analysegereedschap, geen broncode.
 graphify-out/
+
+# Werkstroomscripts van deze sessie, geen broncode.
+.werkstroom/
