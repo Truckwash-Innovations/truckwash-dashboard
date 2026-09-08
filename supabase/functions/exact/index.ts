@@ -732,13 +732,22 @@ interface ExactDivision {
   Code?: number | string
   Description?: string
   HID?: number
-  Main?: number | boolean
 }
 
 async function syncAdministraties(): Promise<Response> {
   const lijn = await geldigToken(admin)
+  /*
+   * Geen Main in de $select.
+   *
+   * Casper kreeg: Exact gaf 400 op system/Divisions -- Type
+   * Exact.Web.Api.Models.System.Division does not have a property named
+   * Main. Dat veld bestaat daar niet (het staat wel op andere endpoints), en
+   * het werd hier ook nooit gelezen: welke administratie de hoofdadministratie
+   * is, zetten we zelf in exact_administratie.hoofd. Een veld opvragen dat je
+   * niet gebruikt en dat niet bestaat, blokkeerde daarmee het hele ophalen.
+   */
   const rijen = await exactLijst<ExactDivision>(lijn, 'system/Divisions', {
-    $select: 'Code,Description,Main',
+    $select: 'Code,Description',
   })
 
   const nu = Date.now()
