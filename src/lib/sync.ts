@@ -388,8 +388,23 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
       }])
       await db.outbox.delete(r.id!)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      eerste ??= e instanceof Error ? e : new Error(msg)
+      /*
+       * Welk record het was, erbij.
+       *
+       * Dit ontbrak, en het kostte drie rondes heen en weer met Casper om
+       * erachter te komen wát er nou geweigerd werd. De melding zei "de
+       * database weigert dit voor doc_bestand" -- maar niet wélk document, en
+       * dus ook niet of het er één was of vijftig. Zonder die naam is de
+       * enige manier om verder te komen: in IndexedDB gaan graven.
+       *
+       * De wachtrij weet het gewoon. Hij hoort het te zeggen.
+       */
+      const waar = `${r.entity} ${r.recordId}`
+      const kaal = e instanceof Error ? e.message : String(e)
+      const msg = kaal.includes(r.recordId) ? kaal : `${kaal} (record: ${waar})`
+      eerste ??= e instanceof Error
+        ? Object.assign(e, { message: msg })
+        : new Error(msg)
 
       /*
        * Een tabel die nog niet bestaat is geen slecht record maar een schema
