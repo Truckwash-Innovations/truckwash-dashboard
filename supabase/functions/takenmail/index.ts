@@ -4,9 +4,19 @@
  *  Casper: "zorg ook ervoor dat iedereen om 7 uur en 15:00 uur een mail
  *  krijgen met al hun todo's".
  *
- *  Uitrollen:  npm run functions:dicht
- *  Deze mag de JWT-controle houden: hij wordt gewekt door GitHub Actions met
- *  een eigen geheim, niet door een browser. Zie .github/workflows/taken.yml.
+ *  Uitrollen:  npm run functions:open
+ *  NOOIT kaal deployen. Hier stond eerst functions:dicht, met de redenering
+ *  "hij wordt door GitHub gewekt en niet door een browser, dus de
+ *  JWT-controle mag aan blijven". Dat is precies verkeerd om: GitHub stuurt
+ *  helemaal geen JWT mee (zie .github/workflows/taken.yml -- alleen een
+ *  Content-Type en een lijf), dus met verify_jwt aan komt het verzoek nooit
+ *  bij deze code aan en krijgt de cron elke keer een 401. Dat zou weken
+ *  hebben geduurd voordat iemand het zag: een rode job die niemand opent, en
+ *  geen mail die niemand mist omdat hij er nooit was.
+ *
+ *  De deur is dus open, en het geheim in het lijf is het slot. Dat is
+ *  hetzelfde als bij trucksupply, dat om dezelfde reden in dezelfde groep
+ *  staat.
  *
  *  Wat hier NIET staat
  *  -------------------
