@@ -5768,6 +5768,123 @@ console.log('\n48. bijwerken.sql op een bestaande database')
   await bijDb.close()
 }
 
+/* ====================================================================
+ *  49. Een sollicitatie wordt werk, en bij de juiste mensen
+ *
+ *  Casper: "Als iemand gesolliciteerd heeft, moet je het automatisch op
+ *  leiding en managment hun todo zetten (wel enkel als ze toegang tot de
+ *  gekozen locatie hebben)."
+ *
+ *  Dat "enkel als" is de helft van de opdracht en het enige deel dat stil kan
+ *  omvallen: een taak die te breed staat ziet er precies hetzelfde uit als
+ *  een taak die goed staat, tot de leiding van Groenlo de sollicitaties van
+ *  Venlo op zijn scherm heeft.
+ * ==================================================================== */
+
+console.log('\n49. Een sollicitatie wordt werk')
+
+{
+  await db.exec(`
+    insert into public.locations (id, code, name, kind, address, postcode, city, bays, active)
+    values ('loc_t_venlo', 'TW-TVE', 'Venlo (test)', 'vestiging', 'Straat 1', '5900 AA', 'Venlo', 2, true),
+           ('loc_t_ede',   'TW-TED', 'Ede (test)',   'vestiging', 'Straat 2', '6710 AA', 'Ede',   2, true)
+    on conflict (id) do nothing;
+
+    insert into public.profiles (id, email, name, roles, active, location_id)
+    values ('p_t_leiding_venlo', 'venlo@t.nl', 'Leiding Venlo',
+            array['supervisor'], true, 'loc_t_venlo')
+    on conflict (id) do nothing;
+
+    insert into public.vacature (id, slug, titel)
+    values ('vac_t', 'test-vacature', 'Testvacature')
+    on conflict (id) do nothing;
+  `)
+
+  /* --- een sollicitatie op een vestiging mét leiding --- */
+
+  await db.exec(`
+    insert into public.sollicitatie (id, naam, email, location_id, vacature_id, vacature_titel)
+    values ('sol_t1', 'Jan Jansen', 'jan@t.nl', 'loc_t_venlo', 'vac_t', 'Testvacature');
+  `)
+
+  const t1 = (await db.query(`
+    select * from public.taak where bron = 'sollicitatie' and bron_id = 'sol_t1'`)).rows
+
+  check('er komt een taak van', t1.length === 1, String(t1.length))
+  check('op de vestiging van de sollicitatie',
+    t1[0] && t1[0].location_id === 'loc_t_venlo', t1[0] && t1[0].location_id)
+  /*
+   * Bij de ROL en niet bij een persoon. Dat is het verschil tussen werk dat
+   * iemand oppakt en werk dat aan een willekeurige naam hangt die er niets
+   * van weet.
+   */
+  check('bij de leiding, niet bij een persoon',
+    t1[0] && t1[0].toegewezen_rol === 'supervisor' && t1[0].toegewezen_aan === null,
+    t1[0] && `${t1[0].toegewezen_rol} / ${t1[0].toegewezen_aan}`)
+  check('en hij vraagt aandacht',
+    t1[0] && t1[0].prioriteit === 'hoog' && t1[0].status === 'te_doen')
+  check('de naam staat in de titel',
+    t1[0] && t1[0].titel.includes('Jan Jansen'), t1[0] && t1[0].titel)
+
+  /* --- en op een vestiging zonder leiding --- */
+
+  await db.exec(`
+    insert into public.sollicitatie (id, naam, email, location_id)
+    values ('sol_t2', 'Piet Peters', 'piet@t.nl', 'loc_t_ede');
+  `)
+
+  const t2 = (await db.query(`
+    select * from public.taak where bron = 'sollicitatie' and bron_id = 'sol_t2'`)).rows
+
+  /*
+   * Staat er op die vestiging geen leidinggevende, dan zou een taak voor "de
+   * leiding" aan een rol hangen die daar niemand heeft -- en dan ziet niemand
+   * hem. Dus gaat hij naar het management.
+   */
+  check('zonder leidinggevende gaat hij naar het management',
+    t2.length === 1 && t2[0].toegewezen_rol === 'management',
+    t2[0] && t2[0].toegewezen_rol)
+
+  /* --- wie hem in zijn mail krijgt --- */
+
+  const mail = (await db.query(`select * from public.taken_voor_mail()`)).rows
+  const venlo = mail.find((r) => r.profile_id === 'p_t_leiding_venlo')
+
+  check('de leiding van Venlo krijgt hem in haar takenmail', !!venlo)
+  check('en precies die ene', venlo && venlo.aantal === 1, venlo && String(venlo.aantal))
+  /*
+   * De taak van Ede hangt aan het management. De leiding van Venlo is geen
+   * management en heeft niets met Ede te maken, dus die hoort er niet bij te
+   * zitten -- dit is de "enkel als ze toegang hebben" uit de opdracht.
+   */
+  check('en niet die van Ede',
+    venlo && !JSON.stringify(venlo.taken).includes('Piet Peters'))
+
+  /* --- twee keer dezelfde sollicitatie levert geen twee taken op --- */
+
+  await db.exec(`
+    insert into public.sollicitatie (id, naam, email, location_id)
+    values ('sol_t3', 'Klaas', 'klaas@t.nl', 'loc_t_venlo')
+    on conflict (id) do nothing;
+  `)
+  let dubbelGoed = true
+  try {
+    /* De trigger draait opnieuw met dezelfde bron_id; de unieke index uit 0067
+       hoort dat af te vangen zonder de insert te laten omvallen. */
+    await db.exec(`
+      insert into public.taak (id, titel, bron, bron_id, toegewezen_rol, location_id)
+      values ('taak_dubbel', 'Nog een keer', 'sollicitatie', 'sol_t3', 'supervisor', 'loc_t_venlo')
+      on conflict do nothing;
+    `)
+  } catch (e) {
+    dubbelGoed = false
+  }
+  const drie = (await db.query(`
+    select count(*)::int as n from public.taak where bron_id = 'sol_t3'`)).rows[0].n
+  check('en dezelfde sollicitatie levert geen tweede taak op',
+    dubbelGoed && drie === 1, String(drie))
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
