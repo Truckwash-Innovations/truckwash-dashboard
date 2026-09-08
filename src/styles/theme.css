@@ -5303,3 +5303,67 @@ table.data tr.aan td { font-weight: 600; }
   .bord { grid-template-columns: repeat(4, minmax(200px, 1fr)); }
   .werkregel { flex-wrap: wrap; }
 }
+
+/* ==================================================================
+   Werving: wat een sollicitant heeft ingevuld
+
+   Een sollicitatie is een stapel korte antwoorden. Als lijst met labels
+   ernaast lees je die sneller dan als lopende tekst, en sneller dan als
+   tabel -- want de helft van de velden is leeg en die horen dan gewoon weg
+   te vallen in plaats van een lege cel te laten.
+   ================================================================== */
+
+.sol-vakken {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 16px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.sol-vak { display: grid; gap: 2px; min-width: 0; }
+.sol-vak > span {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-3); font-weight: 650;
+}
+.sol-vak > strong { font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
+
+/* De beschikbaarheid: zeven regels van dag, tijd, opmerking. */
+.sol-uren { display: flex; flex-direction: column; gap: 4px; }
+.sol-uren > div {
+  display: grid;
+  grid-template-columns: 96px auto 1fr;
+  gap: 10px; align-items: baseline;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: .85rem;
+}
+.sol-uren > div > span { color: var(--text-3); text-transform: capitalize; }
+.sol-uren > div > strong { font-variant-numeric: tabular-nums; }
+.sol-uren > div > em { color: var(--text-3); font-style: normal; font-size: .8rem; }
+
+/* De knop waarmee een sollicitant een dossier wordt. Apart gezet met een
+   randje erboven: het is het einde van dit scherm en het is de enige knop
+   die iets onomkeerbaars doet. */
+.sol-afronden {
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.sol-locaties {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 12px;
+  max-height: 220px; overflow-y: auto;
+  padding: 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.sol-locaties label {
+  display: flex; align-items: center; gap: 8px; font-size: .86rem; cursor: pointer;
+}
+.sol-locaties input { width: 16px; height: 16px; accent-color: var(--brand); }
+
+@media (max-width: 520px) {
+  .sol-uren > div { grid-template-columns: 84px 1fr; }
+  .sol-uren > div > em { grid-column: 1 / -1; }
+}

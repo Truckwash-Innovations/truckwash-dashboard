@@ -148,6 +148,8 @@ const TABLES: Record<EntityName, string> = {
   taken: 'taak',
   taakProjecten: 'taak_project',
   taakReacties: 'taak_reactie',
+  vacatures: 'vacature',
+  sollicitaties: 'sollicitatie',
 }
 
 /** Kolommen waarvan de naam niet simpelweg de snake_case-variant is. */

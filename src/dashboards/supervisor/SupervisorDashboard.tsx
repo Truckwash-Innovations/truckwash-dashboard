@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap, LayoutGrid,
-  MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users, ListTodo,
+  MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users, ListTodo, BriefcaseBusiness,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -26,6 +26,7 @@ import { toast } from '../../store/useToasts'
 import { shiftsOnDay, shiftHours, shiftRange, weekStart } from '../../lib/roster'
 import { startOfDay } from '../../lib/analytics'
 import Werk from '../../components/Werk'
+import Werving from '../../components/Werving'
 
 const DAY = 86_400_000
 
@@ -78,6 +79,7 @@ export default function SupervisorDashboard() {
     { key: 'start', label: 'Start', icon: LayoutGrid },
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
     { key: 'werk', label: 'Werk', icon: ListTodo },
+    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
     { key: 'team', label: 'Mijn team', icon: Users },
     ...(perms.can('roster.viewTeam') ? [{ key: 'rooster', label: 'Rooster', icon: CalendarDays }] : []),
     ...(perms.can('roster.edit') ? [{ key: 'smart', label: 'Smartroster', icon: Sparkles }] : []),
@@ -208,6 +210,7 @@ export default function SupervisorDashboard() {
     >
       {page === 'start' && <Start tegels={tegels} />}
       {page === 'werk' && <Werk />}
+      {page === 'werving' && <Werving />}
       {page === 'team' && <TeamVandaag team={team} onMessage={() => setMessaging(true)} />}
       {page === 'rooster' && <TeamRooster team={team} />}
       {page === 'smart' && <SmartRosterPanel team={team} />}

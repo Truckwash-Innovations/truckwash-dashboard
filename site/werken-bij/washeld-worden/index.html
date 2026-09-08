@@ -43,17 +43,185 @@
     <div class="shell">
       <p class="kruimel"><a href="/werken-bij/">Werken bij</a> &rsaquo; Werken bij Truckwash</p>
       <h1 style="font-size:clamp(30px,4.6vw,52px);margin-bottom:14px">Werken bij Truckwash</h1>
-      <a class="knop knop-geel" href="https://truckwash.trainstation.nl/solliciteer?vacancy=1" target="_blank" rel="noopener">Solliciteer direct</a>
+      <a class="knop knop-geel" href="#solliciteren">Solliciteer direct</a>
     </div>
   </div>
   <section class="blok licht" style="padding-top:var(--s4)">
     <div class="shell" style="max-width:860px">
       <h3 style="margin:var(--s4) 0 var(--s2);font-size:23px">Werken bij Truckwash - washeld worden?</h3><p style="color:var(--inkt-2);margin-bottom:var(--s2)">Wij zijn op zoek naar WASHELDEN . Heb jij interesse en ben je gemotiveerd om deel uit te maken van een superteam? Vul dan snel onderstaand formulier in voor het werken bij Truckwash1group</p>
-      <div style="margin-top:var(--s5);padding:var(--s4);background:var(--navy-700);border-radius:4px;color:#fff">
-        <h3 style="color:#fff;margin-bottom:10px">Interesse?</h3>
-        <p style="color:#c3d0e8;margin:0 0 var(--s3)">Je solliciteert via ons sollicitatiesysteem. Je hebt geen motivatiebrief nodig &mdash; vertel gewoon kort wie je bent.</p>
-        <a class="knop knop-geel" href="https://truckwash.trainstation.nl/solliciteer?vacancy=1" target="_blank" rel="noopener">Solliciteer op Werken bij Truckwash</a>
-      </div>
+    </div>
+  </section>
+  
+  <section class="blok wit" id="solliciteren">
+    <div class="shell" style="max-width:760px">
+      <p class="label">Solliciteren</p>
+      <h2 style="font-size:clamp(26px,3.6vw,40px);margin-bottom:10px">Laat weten wie je bent</h2>
+      <p style="color:var(--inkt-2);margin-bottom:var(--s3)">
+        Je hebt geen motivatiebrief nodig. Vul in wat je kwijt wilt &mdash; alleen de
+        velden met een sterretje zijn verplicht. We nemen binnen een paar
+        werkdagen contact op.
+      </p>
+
+      <form class="sol-form" id="solform" data-vacature="washeld-worden" novalidate>
+        <div class="sol-rij">
+          <label>Je naam *<input name="naam" required autocomplete="name" maxlength="120"></label>
+          <label>E-mailadres *<input name="email" type="email" required autocomplete="email" maxlength="160"></label>
+        </div>
+        <div class="sol-rij">
+          <label>Telefoonnummer<input name="telefoon" type="tel" autocomplete="tel" maxlength="40"></label>
+          <label>Geboortedatum<input name="geboortedatum" type="date"></label>
+        </div>
+        <div class="sol-rij">
+          <label>Woonplaats<input name="woonplaats" autocomplete="address-level2" maxlength="80"></label>
+          <label>Op welke vestiging? *
+            <select name="locatie" required>
+              <option value="">Kies een vestiging</option>
+              <option value="aalsmeer">Amstelveen</option><option value="amsterdam">Amsterdam</option><option value="asten">Asten</option><option value="bodegraven">Bodegraven</option><option value="hazeldonk">Breda</option><option value="doetinchem">Doetinchem</option><option value="ede">Ede</option><option value="eindhoven">Eindhoven</option><option value="groenlo">Groenlo</option><option value="holten">Holten</option><option value="maasvlakte">Maasvlakte</option><option value="rilland">Rilland</option><option value="roosendaal">Roosendaal</option><option value="rotterdam">Rotterdam-Botlek</option><option value="steenwijk">Steenwijk</option><option value="utrecht">Utrecht</option><option value="venlo">Venlo</option><option value="wehl">Wehl</option>
+            </select>
+          </label>
+        </div>
+
+        <h3 class="sol-kop">School en werk</h3>
+        <div class="sol-rij">
+          <label>Zit je op school of studeer je?
+            <select name="school">
+              <option value="">Zeg het maar</option>
+              <option value="ja">Ja</option>
+              <option value="nee">Nee</option>
+            </select>
+          </label>
+          <label>Zo ja: welke opleiding?<input name="opleiding" maxlength="120"></label>
+        </div>
+        <div class="sol-rij">
+          <label>Welk niveau?<input name="niveau" maxlength="60" placeholder="bijv. mbo 3"></label>
+          <label>Welk leerjaar?<input name="leerjaar" maxlength="40"></label>
+        </div>
+        <label>Heb je al eerder in deze branche gewerkt?
+          <textarea name="ervaring" rows="2" maxlength="800"
+                    placeholder="Wasstraat, transport, horeca, klantenservice&hellip; en waar."></textarea>
+        </label>
+        <div class="sol-rij">
+          <label>Hoe ben je bij ons terechtgekomen?
+            <select name="hoeGevonden">
+              <option value="">Zeg het maar</option>
+              <option>Vacaturesite</option>
+              <option>Via een kennis of medewerker</option>
+              <option>Social media</option>
+              <option>Langs de vestiging</option>
+              <option>Anders</option>
+            </select>
+          </label>
+          <label>Hoe lang denk je dit te willen doen?
+            <select name="hoeLang">
+              <option value="">Zeg het maar</option>
+              <option>Naast school, voorlopig</option>
+              <option>Tijdelijk, een paar maanden</option>
+              <option>Ik zoek vast werk</option>
+              <option>Naast ander werk</option>
+            </select>
+          </label>
+        </div>
+        <label>Is er iets dat je inzet op termijn kan beperken?
+          <textarea name="beperkingen" rows="2" maxlength="500"
+                    placeholder="Afstuderen, stage, verhuizing, ander werk&hellip;"></textarea>
+        </label>
+
+        <h3 class="sol-kop">Vervoer</h3>
+        <div class="sol-rij">
+          <label>Hoe kom je naar het werk?
+            <select name="vervoer">
+              <option value="">Zeg het maar</option>
+              <option>Eigen auto</option>
+              <option>Scooter of brommer</option>
+              <option>Fiets</option>
+              <option>Openbaar vervoer</option>
+              <option>Word gebracht</option>
+            </select>
+          </label>
+          <label>Heb je een rijbewijs?
+            <select name="rijbewijs">
+              <option value="">Zeg het maar</option>
+              <option value="ja">Ja</option>
+              <option value="nee">Nee</option>
+            </select>
+          </label>
+        </div>
+        <div class="sol-rij">
+          <label>Hoe lang ben je onderweg?<input name="reistijd" maxlength="40" placeholder="bijv. 20 minuten"></label>
+          <label>Zou je ook op een andere vestiging kunnen bijspringen?
+            <select name="andereVestiging">
+              <option value="">Zeg het maar</option>
+              <option value="ja">Ja, dat kan</option>
+              <option value="nee">Liever niet</option>
+            </select>
+          </label>
+        </div>
+
+        <h3 class="sol-kop">Wanneer kun je?</h3>
+        <p style="color:var(--inkt-3);font-size:14px;margin:-6px 0 10px">
+          Laat leeg wat niet van toepassing is. Al onze vestigingen zijn op zondag gesloten.
+        </p>
+        <div class="sol-dagen">
+          
+            <div class="sol-dag" data-dag="maandag">
+              <span>Maandag</span>
+              <input type="time" name="van" aria-label="Maandag vanaf">
+              <input type="time" name="tot" aria-label="Maandag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Maandag opmerking">
+            </div>
+            <div class="sol-dag" data-dag="dinsdag">
+              <span>Dinsdag</span>
+              <input type="time" name="van" aria-label="Dinsdag vanaf">
+              <input type="time" name="tot" aria-label="Dinsdag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Dinsdag opmerking">
+            </div>
+            <div class="sol-dag" data-dag="woensdag">
+              <span>Woensdag</span>
+              <input type="time" name="van" aria-label="Woensdag vanaf">
+              <input type="time" name="tot" aria-label="Woensdag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Woensdag opmerking">
+            </div>
+            <div class="sol-dag" data-dag="donderdag">
+              <span>Donderdag</span>
+              <input type="time" name="van" aria-label="Donderdag vanaf">
+              <input type="time" name="tot" aria-label="Donderdag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Donderdag opmerking">
+            </div>
+            <div class="sol-dag" data-dag="vrijdag">
+              <span>Vrijdag</span>
+              <input type="time" name="van" aria-label="Vrijdag vanaf">
+              <input type="time" name="tot" aria-label="Vrijdag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Vrijdag opmerking">
+            </div>
+            <div class="sol-dag" data-dag="zaterdag">
+              <span>Zaterdag</span>
+              <input type="time" name="van" aria-label="Zaterdag vanaf">
+              <input type="time" name="tot" aria-label="Zaterdag tot">
+              <input name="opmerking" maxlength="120" placeholder="bijv. school tot 15:00"
+                     aria-label="Zaterdag opmerking">
+            </div>
+        </div>
+
+        <label class="sol-motivatie">Wil je verder nog iets kwijt?
+          <textarea name="motivatie" rows="4" maxlength="2000"
+                    placeholder="Vertel kort wie je bent en waarom je hier wilt werken."></textarea>
+        </label>
+
+        <p class="sol-klein">
+          We gebruiken wat je invult alleen om je sollicitatie te behandelen.
+          <a href="/privacy/">Zo gaan we met je gegevens om</a>.
+        </p>
+
+        <div class="sol-knoppen">
+          <button class="knop knop-geel" type="submit">Sollicitatie versturen</button>
+          <p class="sol-melding" id="solmelding" role="status"></p>
+        </div>
+      </form>
     </div>
   </section></main>
 <nav class="onderbalk" aria-label="Snel naar"><a href="/locaties/"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s-7.2-6.4-7.2-11.4a7.2 7.2 0 0 1 14.4 0c0 5-7.2 11.4-7.2 11.4z"/><circle cx="12" cy="10" r="2.7"/></svg><span>Locatie</span></a><a href="/locaties/"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="6" r="2.6"/><path d="M8.6 18H14a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h5.4"/></svg><span>Route</span></a><a href="tel:0880600100"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5h3.6l1.9 4.8-2.4 1.6a10.5 10.5 0 0 0 5.5 5.5l1.6-2.4 4.8 1.9v3.6a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.5 5.6a2 2 0 0 1 2-2.1z"/></svg><span>Bel ons</span></a><a href="/contact/#klant-worden"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9.5" cy="8" r="3.6"/><path d="M2.8 20.5a6.7 6.7 0 0 1 13.4 0"/><path d="M19 8v6M16 11h6"/></svg><span>Klant worden</span></a></nav>

@@ -245,7 +245,27 @@ async function haalOp(): Promise<Response> {
     return json({ ok: false, reden: 'De personeelstelling gaf geen getal terug.' }, 500)
   }
 
-  return json({ ok: true, medewerkers: aantal, vestigingen: vest.map(metFotoUrls) })
+  /*
+   * De vacatures.
+   *
+   * Precies zoals de vestigingen: één SQL-functie bepaalt wat er naar buiten
+   * gaat, deze functie leest er niets bij en filtert er niets uit.
+   *
+   * Een lege lijst is hier WEL goed, anders dan bij de vestigingen. Nul
+   * vacatures betekent dat er niemand gezocht wordt, en dat is een geldige
+   * stand van zaken -- terwijl nul vestigingen betekent dat er iets stuk is.
+   */
+  const { data: vac, error: vacFout } = await admin.rpc('website_vacatures')
+  if (vacFout) {
+    return json({ ok: false, reden: 'De database antwoordde niet: ' + vacFout.message }, 500)
+  }
+
+  return json({
+    ok: true,
+    medewerkers: aantal,
+    vestigingen: vest.map(metFotoUrls),
+    vacatures: Array.isArray(vac) ? vac : [],
+  })
 }
 
 /* ------------------------------------------------------------------ *

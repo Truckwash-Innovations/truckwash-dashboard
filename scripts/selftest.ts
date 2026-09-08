@@ -5530,5 +5530,141 @@ console.log('\n44. Waar een link in een mail uitkomt')
     /searchParams\.delete\('open'\)/.test(nav) && /replaceState/.test(nav))
 }
 
+/* ====================================================================
+ *  45. Werk en werving
+ *
+ *  Drie regels die op meer dan één plek staan en dus uit de pas kunnen gaan
+ *  lopen:
+ *
+ *    - wat er bij mij ligt (isVanMij in werk.ts, de policy in 0067, en
+ *      taken_voor_mail() in 0070)
+ *    - wie welke vacature mag (magVacature in werving.ts en mag_vacature in
+ *      0068)
+ *    - de leeftijd uit een geboortedatum, die het loon uit de salaristabel
+ *      bepaalt
+ *
+ *  De eerste twee kunnen hier alleen aan de app-kant worden nagemeten; de SQL
+ *  ernaast staat in sqltest.mjs. Wat hier telt is dat de app niet iets anders
+ *  zegt dan wat er in de kop van 0067 en 0068 beloofd wordt.
+ * ==================================================================== */
+
+console.log('\n45. Werk en werving')
+
+{
+  const { isVanMij, magBijLocatie, isTeLaat, opDringendheid } = await import('../src/lib/werk.ts')
+  const { leeftijd, slugVan, magVacature } = await import('../src/lib/werving.ts')
+
+  const mens = (extra: Record<string, unknown> = {}) => ({
+    id: 'u1', email: 'a@b.nl', password: '', name: 'Test',
+    roles: ['supervisor'], active: true, updatedAt: 0, ...extra,
+  }) as never
+
+  const taak = (extra: Record<string, unknown> = {}) => ({
+    id: 't1', titel: 'x', status: 'te_doen', prioriteit: 'normaal',
+    volgorde: 0, bron: 'handmatig', createdAt: 0, updatedAt: 0, ...extra,
+  }) as never
+
+  /* --- bij wie ligt het --- */
+
+  check('op mijn naam is van mij',
+    isVanMij(taak({ toegewezenAan: 'u1' }), mens()))
+
+  check('een taak van iemand anders niet',
+    !isVanMij(taak({ toegewezenAan: 'u2' }), mens()))
+
+  /*
+   * Werk dat bij een rol ligt is het geval waar het om draait: dat is werk dat
+   * nog door niemand is opgepakt. Zonder deze regel ziet niemand een nieuwe
+   * sollicitatie tot iemand er toevallig op klikt.
+   */
+  check('werk dat bij mijn rol ligt op mijn vestiging is van mij',
+    isVanMij(taak({ toegewezenRol: 'supervisor', locationId: 'loc_venlo' }),
+             mens({ locationId: 'loc_venlo' })))
+
+  check('maar niet op een vestiging waar ik niets te zeggen heb',
+    !isVanMij(taak({ toegewezenRol: 'supervisor', locationId: 'loc_groenlo' }),
+              mens({ locationId: 'loc_venlo' })))
+
+  check('en niet als het bij een andere rol ligt',
+    !isVanMij(taak({ toegewezenRol: 'management', locationId: 'loc_venlo' }),
+              mens({ locationId: 'loc_venlo' })))
+
+  check('wie leiding heeft over een vestiging telt die mee',
+    isVanMij(taak({ toegewezenRol: 'supervisor', locationId: 'loc_ede' }),
+             mens({ manages: ['loc_ede', 'loc_wehl'] })))
+
+  check('het hoofdkantoor mag overal bij',
+    magBijLocatie('loc_wat_dan_ook', mens({ allLocations: true })))
+
+  check('en een taak zonder vestiging is voor iedereen',
+    magBijLocatie(undefined, mens({ locationId: 'loc_venlo' })))
+
+  /* --- over de datum --- */
+
+  const gisteren = Date.now() - 86_400_000
+  check('een taak met een datum van gisteren is te laat',
+    isTeLaat(taak({ deadline: gisteren })))
+  check('maar niet als hij al klaar is',
+    !isTeLaat(taak({ deadline: gisteren, status: 'klaar' })))
+  check('en zonder datum kun je niet te laat zijn',
+    !isTeLaat(taak({})))
+
+  /*
+   * Op de lijst telt de prioriteit eerst en de datum daarna, en een taak
+   * zonder datum komt achter een taak met een datum. Anders staat "ooit een
+   * keer" boven "vandaag af".
+   */
+  const gesorteerd = [
+    taak({ id: 'a', prioriteit: 'normaal', deadline: gisteren }),
+    taak({ id: 'b', prioriteit: 'urgent' }),
+    taak({ id: 'c', prioriteit: 'normaal' }),
+  ].sort(opDringendheid).map((t: { id: string }) => t.id).join('')
+  check('het dringendst bovenaan, zonder datum onderaan', gesorteerd === 'bac', gesorteerd)
+
+  /* --- de leeftijd --- */
+
+  const nu = new Date('2026-09-08T12:00:00Z')
+  check('leeftijd uit een geboortedatum', leeftijd('2000-01-01', nu) === 26)
+  /*
+   * De verjaardag van vandaag telt mee, die van morgen niet. Dat verschil is
+   * precies wat de salaristabel doet: op je verjaardag ga je een regel omlaag.
+   */
+  check('op je verjaardag ben je al jarig', leeftijd('2008-09-08', nu) === 18)
+  check('een dag ervoor nog niet', leeftijd('2008-09-09', nu) === 17)
+  check('rommel geeft niets terug', leeftijd('gisteren', nu) === null)
+  check('en niets geeft ook niets terug', leeftijd(undefined, nu) === null)
+
+  /* --- de slug --- */
+
+  check('een titel wordt een adres', slugVan('Wasmedewerker Venlo') === 'wasmedewerker-venlo')
+  check('accenten en leestekens gaan eruit',
+    slugVan('Chauffeur (C/CE) — Zoë!') === 'chauffeur-c-ce-zoe')
+  check('en er blijven geen streepjes aan de randen staan',
+    slugVan('  Horeca  ') === 'horeca')
+
+  /* --- wie welke vacature mag ---
+   *
+   * Een lege lijst vestigingen betekent "overal". Een leidinggevende mag dat
+   * daarom niet: "overal" bevat ook de zeventien vestigingen waar hij niets te
+   * zeggen heeft. Dezelfde regel staat als mag_vacature() in 0068.
+   */
+
+  const leiding = mens({ manages: ['loc_venlo'] })
+  const baas = mens({ roles: ['management'], allLocations: true })
+
+  check('het management mag een vacature voor alle vestigingen',
+    magVacature([], baas))
+  check('een leidinggevende niet',
+    !magVacature([], leiding))
+  check('wel voor zijn eigen vestiging',
+    magVacature(['loc_venlo'], leiding))
+  check('niet voor die van een ander',
+    !magVacature(['loc_groenlo'], leiding))
+  check('en niet voor een lijst waar er een van een ander bij zit',
+    !magVacature(['loc_venlo', 'loc_groenlo'], leiding))
+  check('een gewone medewerker mag helemaal niets',
+    !magVacature(['loc_venlo'], mens({ roles: ['employee'], locationId: 'loc_venlo' })))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

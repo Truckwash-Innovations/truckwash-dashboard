@@ -983,6 +983,129 @@ function bouwKaart3D(canvas, locs, opKlik) {
   tik();
 }
 
+/* ============ SOLLICITATIEFORMULIER ============
+
+   Stuurt naar de edge function "solliciteren" in het dashboardproject. Daar
+   zit de servicesleutel en daar staan de grenzen; hier staat niets geheims.
+
+   Het formulier heeft geen "verplicht" in de browser aanstaan (novalidate):
+   de foutmeldingen van de browser staan in de taal van het besturingssysteem
+   en verschijnen als een tooltip die na drie seconden weg is. Voor een
+   sollicitant die zijn best doet is dat het verkeerde moment om onduidelijk
+   te zijn. Dus kijken we het zelf na en zetten we het gewoon in het scherm.
+
+   De beschikbaarheid wordt hier tot een lijst gemaakt. Een dag zonder tijden
+   en zonder opmerking gaat niet mee: een lege regel in een overzicht is
+   ruimte die niets zegt. */
+
+const SOL_ADRES = "https://yxsbmhavnttswxczeovt.supabase.co/functions/v1/solliciteren";
+
+function sollicitatieFormulierAansluiten() {
+  if (typeof STATISCH !== "undefined" && STATISCH) return;
+  const f = document.getElementById("solform");
+  if (!f) return;
+  const melding = document.getElementById("solmelding");
+  const knop = f.querySelector("button[type=submit]");
+
+  const zeg = (tekst, klasse) => {
+    melding.textContent = tekst;
+    melding.className = "sol-melding" + (klasse ? " " + klasse : "");
+  };
+
+  const w = (naam) => {
+    const el = f.elements[naam];
+    return el && el.value ? String(el.value).trim() : "";
+  };
+
+  f.addEventListener("submit", (e) => {
+    e.preventDefault();
+
+    const naam = w("naam");
+    const email = w("email");
+    const locatie = w("locatie");
+
+    /* Zelf nakijken, en meteen wijzen naar het veld dat mist. */
+    if (!naam) { zeg("Vul je naam in.", "mislukt"); f.elements.naam.focus(); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(email)) {
+      zeg("Dat e-mailadres klopt niet helemaal.", "mislukt");
+      f.elements.email.focus();
+      return;
+    }
+    if (!locatie) {
+      zeg("Kies bij welke vestiging je wilt werken.", "mislukt");
+      f.elements.locatie.focus();
+      return;
+    }
+
+    const beschikbaarheid = [];
+    f.querySelectorAll(".sol-dag").forEach((rij) => {
+      const van = rij.querySelector("[name=van]").value;
+      const tot = rij.querySelector("[name=tot]").value;
+      const opmerking = rij.querySelector("[name=opmerking]").value.trim();
+      if (!van && !tot && !opmerking) return;
+      beschikbaarheid.push({ dag: rij.dataset.dag, van, tot, opmerking });
+    });
+
+    knop.disabled = true;
+    knop.textContent = "Versturen\u2026";
+    zeg("");
+
+    fetch(SOL_ADRES, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        vacature: f.dataset.vacature,
+        locatie, naam, email,
+        telefoon: w("telefoon"),
+        geboortedatum: w("geboortedatum"),
+        woonplaats: w("woonplaats"),
+        school: w("school"),
+        opleiding: w("opleiding"),
+        niveau: w("niveau"),
+        leerjaar: w("leerjaar"),
+        ervaring: w("ervaring"),
+        hoeGevonden: w("hoeGevonden"),
+        hoeLang: w("hoeLang"),
+        beperkingen: w("beperkingen"),
+        vervoer: w("vervoer"),
+        rijbewijs: w("rijbewijs"),
+        reistijd: w("reistijd"),
+        andereVestiging: w("andereVestiging"),
+        motivatie: w("motivatie"),
+        beschikbaarheid,
+      }),
+    })
+      .then((r) => r.json())
+      .then((a) => {
+        if (a && a.ok) {
+          /* Het formulier verdwijnt. Wie op verzenden heeft gedrukt en het
+             formulier ziet staan, drukt nog een keer -- en dan staan er twee
+             sollicitaties van dezelfde persoon. */
+          f.hidden = true;
+          const klaar = document.createElement("div");
+          klaar.className = "sol-gelukt";
+          klaar.innerHTML =
+            "<h3>Bedankt, je sollicitatie is binnen.</h3>" +
+            "<p>Je krijgt een bevestiging per mail. Iemand van de vestiging neemt " +
+            "binnen een paar werkdagen contact met je op.</p>" +
+            '<p>Haast? Bel <a href="tel:0880600100">088 - 0600 100</a>.</p>';
+          f.parentNode.appendChild(klaar);
+          klaar.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        knop.disabled = false;
+        knop.textContent = "Sollicitatie versturen";
+        zeg((a && a.reden) || "Versturen lukte niet. Probeer het zo nog eens.", "mislukt");
+      })
+      .catch(() => {
+        knop.disabled = false;
+        knop.textContent = "Sollicitatie versturen";
+        zeg("Versturen lukte niet. Heb je verbinding? Anders kun je bellen: 088 - 0600 100.",
+            "mislukt");
+      });
+  });
+}
+
 /* ============ MEDEWERKERSPAGINA ============ */
 const REL_REPO = "https://github.com/Truckwash-Innovations/truckwash-dashboard";
 
@@ -1304,6 +1427,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (voorkeur) voorkeur.selected = true;
     sel.addEventListener("change", zet); zet();
   }
+
+  sollicitatieFormulierAansluiten();
 
   const kv = document.getElementById("nlkaart");
   if (kv && window.THREE) {

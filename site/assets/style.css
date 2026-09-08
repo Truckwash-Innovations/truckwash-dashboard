@@ -866,3 +866,71 @@ main{display:block}
 .voet .onder .tekstknop:hover{color:var(--geel)}
 .verklaring .tekstknop{color:var(--navy-600)}
 .verklaring .tekstknop:hover{color:var(--navy-500)}
+
+/* ================= het sollicitatieformulier =================
+   Twee kolommen op een scherm, één op een telefoon. Labels boven de velden en
+   niet ernaast: een sollicitant vult dit vaak op een telefoon in, en een label
+   naast een veld kost daar de halve regelbreedte.
+
+   Geen sterretjes-in-het-rood en geen validatiemeldingen van de browser: die
+   staan in de taal van het besturingssysteem en verdwijnen na drie seconden.
+   Wat er mis is staat onderaan bij de knop, in gewone zinnen. */
+
+.sol-form{display:flex;flex-direction:column;gap:14px}
+
+.sol-rij{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+.sol-form label{
+  display:flex;flex-direction:column;gap:5px;
+  font-family:Archivo,sans-serif;font-weight:600;font-size:14px;color:var(--inkt);
+}
+.sol-form input,
+.sol-form select,
+.sol-form textarea{
+  font-family:Barlow,-apple-system,'Segoe UI',sans-serif;font-size:16px;
+  padding:11px 13px;border:1px solid var(--lijn);border-radius:4px;
+  background:var(--wit);color:var(--inkt);width:100%;
+}
+.sol-form textarea{resize:vertical;line-height:1.5}
+.sol-form input:focus-visible,
+.sol-form select:focus-visible,
+.sol-form textarea:focus-visible{
+  outline:3px solid var(--geel);outline-offset:1px;border-color:var(--geel);
+}
+
+.sol-kop{
+  font-family:Archivo,sans-serif;font-size:19px;margin:var(--s3) 0 0;
+  padding-top:var(--s3);border-top:1px solid var(--lijn-zacht);
+}
+
+/* De beschikbaarheid: dag, van, tot, opmerking. Op een telefoon breekt de
+   opmerking naar een eigen regel -- drie velden naast elkaar op 360px is geen
+   invulveld meer maar een streepje. */
+.sol-dagen{display:flex;flex-direction:column;gap:6px}
+.sol-dag{
+  display:grid;grid-template-columns:96px 120px 120px 1fr;gap:8px;align-items:center;
+  padding:7px 10px;border-radius:4px;background:var(--papier);
+}
+.sol-dag > span{font-family:Archivo,sans-serif;font-weight:600;font-size:14px}
+.sol-dag input{padding:8px 10px;font-size:15px}
+
+.sol-klein{font-size:13.5px;color:var(--inkt-3);margin:0}
+.sol-klein a{color:var(--navy-600);text-decoration:underline}
+
+.sol-knoppen{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.sol-melding{margin:0;font-size:14.5px}
+.sol-melding.mislukt{color:var(--rood);font-weight:600}
+
+.sol-gelukt{
+  padding:var(--s4);border-radius:4px;background:var(--navy-700);color:#fff;
+}
+.sol-gelukt h3{color:#fff;margin:0 0 10px}
+.sol-gelukt p{color:#c3d0e8;margin:0 0 8px;font-size:15.5px;line-height:1.6}
+.sol-gelukt a{color:var(--geel)}
+
+@media(max-width:760px){
+  .sol-rij{grid-template-columns:1fr}
+  .sol-dag{grid-template-columns:1fr 1fr;gap:6px}
+  .sol-dag > span{grid-column:1 / -1}
+  .sol-dag input[name=opmerking]{grid-column:1 / -1}
+}

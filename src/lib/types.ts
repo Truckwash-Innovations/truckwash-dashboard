@@ -2185,6 +2185,113 @@ export interface TaakReactie {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Werving: vacatures en sollicitaties
+ *
+ *  De sollicitatieknoppen op de site wezen naar een systeem van een andere
+ *  partij; wat daar binnenkwam kwam hier nooit aan. Zie migratie 0068.
+ * ------------------------------------------------------------------ */
+
+/** FG1 t/m FG5 uit de salaristabel. Alleen om een vacature aan een schaal te
+ *  hangen; de bedragen zelf staan niet in de app. */
+export type Functiegroep = 'FG1' | 'FG2' | 'FG3' | 'FG4' | 'FG5'
+
+export interface Vacature {
+  id: string
+  /** Het pad op de website. */
+  slug: string
+  titel: string
+  functiegroep?: Functiegroep
+  intro: string
+  tekst: string
+  taken: string[]
+  eisen: string[]
+  bieden: string[]
+  uren?: string
+  /**
+   * Op welke vestigingen. Leeg = alle.
+   *
+   * Dat is de gewone stand voor een vacature als "washeld" die overal
+   * openstaat, en het scheelt achttien vinkjes bij elke nieuwe vacature. Een
+   * leidinggevende mag alleen vacatures voor zijn eigen vestigingen, en dus
+   * geen lege lijst -- dat zou "overal" betekenen.
+   */
+  locaties: string[]
+  actief: boolean
+  volgorde: number
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type SollicitatieStatus =
+  'nieuw' | 'gesprek' | 'proefdag' | 'aangenomen' | 'afgewezen' | 'ingetrokken'
+
+/** Eén regel uit het beschikbaarheidsrooster van het formulier. */
+export interface Beschikbaar {
+  dag: string
+  van: string
+  tot: string
+  opmerking: string
+}
+
+export interface Sollicitatie {
+  id: string
+  vacatureId?: string
+  /** De titel erbij, want een vacature kan worden hernoemd of ingetrokken. */
+  vacatureTitel?: string
+  locationId?: string
+
+  naam: string
+  email: string
+  telefoon?: string
+  /**
+   * Geen leeftijd maar een geboortedatum (ISO, jjjj-mm-dd).
+   *
+   * Het gespreksformulier vraagt naar de leeftijd, en dat is een antwoord dat
+   * na een jaar niet meer klopt -- terwijl het loon uit de salaristabel er wél
+   * aan hangt.
+   */
+  geboortedatum?: string
+  woonplaats?: string
+
+  school?: boolean
+  opleiding?: string
+  niveau?: string
+  leerjaar?: string
+  ervaring?: string
+  hoeGevonden?: string
+  motivatie?: string
+
+  hoeLang?: string
+  beperkingen?: string
+
+  vervoer?: string
+  rijbewijs?: boolean
+  reistijd?: string
+  andereVestiging?: boolean
+
+  beschikbaarheid: Beschikbaar[]
+
+  /* --- de afhandeling; niet zichtbaar voor de sollicitant --- */
+  status: SollicitatieStatus
+  indruk?: string
+  notities?: string
+  gesprekAt?: number
+  proefdagAt?: number
+  functiegroep?: Functiegroep
+  behandeldDoor?: string
+  behandeldDoorNaam?: string
+  behandeldAt?: number
+  afwijsReden?: string
+  /** Het dossier dat hieruit is gemaakt; gevuld zodra dat is gebeurd. */
+  profileId?: string
+
+  createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Sync
  * ------------------------------------------------------------------ */
 
@@ -2205,6 +2312,7 @@ export type EntityName =
   | 'grootboek' | 'kostenTags'
   | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
   | 'taken' | 'taakProjecten' | 'taakReacties'
+  | 'vacatures' | 'sollicitaties'
 
 export type SyncOp = 'put' | 'delete'
 

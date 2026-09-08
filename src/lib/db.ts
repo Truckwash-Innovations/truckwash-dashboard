@@ -16,7 +16,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
-  Taak, TaakProject, TaakReactie,
+  Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
   PersonnelDocument, PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel,
   Shift, Signup, StockMovement, Ticket,
   TicketMessage, TimeEntry, User, WashJob, WorkOrder,
@@ -84,6 +84,8 @@ class TruckwashDB extends Dexie {
   taken!: Table<Taak, string>
   taakProjecten!: Table<TaakProject, string>
   taakReacties!: Table<TaakReactie, string>
+  vacatures!: Table<Vacature, string>
+  sollicitaties!: Table<Sollicitatie, string>
   outbox!: Table<OutboxRecord, number>
   meta!: Table<{ key: string; value: unknown }, string>
 
@@ -252,6 +254,16 @@ class TruckwashDB extends Dexie {
       taken: 'id, status, [status+volgorde], projectId, locationId, toegewezenAan, toegewezenRol, deadline, updatedAt',
       taakProjecten: 'id, locationId, archief, volgorde, updatedAt',
       taakReacties: 'id, taakId, createdAt, updatedAt',
+    })
+
+    /* v22: werving.
+
+       Sollicitaties komen bijna altijd op status en op datum binnen ("wat is
+       er nieuw"), en soms per vestiging. Vacatures op slug, want dat is wat de
+       website gebruikt. */
+    this.version(22).stores({
+      vacatures: 'id, slug, actief, volgorde, updatedAt',
+      sollicitaties: 'id, status, locationId, vacatureId, createdAt, updatedAt',
     })
   }
 }

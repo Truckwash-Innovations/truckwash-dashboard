@@ -2,7 +2,7 @@ import {
   AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
-  ListTodo, Timer, Truck, Users, Wallet, Wrench,
+  BriefcaseBusiness, ListTodo, Timer, Truck, Users, Wallet, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -45,6 +45,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   trucky:       ['administratie', 'management'],
   postbus:      ['management', 'developer'],
   werk:         ['supervisor', 'management', 'developer'],
+  werving:      ['supervisor', 'management', 'developer'],
   plannen:      ['customer', 'developer'],
   kosten:       ['employee', 'administratie'],
   materiaal:    ['employee', 'management'],
@@ -191,6 +192,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'kosten',     label: 'Kosten',       hint: 'Bonnen indienen',                 icon: Receipt,         recht: 'expenses.submit', ook: ['bon', 'declaratie'] },
   { page: 'financieel', label: 'Financieel',   hint: 'Kosten valideren en resultaat',   icon: Receipt,         recht: 'finance.view', ook: ['omzet', 'marge', 'bonnen'] },
   { page: 'overzicht',  label: 'Overzicht',    hint: 'Cijfers en grafieken',            icon: LayoutDashboard, ook: ['kpi', 'cijfers'] },
+  { page: 'werving',    label: 'Werving',      hint: 'Sollicitaties en vacatures',        icon: BriefcaseBusiness, ook: ['vacature', 'solliciteren', 'sollicitatie', 'kandidaat'] },
   { page: 'werk',       label: 'Werk',         hint: 'Je taken, het bord en de projecten', icon: ListTodo,     ook: ['taken', 'todo', 'bord', 'kanban', 'project'] },
   { page: 'personeel',  label: 'Personeel',    hint: 'Dossiers, rechten en vestigingen', icon: Users,          recht: 'staff.view', ook: ['medewerkers', 'dossier'] },
   { page: 'aanmeldingen', label: 'Aanmeldingen', hint: 'Wie zich heeft aangemeld',      icon: Inbox,           recht: 'signups.view' },

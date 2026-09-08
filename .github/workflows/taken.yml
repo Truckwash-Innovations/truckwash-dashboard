@@ -1,0 +1,70 @@
+name: Takenwekker
+
+# Wekt de Edge Function takenmail, die iedereen zijn openstaande taken mailt.
+#
+# Casper: "zorg ook ervoor dat iedereen om 7 uur en 15:00 uur een mail krijgen
+# met al hun todo's".
+#
+# Twee secrets zetten, op twee plekken:
+#
+#   GitHub  ->  deze repo  ->  Settings  ->  Secrets and variables  ->  Actions
+#     SUPABASE_FUNCTIONS_URL   https://yxsbmhavnttswxczeovt.supabase.co/functions/v1
+#                              (staat er al, voor de voorraadwekker)
+#     TAKEN_CRON_SECRET        een lang, zelf gekozen wachtwoord
+#
+#   Supabase (vanuit de map dashboard):
+#     supabase secrets set TAKEN_CRON_SECRET=<hetzelfde wachtwoord> --project-ref yxsbmhavnttswxczeovt
+#
+# Over de tijden: GitHub plant in UTC en Nederland verzet twee keer per jaar de
+# klok, dus zeven uur 's ochtends is 5 of 6 uur UTC. De wekker loopt daarom elk
+# heel uur van 4 tot en met 14 UTC langs; de functie kijkt zelf hoe laat het in
+# Nederland is (Europe/Amsterdam) en slaat de rest over. Welke uren dat zijn
+# staat in de instelling taken_mail_uren, nu "7,15" -- daar is dus geen nieuwe
+# versie voor nodig.
+#
+# De functie houdt bij wanneer hij voor het laatst ging, per uur. GitHub start
+# een schedule soms twee keer, en twee identieke mails om zeven uur is erger
+# dan geen mail: dan gaat de volgende ook ongelezen weg.
+
+on:
+  schedule:
+    - cron: '0 4-14 * * *'
+  workflow_dispatch:
+    inputs:
+      actie:
+        description: 'test stuurt nu, ongeacht het uur'
+        type: choice
+        required: true
+        default: test
+        options:
+          - test
+          - normaal
+
+jobs:
+  wekken:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: De functie wekken
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTIONS_URL }}
+          GEHEIM: ${{ secrets.TAKEN_CRON_SECRET }}
+          ACTIE: ${{ github.event.inputs.actie }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$GEHEIM" ]; then
+            echo "SUPABASE_FUNCTIONS_URL of TAKEN_CRON_SECRET ontbreekt in de repo-secrets."
+            exit 1
+          fi
+          actie="${ACTIE:-normaal}"
+          # jq maakt de JSON, zodat een aanhalingsteken in het geheim geen
+          # onleesbaar verzoek oplevert. Het geheim gaat via een bestand en
+          # niet via de opdrachtregel, zodat het niet in de proceslijst staat.
+          jq -n --arg actie "$actie" --arg geheim "$GEHEIM" \
+            '{actie: $actie, geheim: $geheim}' > body.json
+          curl --silent --show-error --fail-with-body \
+            --max-time 120 \
+            -X POST "$URL/takenmail" \
+            -H 'Content-Type: application/json' \
+            --data @body.json
+          echo
+          rm -f body.json
