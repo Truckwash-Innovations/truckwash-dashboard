@@ -413,15 +413,71 @@ export const supabaseApi: ApiAdapter = {
       return false
     }
   },
+  /*
+   * Wachtwoord vergeten -- via onze eigen functie, niet via Supabase.
+   *
+   * Hier stond auth.resetPasswordForEmail(). Dat was op drie manieren stuk:
+   * de mail kwam van Supabase in plaats van Resend en liet geen regel achter
+   * in email_log, er ging geen redirectTo mee (dus Supabase pakte zijn eigen
+   * Site URL, en die staat op localhost), en zelfs met een goed adres kon die
+   * link nergens landen -- de client hieronder staat op
+   * detectSessionInUrl: false en er luistert nergens iets op
+   * PASSWORD_RECOVERY. Casper: "stuurt je naar een localhost, wat niet kan?"
+   *
+   * De serverfunctie stuurt nu een code van acht tekens. Zie
+   * supabase/functions/wachtwoord-vergeten/.
+   */
   async forgotPassword(email: string): Promise<void> {
     if (!supabaseConfigured) {
       throw new Error('No backend configured')
     }
-    const cleaned = email.trim().toLowerCase()
-    const { error } = await supabase().auth.resetPasswordForEmail(cleaned)
+    const { error } = await supabase().functions.invoke('wachtwoord-vergeten', {
+      body: { actie: 'aanvragen', email: email.trim().toLowerCase() },
+    })
+    /*
+     * Alleen als het verzoek de server niet haalde. Wat de server ervan vond
+     * blijft expres binnen: het antwoord is voor elk adres hetzelfde.
+     */
     if (error) {
-      throw new Error(error.message || 'Password reset failed')
+      throw new Error(error.message || 'De aanvraag is niet verstuurd.')
     }
+  },
+
+  async resetPassword(email: string, code: string, wachtwoord: string) {
+    if (!supabaseConfigured) {
+      return { ok: false, reden: 'Er is geen verbinding met de database.' }
+    }
+    const { data, error } = await supabase().functions.invoke<{ ok: boolean; reden?: string }>(
+      'wachtwoord-vergeten',
+      {
+        body: {
+          actie: 'instellen',
+          email: email.trim().toLowerCase(),
+          code: code.trim().toUpperCase(),
+          wachtwoord,
+        },
+      },
+    )
+    /*
+     * invoke() maakt van elke status buiten 2xx een error en laat het lichaam
+     * dan liggen. Hier staat in dat lichaam juist de reden ("deze code klopt
+     * niet"), en dat is precies wat de gebruiker moet lezen. Dus uitpakken.
+     */
+    if (error) {
+      const uitLichaam = await (async () => {
+        try {
+          const res = (error as { context?: Response }).context
+          if (!res || typeof res.json !== 'function') return null
+          const body = await res.json()
+          return typeof body?.reden === 'string' ? body.reden : null
+        } catch {
+          return null
+        }
+      })()
+      return { ok: false, reden: uitLichaam ?? (error.message || 'Het is niet gelukt.') }
+    }
+    if (!data?.ok) return { ok: false, reden: data?.reden ?? 'Het is niet gelukt.' }
+    return { ok: true }
   },
 
   async login(email, password) {

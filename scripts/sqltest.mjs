@@ -6688,6 +6688,112 @@ console.log('\n54. Een klant weggooien')
     (rMens || '').includes('inlogaccounts'), String(rMens))
 }
 
+/* ==================================================================== *
+ *  55. De herstelcodes liggen niet open
+ *
+ *  0076 zet een tabel neer waar per rij een mailadres van een collega in
+ *  staat, met een teller erbij van hoe vaak er is misgegokt. Die tabel heeft
+ *  met opzet nul policies: alleen de serverfunctie komt erin, en die werkt met
+ *  de servicesleutel.
+ *
+ *  "Nul policies" is precies het soort ding dat later per ongeluk verdwijnt --
+ *  iemand voegt er een toe om "even iets te kunnen zien", en dan ligt de lijst
+ *  open. Vandaar dit hoofdstuk.
+ *
+ *  Om te bewijzen dat het slot echt van RLS komt en niet van een ontbrekend
+ *  recht, krijgt authenticated hier eerst alle rechten op de tabel. In dit
+ *  nagebootste Supabase bestaan de standaardrechten die het echte Supabase op
+ *  elke nieuwe tabel zet namelijk niet -- zonder deze grant zou de test slagen
+ *  zonder iets te toetsen.
+ * ==================================================================== */
+
+console.log('\n55. De herstelcodes liggen niet open')
+
+{
+  await asServer(db)
+
+  const kolommen = (await db.query(`
+    select column_name from information_schema.columns
+     where table_schema = 'public' and table_name = 'wachtwoord_herstel'
+  `)).rows.map((r) => r.column_name).sort()
+
+  check('de tabel bestaat', kolommen.length > 0)
+  check('met de kolommen die de functie gebruikt',
+    ['at', 'code_hash', 'email', 'gebruikt_at', 'id', 'pogingen', 'verloopt']
+      .every((k) => kolommen.includes(k)), kolommen.join(', '))
+
+  /* De code zelf hoort er niet in te staan, alleen de hash ervan. */
+  check('en zonder een kolom voor de code zelf',
+    !kolommen.includes('code'), kolommen.join(', '))
+
+  const rls = (await db.query(`
+    select relrowsecurity from pg_class
+     where oid = 'public.wachtwoord_herstel'::regclass
+  `)).rows[0]
+  check('rij-beveiliging staat aan', rls?.relrowsecurity === true)
+
+  const beleid = (await db.query(`
+    select policyname from pg_policies
+     where schemaname = 'public' and tablename = 'wachtwoord_herstel'
+  `)).rows.map((r) => r.policyname)
+  check('en er is geen enkele policy', beleid.length === 0, beleid.join(', '))
+
+  /* ---- en dan het bewijs dat dat ook iets doet ---- */
+
+  await db.exec(`
+    insert into public.wachtwoord_herstel (id, email, code_hash, verloopt, at)
+    values ('wh_test', 'wasser@truckwash1.nl', repeat('x', 64), 9999999999999, 1)
+    on conflict (id) do nothing;
+  `)
+
+  /* Alle rechten erop, zodat wat hierna misgaat alleen nog van RLS kan komen. */
+  await db.exec('grant all on public.wachtwoord_herstel to authenticated, anon;')
+
+  const alsIngelogd = async (sql) => {
+    await db.exec("select set_config('test.uid', 'auth_wasser', true);")
+    await db.exec('set role authenticated;')
+    try {
+      const r = await db.query(sql)
+      return r.rows
+    } catch {
+      return null
+    } finally {
+      await db.exec('reset role;')
+      await asServer(db)
+    }
+  }
+
+  const gezien = await alsIngelogd('select id from public.wachtwoord_herstel;')
+  check('wie is ingelogd ziet geen enkele code',
+    gezien !== null && gezien.length === 0,
+    gezien === null ? 'geweigerd' : String(gezien.length))
+
+  /*
+   * En hij mag er ook niets in zetten. Zonder dit zou iemand met een account
+   * zijn eigen rij kunnen maken met een hash die hij zelf kent, en daarmee het
+   * wachtwoord van een willekeurige collega zetten.
+   */
+  const erin = await alsIngelogd(`
+    insert into public.wachtwoord_herstel (id, email, code_hash, verloopt, at)
+    values ('wh_stiekem', 'casper@truckwash1group.nl', repeat('y', 64), 9999999999999, 1)
+    returning id;
+  `)
+  check('en kan er zelf geen code in zetten', erin === null)
+
+  /*
+   * Wissen ook niet. Een teller die je zelf op nul kunt zetten door de rij weg
+   * te gooien en opnieuw te beginnen, is geen teller.
+   */
+  const weg = await alsIngelogd(
+    "delete from public.wachtwoord_herstel where id = 'wh_test' returning id;")
+  check('en kan de teller niet wegpoetsen',
+    weg === null || weg.length === 0, JSON.stringify(weg))
+
+  const over = (await db.query(
+    "select id from public.wachtwoord_herstel where id = 'wh_test';")).rows
+  check('de rij staat er dus nog', over.length === 1)
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

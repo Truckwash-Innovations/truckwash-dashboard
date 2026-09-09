@@ -35,11 +35,27 @@ export interface ApiAdapter {
   push(changes: PushChange[]): Promise<void>
   /** Haalt serverwijzigingen op sinds timestamp */
   pull(since: number): Promise<PullResult>
-  /** Sla wachtwoord terug in het systeem. Geeft niets terug bij succes.
-   * In de huidige codebase wordt dit gebruikt voor de “Forgot password” flow.
-   * De API mag een fout teruggeven, die moet door de front‑end afgehandeld
-   * worden. */
+  /**
+   * Vraagt een herstelcode aan en laat die per mail versturen.
+   *
+   * Geeft met opzet niets terug over het adres. Of er een account op staat,
+   * of dat account actief is, of de mail is aangekomen -- niets daarvan komt
+   * hier langs. Anders is deze aanroep een manier om uit te vinden wie er bij
+   * Truckwash1 werkt.
+   *
+   * Gooit alleen als het verzoek de server niet eens heeft gehaald.
+   */
   forgotPassword(email: string): Promise<void>
+  /**
+   * Wisselt de code in voor een nieuw wachtwoord.
+   *
+   * Geeft de reden terug als het misging, zodat het scherm iets kan zeggen.
+   * Elke manier waarop het mis kan gaan -- verkeerde code, verlopen, al
+   * gebruikt, te vaak geprobeerd -- levert dezelfde reden op; dat is aan de
+   * serverkant zo bedoeld.
+   */
+  resetPassword(email: string, code: string, wachtwoord: string):
+    Promise<{ ok: boolean; reden?: string }>
   /** Snelle bereikbaarheidscheck */
   ping(): Promise<boolean>
 }

@@ -6800,10 +6800,17 @@ console.log('\n54. De sfeerbeelden op het inlogscherm')
    */
   check('alleen op het inlogscherm',
     login.includes('className="auth-screen inlogscherm"'))
+  /*
+   * Op de klasse en niet op het woord.
+   *
+   * Dit sloeg aan op de knoptekst "Naar het inlogscherm" in ForgotPassword --
+   * een zin voor de lezer, geen video. Zo'n valse melding is erger dan geen
+   * melding: hij leert je de uitslag wegwuiven.
+   */
   const anderen = ['Aanmelden', 'ForgotPassword', 'WachtwoordWijzigen']
     .filter((n) => existsSync('src/components/' + n + '.tsx'))
     .filter((n) => readFileSync('src/components/' + n + '.tsx', 'utf8')
-      .includes('inlogscherm'))
+      .includes('auth-screen inlogscherm'))
   check('en niet op de andere authenticatieschermen',
     anderen.length === 0, anderen.join(', '))
 
@@ -6945,6 +6952,199 @@ console.log('\n55. De tweede handtekening')
       .test(verwerking))
 
   await db.expenses.delete('exp_55a')
+}
+
+/* ====================================================================
+ *  56. Wachtwoord vergeten -- via Resend, en zonder localhost
+ *
+ *  Casper: "je moet alle emails via resend doen, het vergeten wachtwoord knop
+ *  zit nu aan supabase, en stuurt je naar een localhost, wat niet kan?"
+ *
+ *  Er zaten drie fouten onder elkaar, en de bovenste verborg de andere twee.
+ *
+ *    1. supabase.auth.resetPasswordForEmail() stuurt post via Supabase en niet
+ *       via Resend. Er kwam dus geen regel in email_log, en "heeft hij iets
+ *       gehad?" was onbeantwoordbaar.
+ *    2. Er ging geen redirectTo mee, dus Supabase pakt de Site URL van het
+ *       project. Die staat op localhost.
+ *    3. En met een goed adres was het nog dood geweest: de client staat op
+ *       detectSessionInUrl: false en nergens in src/ luistert iets op
+ *       PASSWORD_RECOVERY. Die link kon in geen enkele bouw een sessie maken.
+ *
+ *  Het scherm zei ondertussen "E-mail verzonden. Controleer uw inbox."
+ *
+ *  Er komt nu een code per Resend-mail. Dit hoofdstuk kijkt of de oude weg
+ *  echt weg is, of de nieuwe compleet is, en of er in de nieuwe geen gat zit
+ *  dat een lege huls van deze test zou maken.
+ * ==================================================================== */
+
+console.log('\n56. Wachtwoord vergeten')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  const client = readFileSync('src/lib/api/supabaseApi.ts', 'utf8')
+  const server = readFileSync('supabase/functions/wachtwoord-vergeten/index.ts', 'utf8')
+  const post = readFileSync('supabase/functions/_gedeeld/post.ts', 'utf8')
+  const scherm = readFileSync('src/components/ForgotPassword.tsx', 'utf8')
+  const pakket = readFileSync('package.json', 'utf8')
+
+  /* ---- de oude weg is dicht ---- */
+
+  /*
+   * Niet zoeken op de tekst in een commentaarblok: die staat er met opzet nog,
+   * om uit te leggen waarom hij weg is. Dus op de aanroep.
+   */
+  check('resetPasswordForEmail wordt nergens meer aangeroepen',
+    !/await supabase\(\)\.auth\.resetPasswordForEmail/.test(client))
+
+  /* ---- de nieuwe weg is er helemaal ---- */
+
+  check('de app vraagt de code bij onze eigen functie',
+    /invoke\('wachtwoord-vergeten'/.test(client))
+  check('met de actie aanvragen', client.includes("actie: 'aanvragen'"))
+  check('en met de actie instellen', client.includes("actie: 'instellen'"))
+
+  /*
+   * Zonder --no-verify-jwt weigert Supabase elk verzoek zonder geldige sessie
+   * -- en dat is precies iedereen die deze functie nodig heeft. Dan is de knop
+   * opnieuw dood, en opnieuw zonder dat iets het meldt.
+   */
+  /*
+   * Als JSON lezen en niet als tekst. Het patroon hierboven liep vast op het
+   * aanhalingsteken tussen de sleutel en de waarde -- en zo'n test is dan
+   * verleidelijk om losser te maken tot hij groen wordt.
+   */
+  const open = String(JSON.parse(pakket).scripts?.['functions:open'] ?? '')
+  check('de functie wordt open uitgerold',
+    open.includes(' wachtwoord-vergeten ') && open.includes('--no-verify-jwt'), open)
+
+  /* ---- de post gaat via Resend en laat een spoor na ---- */
+
+  check('de mail gaat via Resend',
+    post.includes('https://api.resend.com/emails'))
+  check('en legt elke verzending vast, gelukt of niet',
+    /\.from\('email_log'\)\.insert/.test(post)
+      && post.includes("status: ok ? 'verstuurd' : 'mislukt'"))
+  check('de functie gebruikt die ene postkamer en niet zijn eigen fetch',
+    server.includes("import { verstuurBrief } from '../_gedeeld/post.ts'")
+      && !server.includes('api.resend.com'))
+
+  /* ---- geen link, dus geen adres dat verkeerd kan staan ---- */
+
+  /*
+   * Dit is de kern van Caspers klacht. De code hoort in de tekst van de mail
+   * te staan en niet in een adres: een adres moet ergens vandaan komen, en dat
+   * "ergens" stond op localhost.
+   */
+  check('de code gaat als tekst mee en niet in een link',
+    server.includes("gegevens: [['Herstelcode', code]]"))
+  /*
+   * Alleen in de code kijken. Het woord "localhost" staat bovenin, in de
+   * uitleg waarom het er niet meer is -- dat is de reden en niet de fout.
+   */
+  const codeVanServer = server
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((r) => !r.trim().startsWith('*') && !r.trim().startsWith('//'))
+    .join('\n')
+  check('en er staat nergens een redirect of een localhost in',
+    !/redirectTo|localhost/.test(codeVanServer))
+
+  /* ---- wat er niet gelekt mag worden ---- */
+
+  /*
+   * Eén antwoord voor elk adres. Zou het verschil maken of er een account
+   * bestaat, dan is dit formulier een manier om uit te vinden wie hier werkt.
+   */
+  const altijd = (server.match(/return json\(ALTIJD\)/g) ?? []).length
+  check('elk pad van "aanvragen" geeft hetzelfde antwoord', altijd >= 4,
+    String(altijd) + ' keer')
+  /*
+   * En de code komt nergens terug behalve in de mail. Regel voor regel kijken
+   * en niet met een patroon over het hele bestand: het woord "code" staat er
+   * tientallen keren, in commentaar en in namen, en dan toetst zo'n patroon
+   * niets meer.
+   */
+  const verdacht = server.split('\n')
+    .map((r, n) => [n + 1, r.trim()] as [number, string])
+    .filter(([, r]) => /console\.(log|warn|error)|return json/.test(r))
+    /*
+     * Op `code` als waarde, niet op het woord. Een logregel mag "kon de code
+     * niet vastleggen" zeggen -- daar staat de code zelf niet in. Wat niet mag
+     * is hem invoegen of doorgeven als los argument.
+     */
+    .filter(([, r]) => /\$\{code\}|[(,]\s*code\s*[,)]/.test(r))
+  check('de code staat in geen enkel antwoord en in geen enkele logregel',
+    verdacht.length === 0, verdacht.map(([n, r]) => n + ': ' + r).join(' | '))
+
+  /* ---- de code zelf ---- */
+
+  check('de code wordt gehasht bewaard, niet als zichzelf',
+    server.includes("crypto.subtle.digest('SHA-256'")
+      && /code_hash: await hashVan\(id, code\)/.test(server))
+  /*
+   * Met de id als zout. Zonder dat past één lijst van alle mogelijke codes op
+   * elke rij tegelijk -- en acht tekens is een lijst die te maken valt.
+   */
+  check('met de id als zout',
+    server.includes('`${id}:${code'))
+  check('en het alfabet mist de tekens die verkeerd worden overgetypt',
+    !/[IL1O0]/.test((server.match(/const ALFABET = '([^']+)'/) ?? [, ''])[1]))
+
+  /* ---- de remmen ---- */
+
+  check('misgokken is beperkt', server.includes('HOOGSTENS_POGINGEN'))
+  /*
+   * Tellen vóór vergelijken. Andersom telt een mislukte poging niet mee als er
+   * halverwege iets misgaat, en dan is de teller geen rem maar een suggestie.
+   */
+  const telt = server.indexOf("update({ pogingen })")
+  const vergelijkt = server.indexOf('gelijkTraag(rij.code_hash')
+  check('en wordt geteld vóór de code wordt vergeleken',
+    telt > 0 && vergelijkt > telt)
+  check('aanvragen is ook begrensd', server.includes('AANVRAGEN_PER_KWARTIER'))
+  check('en een code vervalt', server.includes('GELDIG_MS'))
+
+  /*
+   * Eén melding voor elke manier waarop het misgaat. Zou "verlopen" anders
+   * klinken dan "verkeerd", dan verklapt dat of het adres bestaat en of er
+   * onlangs om is gevraagd.
+   */
+  check('elke afwijzing klinkt hetzelfde',
+    (server.match(/reden: AFGEWEZEN/g) ?? []).length >= 4)
+
+  /* ---- en het scherm ---- */
+
+  check('het scherm heeft een tweede stap voor de code',
+    scherm.includes("type Stap = 'adres' | 'code' | 'klaar'"))
+  /*
+   * Dit stond er: "E-mail verzonden. Controleer uw inbox." -- gezegd zonder
+   * dat er iets was verstuurd, en zonder dat het kón aankomen.
+   */
+  check('en belooft niet meer dat er post is verzonden',
+    !/E.mail verzonden/.test(scherm))
+  check('maar zegt wat er waar is: als er een account staat',
+    scherm.includes('Staat er een account op'))
+  check('en dat het oude wachtwoord blijft werken',
+    scherm.includes('blijft'))
+
+  /* ---- dezelfde eis aan het wachtwoord, aan beide kanten ---- */
+
+  const signups = readFileSync('src/lib/signups.ts', 'utf8')
+  for (const regel of ['Gebruik minstens tien tekens.', 'Gebruik letters én cijfers.']) {
+    check(`de server stelt dezelfde eis: "${regel}"`,
+      server.includes(regel) && signups.includes(regel))
+  }
+  check('en het scherm kijkt met dezelfde functie mee',
+    scherm.includes('passwordProblem'))
+
+  /* ---- zonder database ---- */
+
+  const { mockApi } = await import('../src/lib/api/mockApi')
+  const uit = await mockApi.resetPassword('a@b.nl', 'ABCD2345', 'watgeheims12')
+  check('zonder database zegt de nepbak netjes nee', uit.ok === false)
+  check('met een reden erbij', typeof uit.reden === 'string' && uit.reden.length > 10)
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

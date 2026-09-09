@@ -1494,9 +1494,20 @@ export const mockApi: ApiAdapter = {
     }
     return { changes, serverTime: Date.now() }
   },
-  async forgotPassword(email: string): Promise<void> {
-    // In the mock backend we just resolve. In a real backend this would send an e‑mail.
+  /*
+   * Zonder database is er geen post en geen code. De nepbak doet alsof het is
+   * gelukt -- dat is ook wat de echte kant doet voor een onbekend adres.
+   */
+  async forgotPassword(_email: string): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 100))
+  },
+  /*
+   * En inwisselen kan niet. Netjes nee zeggen met de reden erbij is beter dan
+   * doen alsof: anders denkt iemand die zonder database probeert dat zijn
+   * wachtwoord is veranderd terwijl er niets is gebeurd.
+   */
+  async resetPassword(_email: string, _code: string, _wachtwoord: string) {
+    return { ok: false, reden: 'Zonder database kan een wachtwoord niet worden hersteld.' }
   },
 }
 
