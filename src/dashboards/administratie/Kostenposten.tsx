@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  AlertTriangle, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
+  AlertTriangle, ArrowLeft, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
   History, MessageSquarePlus, Plus, Receipt, RotateCcw, ScanText, Sparkles,
   Split, Wallet, X,
 } from 'lucide-react'
@@ -21,8 +21,8 @@ import {
 } from '../../lib/boeking'
 import { historieVan } from '../../lib/factuurhistorie'
 import {
-  Badge, Card, Empty, Field, Filterbalk, Filterchips, Knop, LeegStaat,
-  Modal, Paginakop, Stand, Stat, Tabbladen, Tabel, Zoekveld,
+  Badge, Card, Documentpaneel, Empty, Field, Filterbalk, Filterchips, Knop,
+  Kruimels, LeegStaat, Modal, Paginakop, Stand, Stat, Tabbladen, Tabel, Zoekveld,
 } from '../../components/ui'
 /* Als type en niet als waarde. Release 1.74.0 viel om op precies het
    omgekeerde: een component die als "import type" binnenkwam en als waarde
@@ -31,7 +31,6 @@ import {
    bundelaar en geen afspraak. */
 import type { Kolom } from '../../components/ui'
 import { magOpenen, postbus } from '../../lib/postbus'
-import Bekijker from '../../components/Bekijker'
 import type { Bekijkbaar } from '../../lib/bekijken'
 import { useAuth } from '../../store/useAuth'
 import { usePerms } from '../../store/useNav'
@@ -448,6 +447,28 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
     },
   ]
 
+  /*
+   * Een bon open: dan de detailpagina IN PLAATS VAN de lijst.
+   *
+   * Niet ernaast en niet erboven. Een venster over de lijst betekent dat je
+   * de lijst kwijt bent zodra je wilt vergelijken, en een tweeluik past er
+   * niet in. Bij het sluiten staat de lijst er weer precies zoals hij stond
+   * -- met je filters, je tabblad en je sortering, want die zitten in de
+   * staat van dit scherm en niet in het venster.
+   */
+  if (gekozen) {
+    return (
+      <BonDetail
+        bon={gekozen}
+        magLezen={perms.can('expenses.read')}
+        onClose={() => setOpen(null)}
+        onGoedkeuren={() => void keurGoed([gekozen.id])}
+        onAfkeuren={() => { setAfkeuren(gekozen); setReden('') }}
+        doorMij={gekozen.eersteDoor === user.id}
+      />
+    )
+  }
+
   return (
     <>
       <Paginakop
@@ -578,12 +599,6 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
         }
       />
 
-      <BonDetail
-        bon={gekozen}
-        magLezen={perms.can('expenses.read')}
-        onClose={() => setOpen(null)}
-      />
-
       <Modal
         open={!!afkeuren}
         title="Kostenpost afkeuren"
@@ -612,18 +627,53 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
  *  De bon van dichtbij, met wat eruit gelezen is
  * ================================================================== */
 
+/* ================================================================== *
+ *  De bon van dichtbij: document links, gegevens rechts
+ *
+ *  Casper, hoofdstuk 11: "links: document / PDF-preview, rechts:
+ *  administratieve gegevens". En hoofdstuk 10: "Een detailpagina moet niet
+ *  voelen als een compleet nieuw scherm."
+ *
+ *  Wat hier veranderd is
+ *  ---------------------
+ *
+ *  Dit zat in een Modal van 760 pixels breed, met alles onder elkaar en de
+ *  bijlage achter een knop die een schermvullende viewer opende BOVEN de
+ *  velden. Controleren ging dus zo: knop, lezen, onthouden, sluiten, intikken.
+ *  Bij een bedrag van zes cijfers is dat precies het moment waarop er een
+ *  cijfer omdraait.
+ *
+ *  Nu staat de bon links en staan de velden rechts, en hoeft er niets
+ *  onthouden te worden. Dat is de hele winst van deze verbouwing, en het is
+ *  geen kleine: het verschil tussen controleren en overtypen.
+ *
+ *  En het is geen venster meer maar een pagina in hetzelfde scherm, met een
+ *  terugpijl naar dezelfde lijst waar je vandaan kwam -- inclusief je filters
+ *  en de rij waar je stond, want die staan in de staat van het scherm en niet
+ *  in het venster.
+ *
+ *  De twee knoppen rechtsboven zijn de reden dat dit werkt: goedkeuren en
+ *  afkeuren staan waar je ze nodig hebt, en niet op een ander scherm.
+ *  Hoofdstuk 44: "Factuur openen -> controleren -> goedkeuren."
+ * ================================================================== */
+
 function BonDetail({
-  bon, magLezen, onClose,
+  bon, magLezen, onClose, onGoedkeuren, onAfkeuren, doorMij,
 }: {
-  bon: Expense | null
+  bon: Expense
   magLezen: boolean
   onClose: () => void
+  onGoedkeuren: () => void
+  onAfkeuren: () => void
+  /** Heeft de kijker zelf de eerste handtekening al gezet? */
+  doorMij: boolean
 }) {
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
+  const bijlagen = useBijlagen(bon)
 
   async function lees() {
-    if (!bon || bezig) return
+    if (bezig) return
     setBezig(true)
     setFout(null)
     const uit = await leesFactuur(bon.id)
@@ -635,60 +685,118 @@ function BonDetail({
     }
   }
 
-  return (
-    <Modal
-      open={!!bon}
-      title={bon?.supplier || 'Kostenpost'}
-      subtitle={bon ? `${datumMisschienTijd(bon.date)} · ${money(bon.amountExcl)} excl. btw` : undefined}
-      onClose={onClose}
-      width={760}
-    >
-      {bon && (
-        <>
-          <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <Bijlage bon={bon} />
-            <LeesStatus bon={bon} />
-            <VanzelfAkkoord bon={bon} />
-            <span className="spacer" />
-            {magLezen && heeftIetsTeLezen(bon) && (
-              <button className="btn primary sm" disabled={bezig} onClick={() => void lees()}>
-                {bezig
-                  ? <><Loader2 size={14} className="spin" /> Aan het lezen…</>
-                  : <><ScanText size={14} /> {bon.gelezen ? 'Opnieuw lezen' : 'Laat de factuur lezen'}</>}
-              </button>
-            )}
-          </div>
+  const teBeslissen = bon.status === 'open' || bon.status === 'eerste_akkoord'
 
-          {!heeftIetsTeLezen(bon) && (
-            <p className="hint">
-              Bij deze kostenpost zit geen bijlage, dus er valt niets voor te lezen.
-            </p>
+  return (
+    <>
+      <Kruimels stappen={[
+        { label: 'Kostenposten', ga: onClose },
+        { label: bon.supplier || 'Kostenpost' },
+      ]} />
+
+      <div className="detailkop">
+        <Knop
+          soort="bij"
+          ikoon={<ArrowLeft size={16} />}
+          onClick={onClose}
+          title="Terug naar de lijst"
+        >
+          Terug
+        </Knop>
+
+        <div className="titel">
+          <h1>{bon.supplier || 'Kostenpost'}</h1>
+          <span className="onder">
+            {bon.factuurnummer ? `#${bon.factuurnummer} · ` : ''}
+            {datumMisschienTijd(bon.date)} · {money(bon.amountExcl)} excl. btw
+          </span>
+        </div>
+
+        <BonStand bon={bon} />
+
+        <div className="acties">
+          {magLezen && heeftIetsTeLezen(bon) && (
+            <Knop
+              soort="gewoon"
+              bezig={bezig}
+              onClick={() => void lees()}
+              ikoon={<ScanText size={15} />}
+            >
+              {bon.gelezen ? 'Opnieuw lezen' : 'Laat de factuur lezen'}
+            </Knop>
           )}
 
-          {fout && <p className="waarschuwing">{fout}</p>}
+          {teBeslissen ? (
+            <>
+              <Knop soort="gevaar" onClick={onAfkeuren} ikoon={<X size={15} />}>
+                Afkeuren
+              </Knop>
+              {/*
+                De hoofdactie, en de enige gele knop op dit scherm.
+                Uitgeschakeld en niet verborgen als je zelf de eerste
+                handtekening zette: verbergen zou lijken alsof er niets te doen
+                valt, terwijl er op een collega wordt gewacht.
+              */}
+              <Knop
+                soort="hoofd"
+                disabled={bon.status === 'eerste_akkoord' && doorMij}
+                onClick={onGoedkeuren}
+                ikoon={bon.status === 'eerste_akkoord'
+                  ? <CheckCheck size={15} />
+                  : <Check size={15} />}
+                title={bon.status === 'eerste_akkoord' && doorMij
+                  ? 'Je hebt deze factuur zelf nagekeken; de tweede handtekening moet van iemand anders komen'
+                  : undefined}
+              >
+                {bon.status === 'eerste_akkoord' ? 'Tweede handtekening' : 'Goedkeuren'}
+              </Knop>
+            </>
+          ) : (
+            <Knop
+              soort="gewoon"
+              ikoon={<RotateCcw size={15} />}
+              onClick={() => void expRepo.reopen(bon.id).then(() => toast.info('Terug naar te valideren'))}
+            >
+              Heropenen
+            </Knop>
+          )}
+        </div>
+      </div>
+
+      {fout && <p className="waarschuwing">{fout}</p>}
+
+      <div className="tweeluik">
+        {/* Links: het papier. */}
+        <Documentpaneel bestanden={bijlagen} />
+
+        {/* Rechts: wat er van gemaakt is. */}
+        <div className="tweeluik-zij">
+          <VanzelfAkkoord bon={bon} />
+          <LeesStatus bon={bon} />
 
           <Overzicht bon={bon} />
           <Splitsen bon={bon} />
-          <Verloop bon={bon} />
           <Boeking bon={bon} />
-          <Historie bon={bon} />
 
           <AnimatePresence mode="wait">
             {bon.gelezen && (
               <motion.div
                 key={bon.gelezen.gelezenOp}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: .22 }}
+                transition={{ duration: .18 }}
               >
                 <Lezing bon={bon} lezing={bon.gelezen} />
               </motion.div>
             )}
           </AnimatePresence>
-        </>
-      )}
-    </Modal>
+
+          <Historie bon={bon} />
+          <Verloop bon={bon} />
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -1852,19 +1960,26 @@ function Signalen({ bon }: { bon: Expense }) {
   )
 }
 
-function Bijlage({ bon }: { bon: Expense }) {
+/**
+ * Welke bestanden er bij deze bon horen.
+ *
+ * Stond binnen Bijlage. Het documentpaneel in het detail heeft precies
+ * dezelfde lijst nodig, en die twee mogen niet uit elkaar lopen: de
+ * paperclip in de rij en het document in het paneel horen hetzelfde bestand
+ * te zijn. Dus een hook, en niet twee keer dezelfde berekening.
+ */
+function useBijlagen(bon: Expense): Bekijkbaar[] {
   const post = useLiveQuery<MailBericht | undefined>(
     async () => (bon.mailboxId ? db.mailbox.get(bon.mailboxId) : undefined),
     [bon.mailboxId],
   )
-  const [kijkt, setKijkt] = useState<number | null>(null)
 
   /*
    * Een mail met drie bonnen eraan leverde hier één knop op, en de andere
    * twee waren nergens meer te vinden. Kwam deze bon uit de post, dan hangt
    * alles wat er bij die mail zat er nu onder.
    */
-  const bijlagen = useMemo<Bekijkbaar[]>(() => {
+  return useMemo<Bekijkbaar[]>(() => {
     const uitPost: Bekijkbaar[] = (post?.attachments ?? []).map((b) => ({
       naam: b.naam,
       mime: b.mime,
@@ -1885,22 +2000,25 @@ function Bijlage({ bon }: { bon: Expense }) {
       ...uitPost,
     ]
   }, [post, bon.attachmentPath, bon.attachmentName])
+}
 
+/**
+ * De paperclip in een tabelrij.
+ *
+ * Alleen een teken dat er iets bij zit, met het aantal. De bijlage zelf
+ * bekijk je in het detail, waar hij naast de gegevens staat -- daar is hij
+ * ergens goed voor, en in een rij van 36 pixels niet.
+ */
+function Bijlage({ bon }: { bon: Expense }) {
+  const bijlagen = useBijlagen(bon)
   if (bijlagen.length === 0) return null
 
   return (
-    <>
-      {bijlagen.map((b, i) => (
-        <button key={b.naam + i} className="bon-bijlage" onClick={() => setKijkt(i)}>
-          <Paperclip size={12} /> {b.naam}
-        </button>
-      ))}
-      <Bekijker
-        bestanden={bijlagen}
-        index={kijkt}
-        onSluiten={() => setKijkt(null)}
-        onWissel={setKijkt}
-      />
-    </>
+    <span title={bijlagen.map((b) => b.naam).join(', ')}>
+      <Paperclip size={14} />
+      {bijlagen.length > 1 && (
+        <span style={{ fontSize: 'var(--fs-mini)', marginLeft: 1 }}>{bijlagen.length}</span>
+      )}
+    </span>
   )
 }

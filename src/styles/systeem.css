@@ -1255,3 +1255,97 @@ kbd.toets {
 /* De knoppen in een tabelrij. Vlak naast elkaar, want ze horen bij elkaar,
    en rechts omdat daar de actiekolom zit. */
 .rijacties { display: inline-flex; gap: var(--s1); justify-content: flex-end; }
+
+/* ==================================================================
+   23. Het documentpaneel
+   ==================================================================
+
+   De linkerhelft van het tweeluik. De omlijsting staat in hoofdstuk 10; dit
+   is wat er in het blad gebeurt als er geen document te zien is -- of nog
+   niet, of niet meer.
+   ================================================================== */
+
+.tweeluik-doc .balk .naam {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+
+/* Ophalen, mislukt, geblokkeerd, of een soort die we niet tonen. Alle vier
+   in hetzelfde vlak, zodat het paneel niet verspringt tussen die standen. */
+.tweeluik-doc .leegdoc {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s5);
+  text-align: center;
+  color: var(--text-3);
+}
+.tweeluik-doc .leegdoc p {
+  margin: 0;
+  max-width: 40ch;
+  font-size: var(--fs-klein);
+  line-height: 1.55;
+}
+.tweeluik-doc .leegdoc strong { color: var(--text-2); }
+
+/* Een link die eruitziet als een knop. .k geeft hem de vorm; dit haalt de
+   onderstreping weg die een <a> meebrengt. */
+a.k { text-decoration: none; }
+
+/* ==================================================================
+   24. De kop van een detailpagina
+   ==================================================================
+
+   Casper, hoofdstuk 10: "Bovenaan: Terug, Factuur #2026-00123, In
+   behandeling. Rechts: Afkeuren, Goedkeuren."
+
+   Waarom dit geen venster meer is
+   -------------------------------
+
+   Het detail zat in een Modal van 760px. Daar past geen tweeluik in, en
+   erger: een venster boven de lijst betekent dat je de lijst kwijt bent
+   zodra je iets wilt vergelijken. "Een detailpagina moet niet voelen als
+   een compleet nieuw scherm" -- dus is het nu een pagina IN het scherm,
+   met een terugpijl naar dezelfde lijst waar je vandaan kwam.
+   ================================================================== */
+
+.detailkop {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+.detailkop .titel {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.detailkop h1 {
+  margin: 0;
+  font-size: var(--fs-titel);
+  font-weight: var(--fw-half);
+  letter-spacing: -.015em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detailkop .onder {
+  font-size: var(--fs-klein);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.detailkop .acties {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
