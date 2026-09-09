@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BadgeCheck, ClipboardCheck, FolderLock, KeyRound, Mail, MapPin,
-  Phone, Send, ShieldCheck, SlidersHorizontal,
+  ArrowLeft, BadgeCheck, ClipboardCheck, FolderLock, KeyRound, Loader2, Mail,
+  MapPin, Phone, Send, ShieldCheck, SlidersHorizontal,
   Timer, UserCog, UserPlus, Users,
 } from 'lucide-react'
 import { db, alleMensen } from '../../lib/db'
@@ -15,6 +15,7 @@ import PermissionEditor, { PermissionSummary } from '../../components/Permission
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Dossier from '../../components/Dossier'
 import PersoonBeheer from '../../components/PersoonBeheer'
+import { personeel } from '../../lib/personeel'
 import { OpenWijzigingen, WijzigingAanvragen } from '../../components/Wijzigingen'
 import NieuweMedewerker from '../../components/NieuweMedewerker'
 import SmartRosterPanel from '../../components/SmartRosterPanel'
@@ -341,6 +342,19 @@ function PersonDetail({
           </div>
         )}
 
+        {/*
+          Deze balk zei tot 1.75: "Laat hem zich aanmelden op het inlogscherm."
+          Dat is precies wat uitnodigen moet voorkomen -- iemand die zich zelf
+          aanmeldt doet dat met zijn privé-adres, en dan staan er twee dossiers
+          van dezelfde man.
+
+          De knop die het wél goed doet stond er ook, maar ver hieronder: in
+          een andere kaart, voorbij de statistieken en het rooster, en alleen
+          op het tabblad Overzicht. Wie de balk las, gebruikte de knop niet.
+          Casper: "ik zie nog steeds niks waar ik mensen kan beheren".
+
+          Nu staat de handeling waar het probleem staat.
+        */}
         {!person.authId && (
           <div
             style={{
@@ -349,10 +363,16 @@ function PersonDetail({
               fontSize: '.83rem', color: '#ffd894',
             }}
           >
-            <strong>Nog geen toegang tot de app.</strong> Laat {person.name.split(' ')[0]} zich
-            aanmelden op het inlogscherm met exact dit adres: {person.email}. Dit dossier
-            wordt dan vanzelf gekoppeld — mét de rollen die hier staan, dus zonder dat
-            de aanmelding nog beoordeeld hoeft te worden.
+            <strong>Nog geen toegang tot de app.</strong>{' '}
+            {canEdit
+              ? <>Nodig {person.name.split(' ')[0]} uit; dan maakt de app het account
+                  aan en gaan de inloggegevens per mail naar {person.email}.</>
+              : <>Iemand van het management kan {person.name.split(' ')[0]} uitnodigen.</>}
+            {canEdit && person.id !== meId && (
+              <div style={{ marginTop: 10 }}>
+                <UitnodigenKnop person={person} />
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -565,5 +585,38 @@ function EditPersonDialog({
         <button className="btn primary" onClick={() => void save()}>Opslaan</button>
       </div>
     </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Uitnodigen, vanuit de balk
+ *
+ *  Dezelfde aanroep als de knop in PersoonBeheer; die blijft ook staan, want
+ *  daar hoort hij bij de andere toegangshandelingen. Deze staat erbij omdat
+ *  je hem daar nodig hebt: naast de mededeling dat er nog geen account is.
+ * ------------------------------------------------------------------ */
+
+function UitnodigenKnop({ person }: { person: User }) {
+  const [bezig, setBezig] = useState(false)
+
+  return (
+    <button
+      className="btn primary sm"
+      disabled={bezig || !person.email}
+      title={person.email ? undefined : 'Er staat geen e-mailadres bij dit dossier'}
+      onClick={async () => {
+        setBezig(true)
+        try {
+          const uit = await personeel.uitnodigen(person.id)
+          if (!uit.ok) return toast.error(uit.reden ?? 'Uitnodigen lukte niet')
+          toast.ok(uit.soort === 'gekoppeld'
+            ? 'Er bestond al een account op dit adres; dat is nu gekoppeld'
+            : 'De uitnodiging is verstuurd')
+        } finally { setBezig(false) }
+      }}
+    >
+      {bezig ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
+      Uitnodigen
+    </button>
   )
 }

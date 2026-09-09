@@ -198,6 +198,18 @@ export const personeel = {
   },
 
   /**
+   * Een nieuw tijdelijk wachtwoord instellen en mailen.
+   *
+   * Geen terugval zoals bij uitnodigen: die probeert het dossier alsnog naar
+   * de server te duwen omdat het daar nog niet stond. Hier kan dat niet aan
+   * de orde zijn -- wie een wachtwoord heeft, heeft een inlogaccount, en dat
+   * bestaat alleen op de server.
+   */
+  async nieuwWachtwoord(userId: string): Promise<Uitkomst> {
+    return roep({ actie: 'wachtwoord', userId })
+  },
+
+  /**
    * Uitschrijven.
    *
    * Inlog en dossier gaan dicht en de persoon is nergens meer te kiezen,

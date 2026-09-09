@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
-  AlertTriangle, Check, Loader2, Send, ShieldCheck, Trash2, UserMinus, UserPlus,
+  AlertTriangle, Check, KeyRound, Loader2, Send, ShieldCheck, Trash2, UserMinus,
+  UserPlus,
 } from 'lucide-react'
 import { personeel } from '../lib/personeel'
 import type { User } from '../lib/types'
@@ -35,6 +36,7 @@ export default function PersoonBeheer({
   const [bezig, setBezig] = useState(false)
   const [uitschrijven, setUitschrijven] = useState(false)
   const [wissen, setWissen] = useState(false)
+  const [wachtwoord, setWachtwoord] = useState(false)
   const [reden, setReden] = useState('')
   const [bevestig, setBevestig] = useState('')
 
@@ -79,7 +81,24 @@ export default function PersoonBeheer({
           )}
 
           {heeftAccount && !uitgeschreven && (
-            <span className="badge ok"><Check size={11} /> heeft een inlogaccount</span>
+            <>
+              <span className="badge ok"><Check size={11} /> heeft een inlogaccount</span>
+              {/*
+                Casper: "Maar ook een knop voor wachtwoord wijzigen (waarbij je
+                dan een mail stuurt met nieuw tijdelijk wachtwoord)".
+
+                Achter een bevestiging, want dit maakt het huidige wachtwoord
+                meteen ongeldig. Wie hem per ongeluk indrukt heeft iemand
+                buitengesloten tot de mail er is.
+              */}
+              <button
+                className="btn sm"
+                disabled={bezig}
+                onClick={() => setWachtwoord(true)}
+              >
+                <KeyRound size={14} /> Wachtwoord opnieuw
+              </button>
+            </>
           )}
 
           <span style={{ flex: 1 }} />
@@ -113,6 +132,41 @@ export default function PersoonBeheer({
           </button>
         </div>
       </Card>
+
+      {/* --------------------- wachtwoord opnieuw ------------------- */}
+
+      <Modal
+        open={wachtwoord}
+        title="Wachtwoord opnieuw instellen"
+        subtitle={person.email}
+        onClose={() => setWachtwoord(false)}
+      >
+        <p className="help" style={{ marginTop: 0 }}>
+          Er wordt een nieuw tijdelijk wachtwoord gemaakt en naar{' '}
+          <strong>{person.email}</strong> gestuurd. Het huidige wachtwoord werkt
+          daarna niet meer, ook niet als de mail niet aankomt. Bij de eerstvolgende
+          inlog moet {person.name.split(' ')[0]} meteen een eigen wachtwoord kiezen.
+        </p>
+        <div className="row end">
+          <button className="btn ghost" onClick={() => setWachtwoord(false)}>Annuleren</button>
+          <button
+            className="btn primary"
+            disabled={bezig}
+            onClick={async () => {
+              setBezig(true)
+              try {
+                const uit = await personeel.nieuwWachtwoord(person.id)
+                if (!uit.ok) return toast.error(uit.reden ?? 'Het instellen lukte niet')
+                toast.ok('Het nieuwe wachtwoord is gemaild')
+                setWachtwoord(false)
+              } finally { setBezig(false) }
+            }}
+          >
+            {bezig ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />}
+            Instellen en mailen
+          </button>
+        </div>
+      </Modal>
 
       {/* ------------------------- uitschrijven --------------------- */}
 

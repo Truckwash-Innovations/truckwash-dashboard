@@ -6201,5 +6201,123 @@ console.log('\n50. De rondleiding wijst naar knoppen die bestaan')
     risico.length === 0, risico.join(', '))
 }
 
+/* ====================================================================
+ *  51. Mensen beheren: uitnodigen, wachtwoord, en de rij die niet aankwam
+ *
+ *  Casper: "ik zie nog steeds niks waar ik mensen kan beheren ect".
+ *
+ *  Het bestond wel, maar op de verkeerde plek en met een tekst ernaast die
+ *  het tegensprak. Boven aan het dossier stond een gele balk: "Laat hem zich
+ *  aanmelden op het inlogscherm." Dat is precies wat uitnodigen moet
+ *  voorkomen -- wie zich zelf aanmeldt doet dat met zijn prive-adres, en dan
+ *  staan er twee dossiers van dezelfde man. De knop die het wel goed doet
+ *  stond ver eronder, in een andere kaart, voorbij de statistieken en het
+ *  rooster.
+ *
+ *  Dit hoofdstuk legt drie dingen vast die alle drie stil misgingen.
+ * ==================================================================== */
+
+console.log('\n51. Mensen beheren')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  /* ---- 1. de aanmaakwizard schreef in een kolom die niet bestaat ---- */
+
+  /*
+   * Rekeningnummer en uurtarief staan sinds 0056 in personnel_loon; de
+   * kolommen iban en hourly_rate zijn uit personnel_private weggehaald. De
+   * wizard stuurde ze toch mee in dezelfde rij, en dan weigert PostgREST de
+   * HELE rij -- dus kwamen ook het BSN, de geboortedatum en de
+   * documentgegevens nooit op de server aan. Lokaal stond alles er wel, dus
+   * het scherm meldde dat het gelukt was.
+   */
+  const wizard = readFileSync('src/components/NieuweMedewerker.tsx', 'utf8')
+  const setup = readFileSync('supabase/setup.sql', 'utf8')
+
+  check('de kolommen iban en hourly_rate zijn echt weg uit personnel_private',
+    setup.includes('alter table public.personnel_private drop column if exists iban;')
+      && setup.includes('alter table public.personnel_private drop column if exists hourly_rate;'))
+
+  /* De aanroep van save() opzoeken en kijken wat erin zit. */
+  const saveBlok = wizard.slice(
+    wizard.indexOf('dossierRepo.save(persoon.id, {'),
+    wizard.indexOf('documentVerified'))
+  check('de wizard stuurt geen iban meer naar het dossier',
+    !saveBlok.includes('iban:'), saveBlok.slice(0, 200))
+  check('en geen uurtarief',
+    !saveBlok.includes('hourlyRate:'))
+  check('maar bewaart ze wel, in de loonrij',
+    wizard.includes('dossierRepo.saveLoon(persoon.id, loon)'))
+
+  /* ---- 2. uitnodigen staat waar het probleem staat ---- */
+
+  const scherm = readFileSync('src/dashboards/management/Personeel.tsx', 'utf8')
+  const balk = scherm.slice(
+    scherm.indexOf('Nog geen toegang tot de app'),
+    scherm.indexOf('Nog geen toegang tot de app') + 900)
+
+  check('de balk stuurt je niet meer naar het inlogscherm',
+    !balk.includes('aanmelden op het inlogscherm'), balk.slice(0, 160))
+  check('maar zet de uitnodigknop erbij',
+    balk.includes('<UitnodigenKnop'))
+  check('en die knop roept echt uitnodigen aan',
+    /function UitnodigenKnop[\s\S]{0,900}personeel\.uitnodigen\(person\.id\)/.test(scherm))
+
+  /* ---- 3. wachtwoord opnieuw instellen ---- */
+
+  const beheer = readFileSync('src/components/PersoonBeheer.tsx', 'utf8')
+  const repo = readFileSync('src/lib/personeel.ts', 'utf8')
+  const server = readFileSync('supabase/functions/medewerker/index.ts', 'utf8')
+
+  check('er is een knop Wachtwoord opnieuw',
+    beheer.includes('Wachtwoord opnieuw'))
+  /*
+   * Achter een bevestiging. Dit maakt het huidige wachtwoord meteen ongeldig;
+   * wie hem per ongeluk indrukt heeft iemand buitengesloten tot de mail er is.
+   */
+  check('en die zit achter een bevestiging',
+    /setWachtwoord\(true\)/.test(beheer)
+      && /open={wachtwoord}/.test(beheer))
+  check('de app roept de actie wachtwoord aan',
+    repo.includes("roep({ actie: 'wachtwoord', userId })"))
+  check('de server kent die actie',
+    server.includes("if (actie === 'wachtwoord') {"))
+  check('en zet het wachtwoord met de servicesleutel',
+    /updateUserById\(\s*String\(dossier\.auth_id\),\s*{ password:/.test(server))
+
+  /*
+   * must_change_password moet weer aan. Zonder dat blijft een wachtwoord dat
+   * per mail is verstuurd geldig zolang niemand het wijzigt -- en dan staat de
+   * sleutel van een account voor onbepaalde tijd in twee postvakken.
+   */
+  const actieBlok = server.slice(
+    server.indexOf("if (actie === 'wachtwoord') {"),
+    server.indexOf('uitschrijven ------------------'))
+  check('de vlag must_change_password gaat weer aan',
+    actieBlok.includes('must_change_password: true'))
+
+  /*
+   * En als de mail niet aankomt is het wachtwoord al gewijzigd en weet
+   * niemand het nieuwe. Dat hoort op het scherm te komen, niet in een log.
+   */
+  check('een mislukte mail wordt gemeld en niet weggeslikt',
+    actieBlok.includes('if (!verstuurd)')
+      && actieBlok.includes('NIET verstuurd'))
+
+  /* ---- 4. listUsers zonder paginering geeft er vijftig ---- */
+
+  /*
+   * Alleen een echte aanroep, niet de tekst. Dit stond eerst als
+   * /listUsers\(\)/ en sloeg toen aan op het commentaar dat de valkuil
+   * uitlegt -- een test die faalt omdat je hebt opgeschreven waarom hij
+   * bestaat.
+   */
+  check('uitnodigen zoekt bestaande accounts met paginering',
+    !/admin\.listUsers\(\)/.test(server), 'er staat nog een kale aanroep')
+  check('en pakt er genoeg',
+    server.includes('listUsers({ page: 1, perPage: 200 })'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -100,6 +100,55 @@ function ontsnap(t: string) {
     ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c] ?? c))
 }
 
+/**
+ * De brief bij een opnieuw ingesteld wachtwoord.
+ *
+ * Apart van de uitnodiging, en met opzet anders van toon: dit is geen welkom
+ * maar een sleutel die opnieuw is uitgegeven. Wie deze mail krijgt zonder
+ * erom te hebben gevraagd, hoort dat te weten -- vandaar dat er bij staat wie
+ * hem heeft ingesteld.
+ */
+function briefWachtwoord(input: {
+  naam: string
+  email: string
+  wachtwoord: string
+  door: string
+}) {
+  return {
+    onderwerp: 'Je wachtwoord voor het Truckwash1 dashboard is opnieuw ingesteld',
+    html: `
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;padding:28px 24px;color:#1a1d23">
+  <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px">Truckwash1 Group</div>
+  <div style="height:3px;width:52px;background:#f8c010;border-radius:2px;margin-bottom:22px"></div>
+
+  <p style="font-size:15px;line-height:1.65;margin:0 0 14px">Hoi ${ontsnap(input.naam)},</p>
+
+  <p style="font-size:15px;line-height:1.65;margin:0 0 14px">
+    ${ontsnap(input.door)} heeft een nieuw wachtwoord voor je ingesteld. Je
+    oude wachtwoord werkt vanaf nu niet meer.
+  </p>
+
+  <div style="border:1px solid #e6e8ec;border-radius:10px;padding:16px;margin:20px 0;background:#fafbfc">
+    <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Inloggegevens</div>
+    <div style="font-size:14px;line-height:1.9">
+      <div>E-mailadres: <strong>${ontsnap(input.email)}</strong></div>
+      <div>Wachtwoord: <strong style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:.05em">${ontsnap(input.wachtwoord)}</strong></div>
+    </div>
+  </div>
+
+  <p style="font-size:14px;line-height:1.65;margin:0 0 14px;color:#4b5563">
+    Dit wachtwoord werkt één keer. Bij je eerstvolgende inlog kies je meteen
+    je eigen -- dat moet ook, want een wachtwoord dat per mail is verstuurd
+    staat in je postvak, in het onze, en op elke server ertussenin.
+  </p>
+
+  <p style="font-size:14px;line-height:1.65;margin:0;color:#4b5563">
+    Heb je hier niet om gevraagd? Neem dan even contact op met kantoor.
+  </p>
+</div>`,
+  }
+}
+
 function briefUitnodiging(input: {
   naam: string
   email: string
@@ -244,7 +293,17 @@ Deno.serve(async (req) => {
      * dossier hangt? Dan koppelen we dat in plaats van er een tweede te
      * maken. Dat is hoe de dubbele mensen ontstonden.
      */
-    const { data: bestaande } = await admin.auth.admin.listUsers()
+    /*
+     * Met paginering, anders krijg je er vijftig.
+     *
+     * listUsers() zonder parameters stuurt een lege per_page mee en GoTrue
+     * valt dan terug op vijftig. Zodra er meer inlogaccounts zijn -- en
+     * kassa-koppelen maakt er per kassa ook een -- vindt hij een bestaand
+     * account niet meer, waarna createUser hieronder weigert omdat het adres
+     * al bezet is. Het kantoor ziet dan "Account aanmaken lukte niet" terwijl
+     * de code juist bedoelde te koppelen. kassa-koppelen deed dit al goed.
+     */
+    const { data: bestaande } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 })
     const alBekend = bestaande?.users?.find(
       (u) => (u.email ?? '').toLowerCase() === String(dossier.email).toLowerCase())
 
@@ -299,6 +358,74 @@ Deno.serve(async (req) => {
       String(dossier.email), brief.onderwerp, brief.html, dossier.id)
 
     return json({ ok: true, soort: 'nieuw account', mailVerstuurd: verstuurd })
+  }
+
+  /* ------------------------- wachtwoord --------------------------- */
+
+  /*
+   * Casper: "Maar ook een knop voor wachtwoord wijzigen (waarbij je dan een
+   * mail stuurt met nieuw tijdelijk wachtwoord)".
+   *
+   * Hier en niet in de app, om dezelfde reden als uitnodigen: een wachtwoord
+   * zetten vraagt de servicesleutel, en die hoort niet in iets dat op
+   * telefoons staat.
+   *
+   * must_change_password gaat weer aan. Zonder dat blijft het wachtwoord dat
+   * per mail is verstuurd geldig zolang niemand het wijzigt -- en dan staat
+   * de sleutel van een account voor onbepaalde tijd in twee postvakken.
+   */
+  if (actie === 'wachtwoord') {
+    if (!dossier.auth_id) {
+      return json({
+        ok: false,
+        reden: 'Deze persoon heeft nog geen inlogaccount. Gebruik Uitnodigen; ' +
+               'daarmee wordt het account aangemaakt en gaan de gegevens in ' +
+               'dezelfde mail mee.',
+      })
+    }
+    if (!dossier.email) {
+      return json({
+        ok: false,
+        reden: 'Bij dit dossier staat geen e-mailadres, dus er is geen plek ' +
+               'om het nieuwe wachtwoord heen te sturen.',
+      })
+    }
+
+    const nieuwWachtwoord = tijdelijkWachtwoord()
+    const { error: zetFout } = await admin.auth.admin.updateUserById(
+      String(dossier.auth_id), { password: nieuwWachtwoord })
+
+    if (zetFout) {
+      return json({ ok: false, reden: zetFout.message })
+    }
+
+    await admin.from('profiles')
+      .update({ must_change_password: true })
+      .eq('id', dossier.id)
+
+    const brief = briefWachtwoord({
+      naam: String(dossier.name ?? ''),
+      email: String(dossier.email),
+      wachtwoord: nieuwWachtwoord,
+      door: beller.naam,
+    })
+    const verstuurd = await verstuurMail(
+      String(dossier.email), brief.onderwerp, brief.html, dossier.id)
+
+    /*
+     * Lukt de mail niet, dan is het wachtwoord al gewijzigd en weet niemand
+     * het nieuwe. Dat moet op het scherm staan, niet stil in een log.
+     */
+    if (!verstuurd) {
+      return json({
+        ok: false,
+        reden: 'Het wachtwoord is gewijzigd, maar de mail is NIET verstuurd. ' +
+               'Deze persoon kan nu niet meer inloggen. Zet het nog een keer ' +
+               'opnieuw zodra de mail het weer doet.',
+      })
+    }
+
+    return json({ ok: true, mailVerstuurd: true })
   }
 
   /* -------------------------- uitschrijven ------------------------ */

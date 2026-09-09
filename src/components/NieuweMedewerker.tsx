@@ -367,11 +367,23 @@ export default function NieuweMedewerker({
 
       /* --- het afgeschermde deel --- */
 
+      /*
+       * Twee rijen, geen een.
+       *
+       * Rekeningnummer en uurtarief staan sinds 0056 in personnel_loon; de
+       * kolommen iban en hourly_rate zijn uit personnel_private WEGGEHAALD.
+       * Ze hier toch meesturen betekende dat PostgREST de hele rij weigerde
+       * -- dus dat ook het BSN, de geboortedatum en de documentgegevens nooit
+       * op de server aankwamen. Lokaal stond alles er wel, dus het scherm zei
+       * dat het gelukt was.
+       *
+       * dossier.ts waarschuwt hier met zoveel woorden voor: "anders mislukt
+       * het opslaan van een geboortedatum omdat er een uurloon in dezelfde
+       * rij zat." Precies dat gebeurde hier.
+       */
       setVoortgang('Afgeschermde gegevens opslaan…')
       await dossierRepo.save(persoon.id, {
         bsn: bsn.replace(/\D/g, '') || undefined,
-        iban: iban.replace(/\s+/g, '').toUpperCase() || undefined,
-        hourlyRate: tarief ? Number(tarief.replace(',', '.')) : undefined,
         /*
          * Wat er in het scherm staat gaat voor op wat de scan zei -- daar
          * heeft iemand naar gekeken en het eventueel bijgesteld. De scan is
@@ -385,6 +397,18 @@ export default function NieuweMedewerker({
         documentExpires: docVerloopt ? dayFromDateInput(docVerloopt) : mrz?.vervaldatum,
         documentVerified: mrz?.betrouwbaar ?? false,
       })
+
+      /*
+       * De geldkant apart. Wie dit niet mag, krijgt hier een afwijzing van de
+       * database -- en dan is het dossier hierboven al veilig opgeslagen.
+       */
+      const loon = {
+        iban: iban.replace(/\s+/g, '').toUpperCase() || undefined,
+        hourlyRate: tarief ? Number(tarief.replace(',', '.')) : undefined,
+      }
+      if (loon.iban || loon.hourlyRate !== undefined) {
+        await dossierRepo.saveLoon(persoon.id, loon)
+      }
 
       /* --- de papieren --- */
 
