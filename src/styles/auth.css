@@ -19,8 +19,53 @@
     var(--bg);
 }
 
+/* ------------------------------------------------------------------ *
+ *  De sfeerbeelden achter het inlogscherm
+ *
+ *  Alleen op .inlogscherm en niet op elke .auth-screen: die klasse wordt door
+ *  vijf schermen gebruikt.
+ *
+ *  De positie hoort hier en niet in de component. .auth-screen had geen
+ *  position, en een absoluut geplaatst kind zoekt dan het eerste ouderelement
+ *  dat er wel een heeft -- dan hangt de video ergens anders in de pagina dan
+ *  waar hij hoort.
+ * ------------------------------------------------------------------ */
+
+.inlogscherm { position: relative; overflow: hidden; }
+
+.inlog-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Achter de kaart, boven het kleurverloop. */
+  z-index: 0;
+  /* Gedempt: dit is een achtergrond en geen film. Zonder dit leest de tekst
+     op de kaart slecht, en dat is het enige op dit scherm dat gelezen moet
+     worden. */
+  opacity: .38;
+  filter: saturate(.85);
+  pointer-events: none;
+}
+
+/* Een donkere sluier eroverheen, zodat de kaart blijft staan waar het licht
+   in het beeld toevallig fel is. */
+.inlogscherm::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(700px 480px at 50% 45%, rgba(8, 14, 28, .55), transparent 70%),
+    linear-gradient(180deg, rgba(8, 14, 28, .45), rgba(8, 14, 28, .78));
+}
+
 .auth-card {
   position: relative;
+  /* Boven de video en de sluier. */
+  z-index: 1;
   width: min(430px, 100%);
   background: linear-gradient(180deg, var(--surface), var(--bg-2));
   border: 1px solid var(--line);

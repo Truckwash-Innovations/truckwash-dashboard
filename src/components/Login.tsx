@@ -8,6 +8,18 @@ import { backendError } from '../lib/api'
 import Logo from './Logo'
 import Aanmelden from './Aanmelden'
 import ForgotPassword from './ForgotPassword'
+import { useBeweegt } from '../lib/theme'
+/*
+ * Uit src/ en niet uit public/.
+ *
+ * Vite kent mp4 als asset-type, dus een import belandt met een hash in de
+ * naam in dist/app/assets/ -- en dat is de enige map met een cache-kopregel
+ * (uitrol/_headers). Uit public/ zou hij op /app/inlog.mp4 staan, buiten dat
+ * blok, en dan haalt elke tablet bij elk bezoek een megabyte opnieuw op
+ * zonder dat iets een fout meldt.
+ */
+import inlogVideo from '../assets/inlog.mp4'
+import inlogBeeld from '../assets/inlog.jpg'
 
 export default function Login({ terugNaarSite = false }: { terugNaarSite?: boolean }) {
   const { login, busy, error } = useAuth()
@@ -19,6 +31,16 @@ export default function Login({ terugNaarSite = false }: { terugNaarSite?: boole
   const [show, setShow] = useState(false)
   const [aanmelden, setAanmelden] = useState(false)
   const [forgot, setForgot] = useState(false)
+  /*
+   * Mag het bewegen?
+   *
+   * De CSS-vangnet voor "rustige beweging" zet alleen animation-duration en
+   * transition-duration op nul, en MotionConfig raakt alleen framer-motion.
+   * Een video is geen van beide en zou dus gewoon doordraaien voor precies de
+   * mensen die hebben gezegd dat ze dat niet willen. useBeweegt() bestond al
+   * en werd nergens gebruikt; hier wel.
+   */
+  const beweegt = useBeweegt()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -30,7 +52,41 @@ export default function Login({ terugNaarSite = false }: { terugNaarSite?: boole
   if (forgot) return <ForgotPassword onBack={() => setForgot(false)} />
 
   return (
-    <div className="auth-screen">
+    <div className="auth-screen inlogscherm">
+      {/*
+        De sfeerbeelden achter het inlogscherm.
+
+        Alleen hier, en niet op de vier andere schermen die .auth-screen
+        gebruiken (aanmelden, wachtwoord vergeten, wachtwoord wijzigen) --
+        vandaar de extra klasse. Wie net is uitgenodigd en verplicht een
+        wachtwoord moet kiezen, hoort geen filmpje te krijgen.
+
+        muted en playsInline zijn geen nettigheid maar noodzaak. Electron
+        staat standaard op no-user-gesture-required en Capacitor zet
+        setMediaPlaybackRequiresUserGesture(false); zonder muted klinkt er op
+        achttien vestigingen geluid zodra iemand het scherm opent -- ook om
+        zes uur 's ochtends. In een gewone browser gebeurt het omgekeerde:
+        die weigert te starten en dan staat er een stilstaand beeld.
+
+        Het kleurverloop van .auth-screen blijft eronder staan. Laadt de video
+        niet -- geen verbinding, en dat is nou juist het scherm waar iemand
+        zonder verbinding landt -- dan is er niets stuk, alleen niets extra's.
+      */}
+      {beweegt && (
+        <video
+          className="inlog-video"
+          src={inlogVideo}
+          poster={inlogBeeld}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+      )}
+
       <motion.form
         className="auth-card"
         onSubmit={submit}

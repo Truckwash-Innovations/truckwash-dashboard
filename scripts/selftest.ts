@@ -6706,5 +6706,117 @@ console.log('\n53. Klanten beheren')
     (DASHBOARDS_MET.klanten ?? []).includes('management'))
 }
 
+/* ====================================================================
+ *  54. De sfeerbeelden op het inlogscherm
+ *
+ *  Casper stuurde een mp4 en vroeg of die als animatie bij het inloggen kon.
+ *
+ *  Het bestand zoals hij binnenkwam kon niet zomaar mee, om drie redenen die
+ *  je geen van drieen ziet aankomen:
+ *
+ *    1. Er zit een stereo audiospoor in. Electron staat standaard op
+ *       no-user-gesture-required en Capacitor zet
+ *       setMediaPlaybackRequiresUserGesture(false) -- dus zonder muted klinkt
+ *       er op achttien vestigingen 25 seconden geluid zodra iemand het
+ *       inlogscherm opent.
+ *    2. Er zat 52 kB udta-metadata in met de complete ComfyUI-workflow en de
+ *       prompts. Dat zou onveranderd op /app/ worden uitgeserveerd.
+ *    3. 4,14 MB op een app van 5,26 MB. Dat is +79% voor de webapp en +67%
+ *       voor de APK, en gzip haalt er anderhalve procent af.
+ *
+ *  Dit hoofdstuk toetst het BESTAND dat we uitleveren en niet het origineel,
+ *  plus de vier dingen in de code die het gedrag bepalen.
+ * ==================================================================== */
+
+console.log('\n54. De sfeerbeelden op het inlogscherm')
+
+{
+  const { readFileSync, existsSync } = await import('node:fs')
+
+  const pad = 'src/assets/inlog.mp4'
+  check('de video staat in src/ en niet in public/', existsSync(pad))
+  /*
+   * Uit src/ omdat Vite er dan een hash aan hangt en hem in dist/app/assets/
+   * zet -- de enige map met een cache-kopregel (uitrol/_headers). Uit public/
+   * zou hij daarbuiten vallen en haalt elke tablet hem bij elk bezoek opnieuw
+   * op, zonder dat iets een fout meldt.
+   */
+  check('en niet ook in public/', !existsSync('public/inlog.mp4'))
+
+  const bytes = readFileSync(pad)
+  const kb = Math.round(bytes.length / 1024)
+
+  check('en is kleiner dan een megabyte', kb < 1100, kb + ' kB')
+
+  /* ---- geen geluid ---- */
+
+  /*
+   * Netjes nakijken en niet op de tekst "mp4a" zoeken: die vier letters
+   * kunnen in 900 kB beeldgegevens toevallig voorkomen. Elk spoor heeft een
+   * hdlr-blok, en op vier bytes na de bloknaam staat waar het spoor over
+   * gaat: vide, soun, of iets anders.
+   */
+  const soorten: string[] = []
+  for (let n = 0; n + 12 <= bytes.length; n++) {
+    if (bytes.toString('latin1', n, n + 4) !== 'hdlr') continue
+    soorten.push(bytes.toString('latin1', n + 12, n + 16))
+  }
+  check('het bestand heeft een beeldspoor', soorten.includes('vide'),
+    soorten.join(', '))
+  check('en geen geluidsspoor', !soorten.includes('soun'), soorten.join(', '))
+
+  /* ---- geen prompts erin ---- */
+
+  const alsTekst = bytes.toString('latin1')
+  check('de ComfyUI-workflow zit er niet meer in',
+    !alsTekst.includes('last_node_id') && !alsTekst.includes('SaveVideo'))
+
+  /* ---- en wat de code ermee doet ---- */
+
+  const login = readFileSync('src/components/Login.tsx', 'utf8')
+  const css = readFileSync('src/styles/auth.css', 'utf8')
+
+  /*
+   * muted is hier geen nettigheid maar het verschil tussen stil en 25
+   * seconden geluid in achttien wasstraten.
+   */
+  check('de video staat op muted', /<video[\s\S]{0,400}?muted/.test(login))
+  /* Zonder playsInline zet iOS hem schermvullend zodra hij begint. */
+  check('en op playsInline', /<video[\s\S]{0,400}?playsInline/.test(login))
+  check('en in een lus', /<video[\s\S]{0,400}?loop/.test(login))
+
+  /*
+   * De knop "rustige beweging" dekte video niet: de CSS-vangnet raakt alleen
+   * animation en transition, en MotionConfig alleen framer-motion. useBeweegt()
+   * bestond al en werd nergens gebruikt.
+   */
+  check('wie rust wil, krijgt geen video',
+    login.includes('const beweegt = useBeweegt()')
+      && /{beweegt &&[\s\S]{0,120}<video/.test(login))
+
+  /*
+   * .auth-screen wordt door vijf schermen gebruikt. Wie net is uitgenodigd en
+   * verplicht een wachtwoord moet kiezen, hoort geen filmpje te krijgen.
+   */
+  check('alleen op het inlogscherm',
+    login.includes('className="auth-screen inlogscherm"'))
+  const anderen = ['Aanmelden', 'ForgotPassword', 'WachtwoordWijzigen']
+    .filter((n) => existsSync('src/components/' + n + '.tsx'))
+    .filter((n) => readFileSync('src/components/' + n + '.tsx', 'utf8')
+      .includes('inlogscherm'))
+  check('en niet op de andere authenticatieschermen',
+    anderen.length === 0, anderen.join(', '))
+
+  /*
+   * .auth-screen had geen position. Een absoluut geplaatst kind zoekt dan het
+   * eerste ouderelement dat er wel een heeft, en dan hangt de video ergens
+   * anders in de pagina dan waar hij hoort.
+   */
+  check('de houder heeft een eigen positie',
+    /\.inlogscherm {[^}]*position: relative/.test(css), 'geen position op .inlogscherm')
+  check('en de kaart staat erboven',
+    /\.auth-card {[\s\S]{0,400}?z-index: 1/.test(css))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
