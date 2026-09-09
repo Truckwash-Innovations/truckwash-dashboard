@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { startThemaMotor } from './lib/theme'
 import './styles/theme.css'
+/* De componentlaag van het designsysteem. Na theme.css, want de tokens
+   staan daar en deze bouwt daarop. */
+import './styles/systeem.css'
 import './styles/animations.css'
 import './styles/auth.css'
 

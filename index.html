@@ -20,6 +20,43 @@
     <meta name="robots" content="noindex, nofollow" />
 
     <title>Truckwash1 Dashboard</title>
+
+    <!--
+      Het thema zetten voordat er iets getekend wordt.
+
+      De keuze staat in localStorage en wordt pas gelezen als de bundel
+      draait. Tot dat moment geldt :root in theme.css, en dat is met opzet
+      het DONKERE thema (zie de kop van dat bestand). Wie licht gebruikt zag
+      daardoor eerst een zwarte flits, en sinds licht de standaard is zou
+      dat voor bijna iedereen gelden.
+
+      Deze regels staan met opzet hier en niet in de bundel: alles wat in
+      een module staat draait na het ophalen en parsen daarvan, en dat is
+      precies te laat. Ze doen hetzelfde als effectiefThema() in
+      src/lib/theme.ts -- die twee horen hetzelfde te zeggen, en de zelftest
+      houdt dat vast.
+
+      Gaat er iets mis (privevenster, opslag uit), dan blijft de app gewoon
+      werken: dan gebeurt hier niets en zet de bundel het even later alsnog.
+    -->
+    <script>
+      (function () {
+        try {
+          var k = localStorage.getItem('tw.thema') || 'licht';
+          var d = k === 'donker' ||
+                  (k === 'systeem' &&
+                   window.matchMedia &&
+                   window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var el = document.documentElement;
+          el.setAttribute('data-thema', d ? 'donker' : 'licht');
+          el.style.colorScheme = d ? 'dark' : 'light';
+          /* En de kleur van de systeembalk op een telefoon, zodat die niet
+             als enige zwart blijft boven een witte app. */
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', d ? '#0b1220' : '#ffffff');
+        } catch (e) { /* dan doet de bundel het straks */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

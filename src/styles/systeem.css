@@ -1,0 +1,1133 @@
+/* ==================================================================
+   Truckwash1 Group -- de componentlaag van het designsysteem
+   ==================================================================
+
+   Waarom dit bestand bestaat
+   --------------------------
+
+   Casper: "Maak een centraal design system ... Daarna moet iedere pagina dit
+   design system gebruiken. Geen losse styling per pagina."
+
+   Gemeten voordat hier iets stond: 1054 losse style={{}}-blokken in 101
+   tsx-bestanden, met vierentwintig verschillende maten, en nul
+   spacing-tokens. Elke marge, elke tabel en elke lege staat was ter plekke
+   bedacht. Vandaar dat de app "net anders" aanvoelt per scherm -- niet door
+   slechte smaak maar doordat er niets was om uit te kiezen.
+
+   De tokens (spacing, typografie, ronding, diepte) staan in theme.css, bij de
+   kleuren, want dat is waar :root staat en tokens horen op een plek. Hier
+   staan de ONDERDELEN die daaruit zijn opgebouwd.
+
+   Waarom nieuwe namen naast de oude
+   ---------------------------------
+
+   De bestaande klassen (.card, .btn, .sidebar) blijven werken. Dat is geen
+   halfheid maar de enige manier om een app van 41.000 regels tsx om te
+   bouwen zonder hem onderweg stuk te hebben: een scherm dat nog niet is
+   omgezet ziet er oud uit, maar doet het. Alles in een keer omgooien
+   betekent dagen waarin niets werkt en niemand kan zien of iets kapot is.
+
+   Wat er hier NIET in hoort
+   -------------------------
+
+   Kleuren met de hand gemengd, maten die niet uit de schaal komen, en
+   stijlen voor een enkel scherm. Komt zoiets toch voorbij, dan is dat een
+   token dat ontbreekt -- niet een uitzondering.
+   ================================================================== */
+
+/* ==================================================================
+   1. Het raam: bovenbalk en werkvlak, geen zijbalk
+   ==================================================================
+
+   Casper: "Verwijder de huidige permanente navigatiebalk aan de zijkant ...
+   De applicatie moet zoveel mogelijk gebruikmaken van de beschikbare
+   schermruimte."
+
+   De oude opzet was een raster van twee kolommen: 248px zijbalk naast de
+   inhoud. Op een laptop van 1366px is dat achttien procent van het scherm,
+   permanent, voor een lijst die je een paar keer per uur gebruikt. Op een
+   tabel met tien kolommen is dat precies de twee kolommen die niet passen.
+
+   Nu: een balk van 48px bovenaan en daaronder alles. De navigatie zit in de
+   menuknop linksboven -- zie hoofdstuk 2.
+   ================================================================== */
+
+.raam {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg);
+}
+
+.topbalk {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--topbalk-h);
+  padding: 0 var(--s3) 0 var(--s2);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  /* Geen schaduw. De lijn doet het werk; een schaduw onder een balk die
+     altijd staat is een streep vuil op elke pagina. */
+  padding-top: var(--safe-top);
+  height: calc(var(--topbalk-h) + var(--safe-top));
+}
+
+/* De naam van het bedrijf, naast de menuknop. Klikbaar: terug naar het
+   startscherm, zoals het logo in elke zakelijke applicatie. */
+.topbalk-merk {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 var(--s2);
+  height: var(--knop-h);
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-half);
+  letter-spacing: -.01em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbalk-merk:hover { background: var(--sluier); }
+
+/* Waar de gebruiker is. Vervangt de grote <h1> die eerst een eigen blok van
+   de balk innam: op een balk van 48px is de plaatsnaam genoeg, de paginakop
+   eronder zegt de rest. */
+.topbalk-plek {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-klein);
+}
+.topbalk-plek b {
+  color: var(--text);
+  font-weight: var(--fw-half);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbalk-rek { flex: 1 1 auto; min-width: var(--s3); }
+
+.topbalk-rechts {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+/* Het werkvlak. Volle breedte, met net genoeg lucht aan de rand om te zien
+   dat de inhoud niet tegen het glas plakt. */
+.werkvlak {
+  min-width: 0;
+  padding: var(--s4) var(--s5) var(--s7);
+  /* Geen max-width. "Voor administratieve tabellen en dashboards is
+     horizontale ruimte juist waardevol." */
+}
+@media (max-width: 720px) {
+  .werkvlak { padding: var(--s3) var(--s3) var(--s8); }
+}
+
+/* ==================================================================
+   2. De menuknop en de app-launcher
+   ==================================================================
+
+   Casper: "Maak linksboven een duidelijke menu-/app-launcher-knop ...
+   Menu -> categorie -> functie, en niet Menu -> categorie -> subcategorie
+   -> subcategorie -> pagina."
+
+   Een paneel dat van links inschuift, met de categorieen naast elkaar in
+   kolommen zodat alles in een blik zichtbaar is en er niets uitgeklapt hoeft
+   te worden. Dat is het verschil met de oude zijbalk: die had twee niveaus
+   waarvan het tweede dicht stond, dus wist je niet wat er was.
+   ================================================================== */
+
+.menuknop {
+  flex: none;
+  width: var(--knop-h);
+  height: var(--knop-h);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.menuknop:hover { background: var(--sluier); }
+.menuknop[aria-expanded="true"] { background: var(--tint-ui); color: var(--text-ui); }
+
+.launcher-sluier {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 24, 40, .32);
+}
+
+.launcher {
+  position: fixed;
+  z-index: 61;
+  top: calc(var(--topbalk-h) + var(--safe-top));
+  left: 0;
+  bottom: 0;
+  width: min(760px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.launcher-kop {
+  flex: none;
+  padding: var(--s4) var(--s5) var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.launcher-kop h2 {
+  margin: 0;
+  font-size: var(--fs-sectie);
+  font-weight: var(--fw-half);
+  color: var(--text);
+}
+.launcher-kop p {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+
+.launcher-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--s4) var(--s5) var(--s6);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--s5) var(--s6);
+  align-content: start;
+}
+
+.launcher-groep h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-mini);
+  font-weight: var(--fw-half);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.launcher-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+.launcher-item:hover { background: var(--sluier); color: var(--text); }
+.launcher-item[aria-current="page"] {
+  background: var(--tint-ui);
+  color: var(--text-ui);
+  font-weight: var(--fw-medium);
+}
+.launcher-item svg { flex: none; color: var(--text-3); }
+.launcher-item[aria-current="page"] svg { color: var(--text-ui); }
+.launcher-item .naam { flex: 1 1 auto; min-width: 0; }
+
+/* Het getal achter een menuregel: hoeveel er op je ligt. Alleen tonen als er
+   iets ligt -- een nul is geen informatie. */
+.launcher-item .teller {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pil);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: var(--fs-mini);
+  font-weight: var(--fw-half);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .launcher { width: 100vw; border-right: 0; }
+  .launcher-body { grid-template-columns: 1fr; gap: var(--s4); }
+}
+
+/* ==================================================================
+   3. De paginakop
+   ==================================================================
+
+   Casper: "Elke pagina moet zoveel mogelijk dezelfde structuur hebben:
+   Page header (titel + omschrijving + acties) -> filters/tabs -> content."
+
+   Een plek, zodat de gebruiker na twee pagina's weet waar de knop staat.
+   ================================================================== */
+
+.paginakop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  margin-bottom: var(--s4);
+}
+.paginakop-tekst { flex: 1 1 auto; min-width: 0; }
+.paginakop h1 {
+  margin: 0;
+  font-size: var(--fs-titel);
+  font-weight: var(--fw-half);
+  letter-spacing: -.015em;
+  color: var(--text);
+}
+.paginakop p {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-klein);
+  color: var(--text-3);
+  max-width: 68ch;   /* leesbare regellengte; geldt alleen voor deze tekst */
+}
+.paginakop-acties {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* Kruimels. "Gebruik breadcrumbs alleen wanneer de gebruiker daadwerkelijk
+   diep in een structuur zit." Dus niet standaard op elke pagina. */
+.kruimels {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+.kruimels button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text-3);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.kruimels button:hover { color: var(--text-ui); text-decoration: underline; }
+.kruimels .nu { color: var(--text-2); }
+
+/* ==================================================================
+   4. Tabbladen
+   ==================================================================
+
+   "Gebruik tabs wanneer verschillende views van dezelfde dataset logisch bij
+   elkaar horen." Dus voor Alle/Nieuw/In behandeling, niet voor losse
+   functies -- die horen in het menu.
+   ================================================================== */
+
+.tabbladen {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s1);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--s3);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabbladen::-webkit-scrollbar { display: none; }
+
+.tabblad {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  margin-bottom: -1px;
+}
+.tabblad:hover { color: var(--text); }
+.tabblad[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--ui);
+  font-weight: var(--fw-half);
+}
+/* Het aantal achter een tabblad. Grijs en niet fel: het is een aantal, geen
+   waarschuwing. */
+.tabblad .aantal {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  font-weight: var(--fw-normaal);
+}
+.tabblad[aria-selected="true"] .aantal { color: var(--text-2); }
+
+/* ==================================================================
+   5. De filterbalk
+   ==================================================================
+
+   Casper: "Filters moeten makkelijk te verwijderen zijn ... Status: In
+   behandeling x ... Filters wissen."
+
+   Twee delen. Bovenin de bediening (zoeken, de keuzelijsten), en daaronder
+   wat er nu aan staat als losse chips die je met een kruisje weghaalt.
+
+   Dat tweede is het stuk dat overal ontbrak, en het is het belangrijkste:
+   een filter dat je niet ziet staan is een filter dat je vergeet. Dan zoek
+   je een factuur die je zelf hebt weggefilterd, en je concludeert dat hij
+   er niet is.
+   ================================================================== */
+
+.filterbalk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+/* Het zoekveld. Groeit mee, want zoeken is hier de eerste handeling. */
+.zoekveld {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 380px;
+  min-width: 160px;
+}
+.zoekveld svg {
+  position: absolute;
+  left: var(--s2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+.zoekveld input {
+  width: 100%;
+  height: var(--knop-h);
+  padding: 0 var(--s2) 0 var(--s6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-klein);
+}
+.zoekveld input::placeholder { color: var(--text-3); }
+
+/* De chips met wat er aan staat. */
+.filterchips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: var(--knop-h-klein);
+  padding: 0 var(--s1) 0 var(--s2);
+  border: 1px solid var(--line-ui);
+  border-radius: var(--radius-sm);
+  background: var(--tint-ui-weak);
+  color: var(--text-2);
+  font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+.chip b { color: var(--text); font-weight: var(--fw-medium); }
+.chip button {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.chip button:hover { background: var(--tint-ui); color: var(--text); }
+
+/* ==================================================================
+   6. De tabel
+   ==================================================================
+
+   Casper: "sticky header, hover state, klikbare rij, duidelijke kolommen,
+   sortering, filters, pagination, bulk selection, bulk actions."
+
+   En hoofdstuk 45: "bedragen rechts uitlijnen, datums consistent
+   formatteren, statussen visueel onderscheiden, belangrijke informatie
+   eerst, secundaire informatie subtieler tonen."
+
+   Dat laatste is waar een administratietabel op staat of valt. Iemand die
+   tweehonderd facturen langsgaat leest geen rijen, hij scant een kolom.
+   Dan moet een bedrag onder een bedrag staan -- vandaar tabular-nums op de
+   cijferkolommen, want met gewone cijfers is een 1 smaller dan een 8 en
+   danst de kolom heen en weer.
+   ================================================================== */
+
+.tabelraam {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* Alleen de tabel schuift, niet de pagina: "Nooit horizontaal scrollen
+   zonder duidelijke reden." */
+.tabelschuif {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.tabel {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-body);
+}
+
+.tabel thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--regel-h);
+  padding: 0 var(--s3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-half);
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Een kolomkop waarop gesorteerd kan worden. De pijl staat er alleen bij de
+   kolom waarop gesorteerd wordt -- een pijl bij elke kop is ruis. */
+.tabel thead th.sorteerbaar { cursor: pointer; user-select: none; }
+.tabel thead th.sorteerbaar:hover { color: var(--text); background: var(--surface-3); }
+.tabel thead th .pijl {
+  display: inline-block;
+  margin-left: var(--s1);
+  color: var(--text-ui);
+  vertical-align: middle;
+}
+
+.tabel tbody td {
+  height: var(--regel-h);
+  padding: 0 var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tabel tbody tr:last-child td { border-bottom: 0; }
+
+/* De hele rij is klikbaar. Dat is de snelste weg naar de detailpagina en het
+   scheelt een kolom met een knopje "openen". */
+.tabel tbody tr.klikbaar { cursor: pointer; }
+.tabel tbody tr.klikbaar:hover td { background: var(--sluier); }
+.tabel tbody tr.gekozen td { background: var(--tint-ui-weak); }
+
+/* Bedragen en aantallen: rechts, met cijfers van gelijke breedte. */
+.tabel .getal,
+.tabel th.getal {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Secundaire informatie subtieler. Een factuurnummer is belangrijker dan de
+   datum waarop hij binnenkwam, en dat mag je zien. */
+.tabel .zacht { color: var(--text-3); }
+.tabel .sterk { font-weight: var(--fw-medium); }
+
+/* De selectiekolom: smal en vast, zodat de vinkjes onder elkaar staan. */
+.tabel .kiescel { width: 40px; padding-left: var(--s3); padding-right: 0; }
+
+/* De actiekolom, rechts. */
+.tabel .actiecel { width: 1%; text-align: right; padding-right: var(--s3); }
+
+/* ==================================================================
+   7. De balk met bulkacties
+   ==================================================================
+
+   "Bij meerdere geselecteerde regels verschijnt: 3 geselecteerd,
+   Goedkeuren, Toewijzen, Archiveren."
+
+   Boven de tabel en niet als zwevend blok onderaan: daar staat hij op de
+   plek waar je net hebt geklikt, in plaats van over de laatste regels heen
+   die je nog wilt zien.
+   ================================================================== */
+
+.bulkbalk {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+  border: 1px solid var(--line-ui);
+  border-radius: var(--radius-sm);
+  background: var(--tint-ui-weak);
+}
+.bulkbalk .hoeveel {
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-half);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.bulkbalk .rek { flex: 1 1 auto; }
+
+/* ==================================================================
+   8. Statussen
+   ==================================================================
+
+   Casper: "Maak de status visueel duidelijk, maar niet overdreven." En uit
+   hoofdstuk 40: "geen informatie die alleen door kleur wordt aangegeven."
+
+   Vandaar een stip EN een woord. Wie scant ziet de stip; wie geen kleur
+   ziet leest het woord. Alleen een kleurvlak zou voor een op de twaalf
+   mannen niets zeggen -- en dit is een scherm waar iemand op kleur "rood is
+   afgekeurd" leest.
+   ================================================================== */
+
+.stand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 22px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-mini);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.stand::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pil);
+  background: currentColor;
+  flex: none;
+}
+
+.stand.nieuw     { background: var(--surface-2);        border-color: var(--line);        color: var(--text-2); }
+.stand.bezig     { background: var(--tint-ui-weak);     border-color: var(--line-ui);     color: var(--text-ui); }
+.stand.wacht     { background: var(--tint-warn-weak);   border-color: var(--line-warn);   color: var(--text-warn); }
+.stand.akkoord   { background: var(--tint-ok);          border-color: var(--line-ok);     color: var(--text-ok); }
+.stand.afgekeurd { background: var(--tint-danger-weak); border-color: var(--line-danger); color: var(--text-danger); }
+.stand.betaald   { background: var(--tint-ok);          border-color: var(--line-ok);     color: var(--text-ok); }
+.stand.fout      { background: var(--tint-danger);      border-color: var(--line-danger); color: var(--text-danger); }
+
+/* ==================================================================
+   9. Knoppen
+   ==================================================================
+
+   Casper: "Gebruik niet overal grote opvallende buttons. Maak een duidelijke
+   hierarchie ... Gebruik rood alleen waar het daadwerkelijk om een
+   gevaarlijke/destructieve actie gaat."
+
+   Vier soorten en niet meer. De regel die erbij hoort en die nergens in CSS
+   te dwingen valt: EEN primaire knop per scherm. Staan er twee, dan is er
+   geen belangrijkste actie meer en moet de gebruiker alsnog kiezen.
+
+   Het geel is hier de merkkleur en niet de interfacekleur -- Casper koos
+   ervoor het spaarzaam te houden. Dus: geel op de hoofdactie, en verder
+   neutraal.
+   ================================================================== */
+
+.k {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  height: var(--knop-h);
+  padding: 0 var(--s3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-medium);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color .12s var(--ease), border-color .12s var(--ease);
+}
+.k:disabled { opacity: .5; cursor: not-allowed; }
+.k svg { flex: none; }
+
+/* De hoofdactie. Eén per scherm. */
+.k.hoofd {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+  font-weight: var(--fw-half);
+}
+.k.hoofd:hover:not(:disabled) { background: var(--brand-2); border-color: var(--brand-2); }
+
+/* De gewone actie: zichtbaar, niet schreeuwend. */
+.k.gewoon {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--text);
+}
+.k.gewoon:hover:not(:disabled) { background: var(--surface-2); border-color: var(--text-3); }
+
+/* De bijrol: alleen tekst, tot je erover gaat. Voor Annuleren, Wissen,
+   Terug -- dingen die je moet kunnen vinden en niet moet uitnodigen. */
+.k.bij {
+  color: var(--text-2);
+  padding: 0 var(--s2);
+}
+.k.bij:hover:not(:disabled) { background: var(--sluier); color: var(--text); }
+
+/* Gevaar. Alleen als er echt iets verdwijnt. */
+.k.gevaar {
+  background: var(--surface);
+  border-color: var(--line-danger);
+  color: var(--text-danger);
+}
+.k.gevaar:hover:not(:disabled) { background: var(--tint-danger-weak); }
+
+/* Alleen een icoon. Krijgt een title, want een icoon zonder woord is een
+   raadsel voor wie hem niet elke dag gebruikt. */
+.k.ikoon { width: var(--knop-h); padding: 0; }
+.k.klein { height: var(--knop-h-klein); font-size: var(--fs-meta); padding: 0 var(--s2); }
+.k.klein.ikoon { width: var(--knop-h-klein); padding: 0; }
+
+/* Bezig. "Als de gebruiker op Opslaan klikt, moet duidelijk zijn dat er iets
+   gebeurt." */
+.k[data-bezig="ja"] { pointer-events: none; opacity: .7; }
+.k .draai { animation: k-draai .9s linear infinite; }
+@keyframes k-draai { to { transform: rotate(360deg); } }
+:root[data-beweging="rustig"] .k .draai { animation: none; }
+
+/* ==================================================================
+   10. Het tweeluik: document links, gegevens rechts
+   ==================================================================
+
+   Casper: "links: document / PDF-preview, rechts: administratieve gegevens
+   ... Op grote schermen moet dit naast elkaar kunnen. Op kleinere schermen
+   mag het onder elkaar."
+
+   Dit is de kern van de Blue10-manier van werken. Wie een factuur
+   controleert kijkt heen en weer tussen het papier en de velden. Staan die
+   op twee schermen, dan moet hij onthouden wat er stond -- en dat is precies
+   waar een bedrag verkeerd wordt overgetypt.
+
+   Het document krijgt de meeste ruimte maar niet alles: de gegevenskolom
+   heeft een vaste, comfortabele breedte, want daar staan formuliervelden en
+   die worden niet leesbaarder als ze breder zijn.
+   ================================================================== */
+
+.tweeluik {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: var(--s4);
+  align-items: start;
+}
+
+/* Het document blijft staan terwijl je rechts naar beneden werkt. Zonder dit
+   scrollt de pagina als geheel en verdwijnt de factuur naar boven precies
+   wanneer je hem nodig hebt. */
+.tweeluik-doc {
+  position: sticky;
+  top: calc(var(--topbalk-h) + var(--safe-top) + var(--s4));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+  height: calc(100dvh - var(--topbalk-h) - var(--safe-top) - var(--s6));
+  display: flex;
+  flex-direction: column;
+}
+.tweeluik-doc .balk {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+}
+.tweeluik-doc .blad { flex: 1 1 auto; min-height: 0; background: var(--surface-3); }
+.tweeluik-doc .blad iframe,
+.tweeluik-doc .blad embed,
+.tweeluik-doc .blad img { width: 100%; height: 100%; border: 0; display: block; }
+.tweeluik-doc .blad img { object-fit: contain; }
+
+.tweeluik-zij { min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
+
+@media (max-width: 1180px) {
+  .tweeluik { grid-template-columns: minmax(0, 1fr); }
+  /* Onder elkaar: dan hoort het document niet meer te plakken, en niet meer
+     het hele scherm hoog te zijn. */
+  .tweeluik-doc { position: static; height: min(70dvh, 640px); }
+}
+
+/* ==================================================================
+   11. Secties en gegevensparen
+   ==================================================================
+
+   Casper: "Gebruik cards alleen wanneer ze daadwerkelijk helpen. Een tabel
+   hoeft bijvoorbeeld niet in een card binnen een card binnen een card."
+
+   Vandaar een sectie met een kop en een lijn, en geen doos om alles heen.
+   Een doos in een doos in een doos kost drie randen en drie keer padding, en
+   levert geen enkele extra betekenis.
+   ================================================================== */
+
+.sectie { min-width: 0; }
+.sectie > h2 {
+  margin: 0 0 var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-sectie);
+  font-weight: var(--fw-half);
+  color: var(--text);
+}
+.sectie + .sectie { margin-top: var(--s5); }
+
+/* Label naast waarde. De standaardvorm voor "gegevens bekijken", en dat is
+   op een detailpagina het meeste van wat er staat. */
+.paren { display: grid; gap: var(--s2) var(--s4); }
+.paar {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: baseline;
+  font-size: var(--fs-body);
+}
+.paar dt { color: var(--text-3); font-size: var(--fs-klein); }
+.paar dd { margin: 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.paar dd.getal { font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  .paar { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+/* ==================================================================
+   12. Formuliervelden
+   ==================================================================
+
+   Casper: "Gebruik duidelijke labels. Geen onnodige placeholder-only labels
+   ... Gebruik inline validatie. Als iets fout is, laat direct zien."
+
+   Een label dat alleen in de placeholder staat verdwijnt zodra je begint te
+   typen. Op een formulier met acht velden weet je dan halverwege niet meer
+   wat je invult, en bij nakijken al helemaal niet.
+   ================================================================== */
+
+.veldje { display: grid; gap: var(--s1); min-width: 0; }
+.veldje > label {
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+.veldje > label .moet { color: var(--text-danger); margin-left: 2px; }
+
+.veldje input,
+.veldje select,
+.veldje textarea {
+  width: 100%;
+  min-height: var(--knop-h);
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-body);
+  font-family: inherit;
+}
+.veldje textarea { min-height: 84px; resize: vertical; line-height: 1.5; }
+.veldje input:hover,
+.veldje select:hover,
+.veldje textarea:hover { border-color: var(--text-3); }
+
+/* De uitleg onder een veld, en de fout die hem vervangt. Vervangt, niet
+   erbij: twee regels tekst onder een veld leest niemand. */
+.veldje .hint { font-size: var(--fs-meta); color: var(--text-3); }
+.veldje .mis {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-meta);
+  color: var(--text-danger);
+}
+.veldje[data-mis="ja"] input,
+.veldje[data-mis="ja"] select,
+.veldje[data-mis="ja"] textarea { border-color: var(--danger); }
+
+/* Velden naast elkaar waar dat kan. Factuurdatum en vervaldatum horen naast
+   elkaar; een adres en een toelichting niet. */
+.veldrij {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s3);
+}
+
+/* ==================================================================
+   13. De lade (side panel)
+   ==================================================================
+
+   Casper: "Hoewel ik geen permanente sidebar wil, mogen tijdelijke side
+   panels wel worden gebruikt ... Ze mogen nooit de primaire navigatie
+   vervangen."
+
+   Voor filters, details en snel bewerken. Rechts, want de navigatie zit
+   links en die twee horen niet op dezelfde plek te openen -- anders weet je
+   niet wat er straks verschijnt als je iets aanklikt.
+   ================================================================== */
+
+.lade-sluier { position: fixed; inset: 0; z-index: 70; background: rgba(16, 24, 40, .32); }
+.lade {
+  position: fixed;
+  z-index: 71;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.lade-kop {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.lade-kop h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fs-sectie);
+  font-weight: var(--fw-half);
+  color: var(--text);
+}
+.lade-body { flex: 1 1 auto; overflow: auto; padding: var(--s4); }
+.lade-voet {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+/* ==================================================================
+   14. Lege staten
+   ==================================================================
+
+   Casper: "Als een overzicht leeg is, toon geen kale lege pagina."
+
+   En het onderscheid dat er wel toe doet: leeg omdat er niets is, of leeg
+   omdat je filters te streng staan. In het tweede geval hoort er een knop
+   te staan die ze wist -- anders concludeert iemand dat er geen facturen
+   zijn terwijl er tweehonderd liggen.
+   ================================================================== */
+
+.leegstaat {
+  display: grid;
+  place-items: center;
+  gap: var(--s3);
+  padding: var(--s8) var(--s5);
+  text-align: center;
+}
+.leegstaat .ikoon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pil);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+.leegstaat h3 {
+  margin: 0;
+  font-size: var(--fs-sectie);
+  font-weight: var(--fw-half);
+  color: var(--text);
+}
+.leegstaat p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: var(--fs-klein);
+  color: var(--text-3);
+}
+
+/* ==================================================================
+   15. Laden
+   ==================================================================
+
+   Casper: "Gebruik skeleton loaders in plaats van alleen een spinner."
+
+   Een skelet in de vorm van wat er komt: dan verspringt de pagina niet als
+   de gegevens er zijn, en dat verspringen is waar het langzaam van voelt.
+   ================================================================== */
+
+.skelet {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg,
+    var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: skelet-loop 1.4s ease-in-out infinite;
+}
+@keyframes skelet-loop {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+:root[data-beweging="rustig"] .skelet { animation: none; background: var(--surface-2); }
+
+.skelet-regel { height: 12px; }
+.skelet-regel + .skelet-regel { margin-top: var(--s2); }
+
+/* ==================================================================
+   16. Zichtbare focus
+   ==================================================================
+
+   Casper: "keyboard navigation, focus states ... voldoende contrast."
+
+   Een ring die je ziet, op alles waar je met Tab kunt komen. En met
+   :focus-visible, zodat een muisklik geen ring achterlaat -- dat is de
+   reden dat mensen focusringen weghalen, en daarmee toetsenbordgebruik
+   onmogelijk maken.
+   ================================================================== */
+
+.raam :focus-visible,
+.launcher :focus-visible,
+.lade :focus-visible {
+  outline: 2px solid var(--ui);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* De sneltoets naast een menuregel of knop. */
+kbd.toets {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px var(--s1);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: var(--fs-mini);
+  text-align: center;
+}
+
+/* ==================================================================
+   17. Alleen voor de schermlezer
+   ==================================================================
+
+   Tekst die er wel is maar niet te zien. Voor het geval waar een icoon of
+   een kleur de betekenis draagt en er dus een woord bij hoort dat niemand
+   hoeft te zien.
+
+   Niet display:none en niet visibility:hidden -- die halen het ook bij de
+   schermlezer weg, en dan is het er helemaal niet meer.
+   ================================================================== */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Overslaan naar de inhoud. De eerste Tab op elke pagina, en pas te zien
+   als hij focus heeft -- zodat wie met het toetsenbord werkt niet elke keer
+   door de hele bovenbalk hoeft. */
+.overslaan {
+  position: absolute;
+  left: var(--s3);
+  top: -100px;
+  z-index: 100;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-size: var(--fs-klein);
+  font-weight: var(--fw-half);
+  text-decoration: none;
+  transition: top .12s var(--ease);
+}
+.overslaan:focus { top: calc(var(--topbalk-h) + var(--safe-top) + var(--s2)); }
+
+/* ==================================================================
+   18. Het werkvlak op een telefoon
+   ==================================================================
+
+   Twee dingen die aan .content hingen en dus meeverhuizen. Ze zien er
+   kleinzielig uit en ze zijn het niet: zonder de eerste valt de laatste
+   tabelrij achter de onderbalk, en zonder de tweede schuift op het
+   overlegscherm het invoerveld eronder zodra het toetsenbord omhoog komt.
+   ================================================================== */
+
+@media (max-width: 860px) {
+  /* De onderbalk is 56px plus de veilige zone van het toestel. 96 laat
+     genoeg over om te zien dat de lijst daar echt ophoudt. */
+  .werkvlak { padding-bottom: calc(96px + var(--safe-bottom)); }
+
+  /* Met een gesprek open rekt het overleg mee met de kolom in plaats van
+     mee te scrollen met de pagina. */
+  .werkvlak:has(.chat) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: var(--s3) var(--s3) 0;
+  }
+  .werkvlak:has(.chat) .chat { flex: 1; min-height: 0; height: auto; }
+}
+
+/* ==================================================================
+   19. Wat er van de oude zijbalk over is
+   ==================================================================
+
+   De regels voor .app-shell, .sidebar en .nav-item staan nog in theme.css.
+   Ze doen niets meer -- er is geen element dat ze draagt -- en ze worden
+   opgeruimd zodra alle schermen om zijn. Nu al weghalen zou betekenen dat
+   een fout in de nieuwe opzet niet terug te draaien is zonder ze opnieuw
+   te schrijven, en dat is bij een verbouwing van deze omvang geen ruimte
+   die je weggeeft.
+
+   Wat hier WEL moet: .app-shell was een raster van twee kolommen. Zou een
+   scherm die klasse nog ergens zetten, dan komt de zijbalk-kolom terug als
+   lege ruimte van 248px. Vandaar deze regel: het raster is weg, wat er ook
+   nog aan klassen blijft hangen.
+   ================================================================== */
+
+.app-shell {
+  display: block;
+  grid-template-columns: none;
+}

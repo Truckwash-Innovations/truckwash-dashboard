@@ -7315,5 +7315,129 @@ console.log('\n57. De website haalt zijn vestigingen uit de database')
     /gepland: 'vannacht'/.test(functie) && functie.includes('!TOKEN'))
 }
 
+/* ====================================================================
+ *  58. De zijbalk is weg, en er is niets met hem meegegaan
+ *
+ *  Casper: "Verwijder de huidige permanente navigatiebalk aan de zijkant ...
+ *  Maak linksboven een duidelijke menu-/app-launcher-knop."
+ *
+ *  Het gevaar van deze wijziging zit niet in de balk. Dat is een element dat
+ *  je weghaalt en dan is hij weg. Het gevaar zit in de tweeenzestig
+ *  schermsleutels die erin stonden: valt er een buiten de nieuwe indeling,
+ *  dan is dat scherm nergens meer te vinden. De app werkt, er komt geen
+ *  foutmelding, en niemand merkt het tot iemand ernaar zoekt.
+ *
+ *  Vandaar dat dit hoofdstuk niet kijkt of het er mooi uitziet, maar of er
+ *  iets kwijt is.
+ * ==================================================================== */
+
+console.log('\n58. De zijbalk is weg')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const {
+    CATEGORIEEN, paginasInMenu, paginasZonderPlek,
+    paginasDieNietBestaan, paginasDubbel,
+  } = await import('../src/lib/menu.ts')
+  const { DASHBOARDS_MET } = await import('../src/lib/schermen.ts')
+
+  /* ---- niets kwijt ---- */
+
+  const bestaat = Object.keys(DASHBOARDS_MET).length
+  check('er zijn schermen om in te delen', bestaat > 50, String(bestaat))
+
+  /*
+   * De drie controles die er werkelijk toe doen. Ze staan los omdat ze elk
+   * een ander soort fout vangen, en de melding moet zeggen WELKE sleutel het
+   * betreft -- anders zoek je hem met de hand terug uit tweeenzestig.
+   */
+  const zonder = paginasZonderPlek()
+  check('elk bestaand scherm staat in het menu', zonder.length === 0,
+    'geen plek voor: ' + zonder.join(', '))
+
+  const spoken = paginasDieNietBestaan()
+  check('en het menu verwijst nergens naar een scherm dat niet bestaat',
+    spoken.length === 0, 'bestaat niet: ' + spoken.join(', '))
+
+  const dubbel = paginasDubbel()
+  check('en niets staat in twee categorieen', dubbel.length === 0,
+    'dubbel: ' + dubbel.join(', '))
+
+  check('het menu dekt precies de schermen die er zijn',
+    paginasInMenu().length === bestaat,
+    `${paginasInMenu().length} in het menu, ${bestaat} schermen`)
+
+  /* ---- de indeling zelf ---- */
+
+  check('er zijn categorieen', CATEGORIEEN.length >= 4, String(CATEGORIEEN.length))
+  check('en geen enkele is leeg',
+    CATEGORIEEN.every((c) => c.paginas.length > 0),
+    CATEGORIEEN.filter((c) => !c.paginas.length).map((c) => c.naam).join(', '))
+  /*
+   * Menu -> categorie -> functie, en niet dieper. Een categorie met veertig
+   * items is geen categorie meer maar een lijst waar je in zoekt -- precies
+   * wat de oude zijbalk was.
+   */
+  const grootste = Math.max(...CATEGORIEEN.map((c) => c.paginas.length))
+  check('en geen enkele is een lijst geworden', grootste <= 18, String(grootste))
+
+  /* ---- wat er uit de Shell verdwenen moest ---- */
+
+  const shell = readFileSync('src/components/Shell.tsx', 'utf8')
+
+  check('de zijbalk staat niet meer in de Shell',
+    !/<aside className="sidebar"/.test(shell))
+  check('en het raster van twee kolommen ook niet',
+    !shell.includes('className={`app-shell'))
+  check('er is een menuknop', shell.includes('className="menuknop"'))
+  check('en die vertelt of hij openstaat',
+    /aria-expanded={menuZichtbaar}/.test(shell))
+
+  /* ---- en wat er NIET mocht verdwijnen ---- */
+
+  /*
+   * Dit is de andere helft. Alles wat in de voet van de zijbalk zat moet
+   * ergens anders terecht zijn gekomen; anders is "de zijbalk is weg" waar
+   * en heeft iemand zijn uitlogknop niet meer.
+   */
+  for (const [wat, waar] of [
+    ['ander dashboard', 'clearRole'],
+    ['instellingen', 'setInstellingen(true)'],
+    ['uitloggen', 'void logout()'],
+    ['de versie', 'v${version}'],
+    ['synchroniseren', 'void sync()'],
+    ['storing melden', 'setStoring(true)'],
+    ['de vestigingswisselaar', '<LocationSwitcher />'],
+    ['zoeken', 'openSearch(false)'],
+    ['meldingen', '<NotificationCenter />'],
+    ['de onderbalk op een telefoon', 'className="mobile-nav"'],
+  ] as const) {
+    check(`${wat} bestaat nog`, shell.includes(waar))
+  }
+
+  /* ---- de rondleiding wijst nog ergens naar ---- */
+
+  /*
+   * Vierentwintig stappen wijzen naar doel: nav-<sleutel>. Die elementen
+   * zaten in de zijbalk en zitten nu in de launcher -- die dicht staat.
+   * Zonder de vlag hieronder start de rondleiding, gebeurt er niets, en is
+   * er niets te zien wat erop wijst waarom.
+   */
+  const rond = readFileSync('src/lib/rondleiding.ts', 'utf8')
+  const navDoelen = (rond.match(/doel: 'nav-[a-z]+'/g) ?? []).length
+  check('de rondleiding wijst naar menu-items', navDoelen > 10, String(navDoelen))
+
+  check('de launcher draagt die doelen',
+    shell.includes('data-rondleiding={`nav-${it.key}`}'))
+  check('en het menu gaat open als de uitleg erheen wijst',
+    shell.includes('menuNodig') && shell.includes('menuOpen || menuNodig'))
+
+  const uitleg = readFileSync('src/components/Rondleiding.tsx', 'utf8')
+  check('de rondleiding zet die vlag ook echt',
+    /zetMenuNodig\(!!doelNu\?\.startsWith\('nav-'\)\)/.test(uitleg))
+  check('en zet hem uit als hij klaar is',
+    uitleg.includes('() => zetMenuNodig(false)'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

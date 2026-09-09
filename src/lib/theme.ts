@@ -99,7 +99,21 @@ interface ThemeStore {
 const THEMAS = ['systeem', 'licht', 'donker'] as const
 const BEWEGINGEN = ['systeem', 'vol', 'rustig'] as const
 
-const startThema = lees<ThemeKeuze>(SLEUTEL, THEMAS, 'systeem')
+/*
+ * Licht is de standaard.
+ *
+ * Stond op 'systeem', en systeemIsDonker() geeft bij twijfel true -- dus in
+ * de praktijk startte de app donker. Bij het herontwerp is dat omgedraaid:
+ * de referenties zijn Microsoft 365 en Blue10, en dat zijn lichte
+ * omgevingen. Op achttien vestigingen helpt het bovendien dat de app er
+ * overal hetzelfde uitziet: "de derde knop van boven" is aan de telefoon
+ * niet uit te leggen als bij de een de balk zwart is en bij de ander wit.
+ *
+ * Donker blijft gewoon bestaan en staat een klik ver, onder Instellingen.
+ * Wie het al op donker had staan houdt het: die keuze staat in
+ * localStorage en wordt hier gelezen, niet overschreven.
+ */
+const startThema = lees<ThemeKeuze>(SLEUTEL, THEMAS, 'licht')
 const startBeweging = lees<BewegingKeuze>(BEWEGING, BEWEGINGEN, 'systeem')
 const startZijbalk = lees<'open' | 'klein'>(ZIJBALK, ['open', 'klein'], 'open') === 'klein'
 

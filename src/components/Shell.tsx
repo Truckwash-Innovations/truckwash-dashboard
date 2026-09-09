@@ -1,9 +1,10 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import {
+  type ReactNode, useEffect, useMemo, useRef, useState,
+} from 'react'
 import { motion } from 'framer-motion'
 import {
-  AlertTriangle, Bug, ChevronDown, Compass, LayoutGrid, LogOut,
-  MessageSquarePlus, Mic, MoreHorizontal,
-  PanelLeftClose, PanelLeftOpen, RefreshCw, Search, Settings, SlidersHorizontal,
+  AlertTriangle, Bug, Compass, LayoutGrid, LogOut, Menu as MenuIcon,
+  MessageSquarePlus, Mic, MoreHorizontal, RefreshCw, Search, SlidersHorizontal, X,
 } from 'lucide-react'
 import { useAuth } from '../store/useAuth'
 import { useSync } from '../lib/sync'
@@ -21,13 +22,49 @@ import DevMelding from './DevMelding'
 import Instellingen from './Instellingen'
 import Overleg, { OverlegKnop } from './Overleg'
 import { Dropdown, type MenuGroup } from './ui'
+import { CATEGORIEEN } from '../lib/menu'
 import { trail } from '../lib/trail'
-import { useTheme } from '../lib/theme'
 import { usePerms } from '../store/useNav'
 import NotificationCenter from './NotificationCenter'
 import { terugTeKijken } from '../lib/rondleiding'
 import { useRondleiding } from '../store/useRondleiding'
 import type { LucideIcon } from 'lucide-react'
+
+/* ==================================================================
+   Het raam om de app
+   ==================================================================
+
+   Wat hier veranderd is, en waarom
+   --------------------------------
+
+   Casper: "Verwijder de huidige permanente navigatiebalk aan de zijkant. Ik
+   wil geen grote sidebar die permanent een deel van het scherm inneemt."
+
+   Er stond een zijbalk van 248px in een raster van twee kolommen. Op een
+   laptop van 1366px is dat achttien procent van het scherm, permanent, voor
+   een lijst die je een paar keer per uur gebruikt -- en op een tabel met
+   tien kolommen precies de twee kolommen die niet meer passen.
+
+   Nu: een balk van 48px bovenaan, daaronder alles, en de navigatie achter
+   een menuknop linksboven. Die opent een paneel met alle categorieen naast
+   elkaar, zodat je in een blik ziet wat er is. Dat is het verschil met de
+   oude opzet: die had twee niveaus waarvan het tweede dichtstond, dus wist
+   je niet wat eronder zat.
+
+   Wat er met opzet NIET verdwenen is
+   ----------------------------------
+
+   Alles wat in de voet van de zijbalk stond -- ander dashboard, instellingen,
+   wie je bent, de versie, hoe lang geleden er is bijgewerkt -- zat al in het
+   profielmenu rechtsboven, of staat daar nu. De onderbalk op een telefoon
+   blijft: dat is geen zijbalk maar de snelste weg op een klein scherm, en
+   die weghalen zou werk kosten in plaats van opleveren.
+
+   En de rondleiding blijft werken. Vierentwintig van haar stappen wijzen
+   naar een menu-item; die bestaan alleen zolang het menu openstaat. Vandaar
+   menuNodig in useRondleiding: wijst de uitleg naar een menu-item, dan gaat
+   het menu open en blijft het staan.
+   ================================================================== */
 
 export interface NavItem {
   key: string
@@ -37,13 +74,10 @@ export interface NavItem {
   /**
    * Een tweede niveau.
    *
-   * Optioneel, en dat is de hele truc: een item zonder kinderen rendert
-   * precies zoals het altijd deed. Negen dashboards delen deze Shell; acht
-   * daarvan hoeven van dit hoofdstuk niets te merken.
-   *
-   * Alleen de administratie gebruikt het, en om een reden: die had zeven
-   * losse knoppen die er straks vijftien zouden worden. Vijftien knoppen op
-   * een rij is geen menu meer maar een lijst waar je in zoekt.
+   * Blijft bestaan omdat de administratie het gebruikt en acht andere
+   * dashboards er niets van hoeven te merken. In de launcher wordt het
+   * platgeslagen: daar doen de categorieen de groepering, en twee soorten
+   * groepen door elkaar is precies de diepte die eruit moest.
    */
   kinderen?: NavItem[]
 }
@@ -71,58 +105,15 @@ export default function Shell({
   const openSearch = useNav((s) => s.openSearch)
   const goto = useNav((s) => s.goto)
   const perms = usePerms()
-  const klein = useTheme((s) => s.zijbalkKlein)
-  const setZijbalk = useTheme((s) => s.setZijbalk)
 
   const [storing, setStoring] = useState(false)
   const [devmelding, setDevmelding] = useState(false)
   const [instellingen, setInstellingen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
-  /* ---------------------------------------------------------------- *
-   *  Het tweede niveau
-   *
-   *  In de smalle zijbalk staan alleen icoontjes. Een groepskop is daar
-   *  onbruikbaar -- je ziet een icoon dat niets doet behalve iets openvouwen
-   *  wat je niet kunt lezen. Dus daar plat: de kinderen komen los in de rij te
-   *  staan, precies zoals het menu voor deze verbouwing was.
-   * ---------------------------------------------------------------- */
-  const zichtbaar = useMemo(
-    () => (klein
-      ? items.flatMap((it) => (it.kinderen?.length ? it.kinderen : [it]))
-      : items),
-    [items, klein],
-  )
-
-  /*
-   * Welke groepen open staan onthouden we per dashboard. Iemand die elke
-   * ochtend bij Inkoop begint, hoort dat niet elke ochtend opnieuw open te
-   * hoeven klikken.
-   *
-   * De groep waar je nu in zit staat altijd open; dat regelt Groep zelf. Deze
-   * verzameling gaat alleen over wat je met de hand hebt opengezet.
-   */
-  const [openGroepen, setOpenGroepen] = useState<Set<string>>(() => {
-    try {
-      const bewaard = localStorage.getItem(`menu-open:${roleLabel}`)
-      return new Set<string>(bewaard ? (JSON.parse(bewaard) as string[]) : [])
-    } catch {
-      return new Set<string>()
-    }
-  })
-
-  const wisselGroep = (sleutel: string) => {
-    setOpenGroepen((oud) => {
-      const nieuw = new Set(oud)
-      if (nieuw.has(sleutel)) nieuw.delete(sleutel)
-      else nieuw.add(sleutel)
-      /* Een voorkeur die niet bewaard kan worden is geen reden om niet te
-         kunnen klikken. */
-      try {
-        localStorage.setItem(`menu-open:${roleLabel}`, JSON.stringify([...nieuw]))
-      } catch { /* prive-venster, volle schijf -- niet erg */ }
-      return nieuw
-    })
-  }
+  /* De rondleiding mag het menu openzetten; zie de kop. */
+  const menuNodig = useRondleiding((s) => s.menuNodig)
+  const menuZichtbaar = menuOpen || menuNodig
 
   // Elk schermwissel in het spoor, zodat een melding laat zien waar iemand
   // liep vlak voordat er iets misging.
@@ -130,10 +121,6 @@ export default function Shell({
 
   /* ---------------------------------------------------------------- *
    *  Het actiemenu
-   *
-   *  Hier zat vroeger een rij losse icoontjes waarvan je moest raden wat
-   *  ze deden. Onder één knop, met een regel uitleg per keuze, is het
-   *  compacter én duidelijker.
    * ---------------------------------------------------------------- */
 
   const acties: MenuGroup[] = [
@@ -184,6 +171,9 @@ export default function Shell({
 
   const persoonlijk: MenuGroup[] = [
     {
+      /* Wie je bent en waar je zit. Stond in de voet van de zijbalk; hier is
+         het op de plek waar iedereen het in een zakelijke app zoekt. */
+      title: user?.name ? `${user.name} · v${version}` : undefined,
       items: [
         {
           key: 'instellingen',
@@ -201,11 +191,6 @@ export default function Shell({
         },
       ],
     },
-    /*
-     * De rondleiding terugkijken, per rol die je hebt. Alleen de rollen die
-     * je ook echt hebt -- een uitleg over een dashboard waar je niet in komt
-     * is geen uitleg maar een folder.
-     */
     ...(rondleidingen.length > 0 ? [{
       title: rondleidingen.length > 1 ? 'Rondleidingen' : undefined,
       items: rondleidingen.map((r) => ({
@@ -230,83 +215,39 @@ export default function Shell({
   ]
 
   return (
-    <div className={`app-shell ${klein ? 'smal' : ''}`}>
-      {/* ------------------------- Zijbalk -------------------------- */}
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          {klein ? <Logo width={34} /> : <Logo width={150} />}
-          <div className="sub">{roleLabel}</div>
+    <div className="raam">
+      {/* De eerste Tab op elke pagina. Zonder dit moet wie met het
+          toetsenbord werkt eerst door de hele bovenbalk. */}
+      <a className="overslaan" href="#inhoud">Naar de inhoud</a>
+
+      <header className="topbalk">
+        <button
+          className="menuknop"
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-expanded={menuZichtbaar}
+          aria-controls="hoofdmenu"
+          aria-label={menuZichtbaar ? 'Menu sluiten' : 'Menu openen'}
+          title="Menu"
+          data-rondleiding="menu"
+        >
+          {menuZichtbaar ? <X size={19} /> : <MenuIcon size={19} />}
+        </button>
+
+        <button className="topbalk-merk" onClick={() => onNavigate('start')} title="Naar het begin">
+          {/* Het logo is een woordmerk van 250x70; op 96 breed is dat 27
+              hoog en past het in een balk van 48 met lucht eromheen. */}
+          <Logo width={96} />
+        </button>
+
+        <div className="topbalk-plek">
+          <span className="hide-mobile" aria-hidden="true">·</span>
+          <b>{title}</b>
+          {subtitle && <span className="hide-mobile">{subtitle}</span>}
         </div>
 
-        <nav className="nav">
-          {zichtbaar.map((it) => (
-            it.kinderen && it.kinderen.length > 0
-              ? (
-                <Groep
-                  key={it.key}
-                  item={it}
-                  active={active}
-                  open={openGroepen.has(it.key)}
-                  onToggle={() => wisselGroep(it.key)}
-                  onNavigate={onNavigate}
-                />
-              )
-              : (
-                <Knop
-                  key={it.key}
-                  item={it}
-                  active={active}
-                  klein={klein}
-                  onNavigate={onNavigate}
-                />
-              )
-          ))}
-        </nav>
+        <span className="topbalk-rek" />
 
-        <div className="sidebar-foot">
-          <button className="nav-item" onClick={clearRole} title={klein ? 'Ander dashboard' : undefined}>
-            <LayoutGrid size={18} />
-            <span>Ander dashboard</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => setInstellingen(true)}
-            title={klein ? 'Instellingen' : undefined}
-          >
-            <Settings size={18} />
-            <span>Instellingen</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => setZijbalk(!klein)}
-            title={klein ? 'Menu uitklappen' : 'Menu inklappen'}
-          >
-            {klein ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-            <span>Inklappen</span>
-          </button>
-
-          <div className="sidebar-persoon" title={klein ? user?.name : undefined}>
-            <div className="av">{initials(user?.name ?? '?')}</div>
-            <div style={{ minWidth: 0 }}>
-              <div className="n">{user?.name}</div>
-              <div className="s">
-                v{version}
-                {lastSyncAt ? ` · ${relative(lastSyncAt)}` : ''}
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* --------------------------- Werkvlak ----------------------- */}
-      <div className="main">
-        <header className="topbar">
-          <div className="topbar-titel">
-            <h1>{title}</h1>
-            {subtitle && <div className="sub">{subtitle}</div>}
-          </div>
-          <span className="spacer" />
-
+        <div className="topbalk-rechts">
           <span data-rondleiding="locatie"><LocationSwitcher /></span>
 
           <div className="topbar-search" data-rondleiding="zoeken">
@@ -351,8 +292,15 @@ export default function Shell({
           </span>
 
           <SyncPill />
-        </header>
+        </div>
+      </header>
 
+      {/* className="main" blijft staan. Niet uit gemakzucht: de mobiele
+          regels voor het overleg hangen eraan (.main:has(.chat-list.has-open)
+          verbergt de onderbalk als er een gesprek openstaat). Hem weghalen zou
+          op een telefoon het invoerveld onder de balk schuiven -- en dat merk
+          je pas als iemand in een wasstraat iets probeert te typen. */}
+      <div className="main">
         {sessieWeg && (
           <div className="schema-banner">
             <AlertTriangle size={17} />
@@ -383,24 +331,23 @@ export default function Shell({
         )}
 
         <motion.main
-          className="content"
+          id="inhoud"
+          className="werkvlak"
           key={active}
-          initial={{ opacity: 0, y: 8 }}
+          initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: .2 }}
+          transition={{ duration: .16 }}
         >
           {children}
         </motion.main>
 
         {/* --------------------- Mobiele navigatie ------------------
           *
-          *  Vijf even brede vakken: de eerste vier schermen en "Meer". Wat er
-          *  bovenin niet past op een telefoon -- de acties, synchroniseren,
-          *  instellingen, wisselen van dashboard -- zit onder "Meer". De
-          *  schermen die niet in de eerste vier zitten zijn via zoeken te
-          *  bereiken; dat is op een telefoon toch de snelste weg.
+          *  Blijft. Dit is geen zijbalk maar de snelste weg op een telefoon:
+          *  vier vakken plus "Meer". Wie meer nodig heeft opent het menu of
+          *  zoekt -- op een klein scherm is dat toch sneller dan bladeren.
           * ---------------------------------------------------------- */}
-        <nav className="mobile-nav" aria-label="Hoofdmenu">
+        <nav className="mobile-nav" aria-label="Snel naar">
           {items.slice(0, 4).map((it) => {
             const Icon = it.icon
             return (
@@ -426,6 +373,15 @@ export default function Shell({
         </nav>
       </div>
 
+      <Launcher
+        open={menuZichtbaar}
+        sluit={() => setMenuOpen(false)}
+        items={items}
+        active={active}
+        roleLabel={roleLabel}
+        onNavigate={(k) => { setMenuOpen(false); onNavigate(k) }}
+      />
+
       <StoringMelden open={storing} onClose={() => setStoring(false)} />
       <DevMelding
         open={devmelding}
@@ -441,84 +397,144 @@ export default function Shell({
 /** Het overlegscherm, zodat dashboards het als pagina kunnen tonen. */
 export { Overleg }
 
-/* ------------------------------------------------------------------ *
- *  Het menu
- *
- *  Twee niveaus, maar alleen waar een dashboard erom vraagt. Een item zonder
- *  kinderen gaat door Knop en komt eruit als de knop die er altijd stond --
- *  zelfde klassen, zelfde data-rondleiding, zelfde aria-current. Dat is
- *  bewust: de rondleiding haakt aan `nav-<sleutel>` en de acht andere
- *  dashboards mogen hier niets van merken.
- * ------------------------------------------------------------------ */
+/* ==================================================================
+   De app-launcher
+   ==================================================================
 
-function Knop({ item, active, klein, onNavigate, kind }: {
-  item: NavItem
-  active: string
-  klein?: boolean
-  onNavigate: (key: string) => void
-  kind?: boolean
-}) {
-  const Icon = item.icon
-  return (
-    <button
-      className={`nav-item ${kind ? 'nav-kind' : ''} ${active === item.key ? 'active' : ''}`}
-      onClick={() => onNavigate(item.key)}
-      title={klein ? item.label : undefined}
-      data-rondleiding={`nav-${item.key}`}
-      aria-current={active === item.key ? 'page' : undefined}
-    >
-      <Icon size={kind ? 16 : 18} />
-      <span>{item.label}</span>
-      {!!item.badge && <span className="badge brand">{item.badge}</span>}
-    </button>
-  )
-}
+   Casper: "Menu -> categorie -> functie, en niet Menu -> categorie ->
+   subcategorie -> subcategorie -> pagina."
 
-/**
- * Een groep met kinderen.
- *
- * De kop is geen pagina. Erop klikken vouwt open en dicht en navigeert niet
- * -- anders spring je naar een scherm terwijl je alleen wilde kijken wat
- * eronder zit.
- *
- * Staat de groep dicht en ligt er werk in, dan telt de kop de badges van zijn
- * kinderen bij elkaar op. Zonder dat is inklappen een manier om werk te
- * verstoppen, en dan klapt niemand ooit iets in.
- */
-function Groep({ item, active, open, onToggle, onNavigate }: {
-  item: NavItem
-  active: string
+   Alles staat open. Geen uitklapbare groepen: de categorieen staan als
+   kolommen naast elkaar en je ziet in een blik wat er is. Dat was het
+   probleem met de oude zijbalk -- het tweede niveau stond dicht, dus wat er
+   onder een kop zat wist je pas als je erop klikte.
+
+   Wat een dashboard hier aanlevert is nog steeds zijn eigen items-lijst; de
+   indeling in categorieen komt uit lib/menu.ts en is aantoonbaar compleet
+   (zelftest 58 rekent na dat elke schermsleutel precies een categorie heeft).
+   ================================================================== */
+
+function Launcher({
+  open, sluit, items, active, roleLabel, onNavigate,
+}: {
   open: boolean
-  onToggle: () => void
+  sluit: () => void
+  items: NavItem[]
+  active: string
+  roleLabel: string
   onNavigate: (key: string) => void
 }) {
-  const kinderen = item.kinderen ?? []
-  const heeftActieve = kinderen.some((k) => k.key === active)
-  const uit = open || heeftActieve
-  const samen = kinderen.reduce((n, k) => n + (k.badge ?? 0), 0)
-  const Icon = item.icon
+  const raam = useRef<HTMLDivElement>(null)
+  const [zoek, setZoek] = useState('')
+
+  /* Het tweede niveau plat: de categorieen doen de groepering. */
+  const plat = useMemo(
+    () => items.flatMap((it) => (it.kinderen?.length ? it.kinderen : [it])),
+    [items])
+
+  /* Per categorie wat dit dashboard ervan kent, in de volgorde van menu.ts.
+     Een categorie zonder items komt niet in beeld -- een wasser hoort geen
+     lege kop "Administratie" te zien. */
+  const groepen = useMemo(() => {
+    const term = zoek.trim().toLowerCase()
+    const past = (it: NavItem) => !term || it.label.toLowerCase().includes(term)
+    const opSleutel = new Map(plat.map((it) => [it.key, it]))
+    const gebruikt = new Set<string>()
+
+    const uit = CATEGORIEEN.map((c) => {
+      const gevonden = c.paginas
+        .map((p) => opSleutel.get(p))
+        .filter((it): it is NavItem => !!it && past(it))
+      gevonden.forEach((it) => gebruikt.add(it.key))
+      return { naam: c.naam, sleutel: c.sleutel, items: gevonden }
+    }).filter((g) => g.items.length > 0)
+
+    /* Wat in geen enkele categorie staat. Hoort niet voor te komen -- de
+       zelftest bewaakt dat -- maar als het toch gebeurt is een kop "Overig"
+       beter dan een item dat nergens meer te vinden is. */
+    const rest = plat.filter((it) => !gebruikt.has(it.key) && past(it))
+    if (rest.length) uit.push({ naam: 'Overig', sleutel: 'overig', items: rest })
+
+    return uit
+  }, [plat, zoek])
+
+  /* Escape sluit, en de focus gaat naar het zoekveld bij het openen. */
+  useEffect(() => {
+    if (!open) { setZoek(''); return }
+    const veld = raam.current?.querySelector<HTMLInputElement>('input')
+    veld?.focus()
+    function toets(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); sluit() }
+    }
+    document.addEventListener('keydown', toets)
+    return () => document.removeEventListener('keydown', toets)
+  }, [open, sluit])
+
+  if (!open) return null
+
+  const totaal = groepen.reduce((n, g) => n + g.items.length, 0)
 
   return (
-    <div className={`nav-groep ${uit ? 'uit' : ''}`}>
-      <button
-        className={`nav-item nav-kop ${heeftActieve ? 'bevat' : ''}`}
-        onClick={onToggle}
-        aria-expanded={uit}
-        data-rondleiding={`nav-${item.key}`}
+    <>
+      <div className="launcher-sluier" onClick={sluit} aria-hidden="true" />
+      <div
+        className="launcher"
+        id="hoofdmenu"
+        role="dialog"
+        aria-modal="false"
+        aria-label="Hoofdmenu"
+        ref={raam}
       >
-        <Icon size={18} />
-        <span>{item.label}</span>
-        {!uit && samen > 0 && <span className="badge brand">{samen}</span>}
-        <ChevronDown size={15} className="nav-pijl" />
-      </button>
+        <div className="launcher-kop">
+          <h2>{roleLabel}</h2>
+          <p>Alles wat je in dit dashboard kunt doen.</p>
+          <div className="zoekveld" style={{ marginTop: 'var(--s3)', maxWidth: 'none' }}>
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={zoek}
+              onChange={(e) => setZoek(e.target.value)}
+              placeholder="Filter dit menu…"
+              aria-label="Filter dit menu"
+            />
+          </div>
+        </div>
 
-      {uit && (
-        <div className="nav-kinderen">
-          {kinderen.map((k) => (
-            <Knop key={k.key} item={k} active={active} onNavigate={onNavigate} kind />
+        <div className="launcher-body">
+          {groepen.map((g) => (
+            <div className="launcher-groep" key={g.sleutel}>
+              <h3>{g.naam}</h3>
+              {g.items.map((it) => {
+                const Icon = it.icon
+                return (
+                  <button
+                    key={it.key}
+                    className="launcher-item"
+                    onClick={() => onNavigate(it.key)}
+                    aria-current={active === it.key ? 'page' : undefined}
+                    data-rondleiding={`nav-${it.key}`}
+                  >
+                    <Icon size={17} />
+                    <span className="naam">{it.label}</span>
+                    {!!it.badge && <span className="teller">{it.badge}</span>}
+                  </button>
+                )
+              })}
+            </div>
           ))}
         </div>
-      )}
-    </div>
+
+        {totaal === 0 && (
+          <p style={{
+            padding: 'var(--s5)',
+            margin: 0,
+            fontSize: 'var(--fs-klein)',
+            color: 'var(--text-3)',
+          }}>
+            Niets gevonden voor “{zoek}”.
+          </p>
+        )}
+      </div>
+    </>
   )
 }

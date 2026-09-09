@@ -1,3 +1,20 @@
+/*
+ * Een deur voor het hele designsysteem.
+ *
+ * Alles wat een scherm nodig heeft komt uit './ui', ook wat in tabel.tsx,
+ * pagina.tsx en lade.tsx staat. Dat is geen nettigheid: zolang er drie
+ * importpaden zijn, kiest ieder scherm er een, en dan is aan de import niet
+ * te zien of iets uit het systeem komt of ter plekke is gemaakt.
+ *
+ * De oude onderdelen hieronder (Card, Stat, Badge, Modal, Empty, Bar, Field)
+ * blijven staan. Vierennegentig schermen gebruiken ze; die gaan bij het
+ * herontwerp een voor een over, en tot die tijd hoort een scherm dat nog
+ * niet is omgezet te blijven werken.
+ */
+export * from './tabel'
+export * from './pagina'
+export * from './lade'
+
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'

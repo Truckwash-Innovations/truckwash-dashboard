@@ -11,6 +11,7 @@ import { users as userRepo } from '../lib/repo'
 import type { Role } from '../lib/types'
 import { useAuth } from '../store/useAuth'
 import { usePerms } from '../store/useNav'
+import { useRondleiding } from '../store/useRondleiding'
 
 /* ------------------------------------------------------------------ *
  *  De rondleiding
@@ -44,6 +45,23 @@ export default function Rondleiding({
 
   const [fase, setFase] = useState<Fase>('verhaal')
   const [stap, setStap] = useState(0)
+
+  /*
+   * Het menu openhouden zolang de uitleg een menu-item aanwijst.
+   *
+   * Vierentwintig stappen wijzen naar doel: nav-<sleutel>. Die stonden in de
+   * zijbalk, die er altijd was; nu zitten ze in de app-launcher en bestaan ze
+   * alleen in het scherm terwijl die openstaat. Zonder dit wijst de pijl naar
+   * niets -- en dat is precies het soort stille breuk waar een herontwerp
+   * berucht om is: de rondleiding start, er gebeurt niets, en niemand weet
+   * waarom.
+   */
+  const zetMenuNodig = useRondleiding((s) => s.zetMenuNodig)
+  const doelNu = fase === 'aanwijzen' ? aanwijzers[stap]?.doel : undefined
+  useEffect(() => {
+    zetMenuNodig(!!doelNu?.startsWith('nav-'))
+  }, [doelNu, zetMenuNodig])
+  useEffect(() => () => zetMenuNodig(false), [zetMenuNodig])
 
   /** Onthouden dat hij is gezien, en dan pas weg. */
   const afsluiten = useCallback(async () => {

@@ -28,17 +28,100 @@
   --on-brand:      #14202f;   /* tekst op een geel vlak */
   --accent:        #58b6f5;   /* koele tweede kleur voor grafieken en water */
 
+  /* ---- De accentkleur van de interface ---------------------------
+     Casper koos ervoor het geel spaarzaam te houden: het logo en de ene
+     primaire actie per scherm. Alles wat daarnaast om een kleur vraagt --
+     een link, de gekozen rij, het actieve tabblad, de stand "in
+     behandeling" -- gebruikt deze.
+
+     Geel is een merkkleur en geen interfacekleur: op een scherm met
+     driehonderd tabelregels trekt het de aandacht naar plekken waar niets
+     te beslissen valt, en dan werkt het niet meer op de plek waar dat
+     wel zo is.                                                         */
+
+  --ui:            #4a9df0;
+  --ui-2:          #2d7fd0;
+  --tint-ui-weak:  rgba(74, 157, 240, .08);
+  --tint-ui:       rgba(74, 157, 240, .16);
+  --line-ui:       rgba(74, 157, 240, .38);
+  --text-ui:       #a9cffa;
+
   --ok:            #35d07f;
   --warn:          #f5b544;
   --danger:        #f4685f;
   --info:          #7aa2ff;
 
-  --radius:        14px;
-  --radius-sm:     9px;
-  --radius-lg:     22px;
+  /* ---- Maatvoering -----------------------------------------------
+     Casper: "Gebruik een consistente spacing-systematiek ... Niet
+     willekeurig verschillende marges gebruiken."
 
-  --shadow:        0 10px 30px rgba(0, 0, 0, .45);
-  --shadow-sm:     0 3px 12px rgba(0, 0, 0, .3);
+     Er stond niets. Geen enkele spacing-token, en daardoor 1054 losse
+     style={{}}-blokken met vierentwintig verschillende maten erin -- elke
+     marge was ter plekke bedacht. Dit is de schaal waar alles vanaf nu uit
+     komt, en de zelftest houdt vast dat er geen nieuwe maten bij komen.
+
+     Acht stappen. Vier tot tweeendertig is wat er in de opdracht staat;
+     48 en 64 staan erbij omdat een lege staat en een paginakop die ruimte
+     nodig hebben en anders alsnog met de hand worden gemaakt.           */
+
+  --s1:  4px;
+  --s2:  8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+
+  /* ---- Typografie ------------------------------------------------
+     Zes trappen met een eigen taak, zodat "welke maat hoort hier" geen
+     vraag meer is. Niet alles vet: het gewicht doet de hierarchie, niet
+     de grootte alleen.                                                */
+
+  --fs-titel:    20px;   /* de naam van de pagina */
+  --fs-sectie:   15px;   /* een kop binnen een pagina */
+  --fs-body:     14px;   /* de gewone tekst en tabelinhoud */
+  --fs-klein:    13px;   /* labels, knoppen, kolomkoppen */
+  --fs-meta:     12px;   /* datums, aantallen, toelichting */
+  --fs-mini:     11px;   /* badges en sneltoetsen */
+
+  --fw-normaal:  400;
+  --fw-medium:   500;
+  --fw-half:     600;
+  --fw-vet:      700;
+
+  /* Cijfers onder elkaar. Bedragen in een tabel horen op de komma uit te
+     lijnen; met gewone cijfers danst een 1 naast een 8 en is een kolom
+     bedragen niet te scannen. */
+  --cijfers: "tnum" 1, "lnum" 1;
+
+  /* ---- Hoogtes ---------------------------------------------------
+     De bovenbalk moet laag zijn: "Hij moet functioneel zijn en weinig
+     verticale ruimte innemen." 48px is de hoogte die Microsoft 365 ook
+     aanhoudt en waar een knop van 32px met 8px lucht in past.          */
+
+  --topbalk-h:   48px;
+  --regel-h:     36px;   /* een tabelrij: scanbaar zonder te knijpen */
+  --knop-h:      32px;
+  --knop-h-klein: 26px;
+
+  /* ---- Ronding ---------------------------------------------------
+     Was 14px, en dat is voor een zakelijke tabel te rond -- "geen
+     overdreven ronde elementen". Vier tot acht, zoals elke moderne
+     zakelijke applicatie.                                             */
+
+  --radius:        6px;
+  --radius-sm:     4px;
+  --radius-lg:     8px;
+  /* Alleen voor iets dat werkelijk een pil is: een badge, een teller. */
+  --radius-pil:    999px;
+
+  /* ---- Diepte ----------------------------------------------------
+     "geen overdreven schaduwen". Twee lagen en niet meer: iets dat op de
+     pagina ligt, en iets dat erboven zweeft (menu, venster, lade).      */
+
+  --shadow:        0 4px 16px rgba(0, 0, 0, .40);
+  --shadow-sm:     0 1px 3px rgba(0, 0, 0, .28);
 
   --ease:          cubic-bezier(.22, .61, .36, 1);
 
@@ -140,6 +223,44 @@
      tussen lezen en gokken. */
   --on-brand:      #241a00;
   --accent:        #0077ff;
+
+  /* De accentkleur van de interface, licht. Zie het donkere blok voor
+     waarom deze naast het geel bestaat. Donkerder dan in het donker: op wit
+     moet blauw dieper zijn om leesbaar te blijven op een dunne lijn. */
+  --ui:            #0f62c4;
+  --ui-2:          #0a4a99;
+  --tint-ui-weak:  rgba(15, 98, 196, .05);
+  --tint-ui:       rgba(15, 98, 196, .11);
+  --line-ui:       rgba(15, 98, 196, .32);
+  --text-ui:       #0b4a99;
+
+  /* ---- Diepte in het licht ---------------------------------------
+     Op wit werkt een zware schaduw niet: die maakt een vuile vlek in
+     plaats van hoogte. Twee dunne lagen, precies genoeg om een menu van
+     de pagina te tillen.                                              */
+
+  --shadow:        0 1px 2px rgba(16, 24, 40, .06), 0 8px 24px rgba(16, 24, 40, .08);
+  --shadow-sm:     0 1px 2px rgba(16, 24, 40, .07);
+  --shadow-lift:   0 1px 2px rgba(16, 24, 40, .06), 0 4px 12px rgba(16, 24, 40, .10);
+
+  /* Vlakken en lijnen die het bij een tabel met driehonderd regels moeten
+     doen. De lijn was #c0c0c0 -- op een tabel met veel regels wordt dat
+     een raster dat harder schreeuwt dan de inhoud. */
+  --line:          #e3e6ea;
+  --line-soft:     #eceef1;
+  --surface-3:     #f2f4f7;
+
+  /* Geen gloed en geen kleurzweem in het werkvlak. "geen drukke
+     gradients": op een administratiescherm hoort de achtergrond niets te
+     doen. */
+  --werkvlak-gloed: transparent;
+  --werkvlak-koel:  transparent;
+  --kaart-glans:    transparent;
+  --brand-glow:     rgba(255, 178, 0, .18);
+  --sluier:         rgba(16, 24, 40, .025);
+  --glas:           rgba(255, 255, 255, .86);
+  --glas-zacht:     rgba(255, 255, 255, .7);
+  --rand-schaduw:   rgba(16, 24, 40, .14);
 
   --ok:            #12864c;
   --warn:          #a86b00;
