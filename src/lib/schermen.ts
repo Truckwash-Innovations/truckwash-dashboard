@@ -2,7 +2,7 @@ import {
   AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
-  BriefcaseBusiness, FolderOpen, ListTodo, Timer, Truck, Users, Wallet, Wrench,
+  BriefcaseBusiness, FolderOpen, ListTodo, Sparkles, Timer, Truck, Users, Wallet, Wrench,
 } from 'lucide-react'
 import { ROLE_ORDER, type Permission, type Role } from './types'
 
@@ -120,6 +120,22 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   exact:        ['developer'],
   post:         ['developer'],
 }
+
+/**
+ * Menu-items die geen pagina zijn.
+ *
+ * Deze drie staan in DASHBOARDS_MET omdat ze in een menu voorkomen, maar er
+ * is geen dashboard met een `page === '<sleutel>'`-tak: ze openen een
+ * venster. Nagemeten met een grep -- nul treffers voor alle drie.
+ *
+ * Ze horen daarom WEL in het menu en NIET in de zoeklijst. Een zoektreffer
+ * zou naar een pagina navigeren die niet bestaat, en dat is precies de
+ * doodlopende weg die zelftest 59 opspoort.
+ *
+ * Het staat hier en niet als uitzondering in die test, omdat het een
+ * eigenschap van deze drie sleutels is en geen eigenschap van de test.
+ */
+export const VENSTER_ITEMS = ['bericht', 'storing', 'scan'] as const
 
 /** De dashboards die deze pagina kennen; leeg als niemand haar kent. */
 export function dashboardsMet(page: string): Role[] {
@@ -251,4 +267,32 @@ export const SCHERMEN: Scherm[] = [
   { page: 'artikelen',  label: 'Artikelen',    hint: 'Wat Trucksshop levert, tot in de kassa', icon: Package, rol: 'trucksupply', recht: 'supply.articles', ook: ['assortiment', 'sku', 'producten'] },
   { page: 'bestellingen', label: 'Bestellingen', hint: 'Inpakken, verzenden, pakbon en label', icon: PackageCheck, rol: 'trucksupply', recht: 'supply.orders', ook: ['pakbon', 'levering', 'verzenden', 'order'] },
   { page: 'instellingen', label: 'Instellingen', hint: 'Mailadres, ochtendmail en Exact', icon: Settings, rol: 'trucksupply', recht: 'supply.settings', ook: ['exact', 'ochtendmail'] },
+
+  /* ---------------------------------------------------------------- *
+   *  De elf die er wel waren maar niet te vinden
+   *
+   *  SCHERMEN telde 48 ingangen tegenover 59 echte paginasleutels. Deze elf
+   *  stonden er niet in en waren dus alleen via het menu te bereiken -- en op
+   *  een telefoon was het menu tot voor kort vier knoppen.
+   *
+   *  Het duurste voorbeeld: een klant die "facturen" typt kreeg vier treffers
+   *  (Inkoop, Postbus, Verkoopfacturen, Boekhouding instellen) en niet zijn
+   *  eigen facturenscherm. Dat is erger dan geen treffer: hij klikt er een
+   *  aan, komt nergens, en concludeert dat de app zijn facturen niet heeft.
+   * ---------------------------------------------------------------- */
+
+  { page: 'facturen',    label: 'Mijn facturen',  hint: 'Wat er bij jouw bedrijf in rekening is gebracht', icon: Receipt, rol: 'customer', ook: ['factuur', 'rekening', 'nota', 'openstaand'] },
+  { page: 'historie',    label: 'Historie',       hint: 'Alle wasbeurten van je bedrijf, terug in de tijd', icon: CalendarRange, rol: 'customer', ook: ['verleden', 'eerder', 'wasbeurten', 'archief'] },
+  { page: 'plannen',     label: 'Inplannen',      hint: 'Een wasbeurt aanvragen',           icon: CalendarDays,  ook: ['boeken', 'aanvragen', 'afspraak', 'reserveren'] },
+
+  { page: 'mijn',        label: 'Mijn team',      hint: 'Wie er vandaag staat en wat er ligt', icon: Users,       rol: 'supervisor', ook: ['ploeg', 'vandaag', 'bezetting'] },
+  { page: 'team',        label: 'Uren van het team', hint: 'De urenstaten van je mensen',   icon: Timer,          rol: 'supervisor', recht: 'hours.approve', ook: ['urenstaat', 'klokken', 'goedkeuren'] },
+  { page: 'smart',       label: 'Slim inroosteren', hint: 'Een rooster laten voorstellen',  icon: Sparkles,       rol: 'supervisor', ook: ['rooster', 'planning', 'voorstel', 'ai'] },
+
+  { page: 'dossiers',    label: 'Personeelsdossiers', hint: 'Contracten, documenten en gegevens', icon: FolderLock, rol: 'administratie', recht: 'staff.view', ook: ['dossier', 'contract', 'loonstrook', 'personeel'] },
+
+  { page: 'vestigingen', label: 'Vestigingen',    hint: 'Adressen, openingstijden, foto\u2019s en wat er op de website staat', icon: Building2, recht: 'locations.manage', ook: ['locatie', 'locaties', 'filiaal', 'adres', 'openingstijden', 'website'] },
+  { page: 'voorraad',    label: 'Voorraad',       hint: 'Standen, minima en wat er bijbesteld moet', icon: Package,  recht: 'inventory.view', ook: ['materiaal', 'chemie', 'bestellen', 'minimum', 'alarm'] },
+  { page: 'kassas',      label: 'Kassa\u2019s',       hint: 'Apparaten koppelen, lades en kluizen', icon: Cpu,       recht: 'pos.manage', ook: ['kassa', 'pos', 'lade', 'kluis', 'apparaat', 'koppelen', 'pin'] },
+  { page: 'trucky',      label: 'Trucky',         hint: 'De chatbot op de website: vragen, antwoorden en contactverzoeken', icon: MessageSquare, recht: 'admin.desk', ook: ['chatbot', 'bot', 'website', 'vragen', 'contact'] },
 ]

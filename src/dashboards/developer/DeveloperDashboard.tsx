@@ -111,6 +111,11 @@ export default function DeveloperDashboard() {
 
   useNavTarget(
   ['tickets', 'plannen', 'logboek', 'beveiliging', 'meekijken', 'systeem', 'inkoop', 'eigenai',
+  /* Deze drie ontbraken, terwijl dit dashboard ze wel rendert. Gevolg: de
+     knop in de takenmail (?open=werk) deed niets -- en het doel bleef in
+     useNav staan, zodat je er later onaangekondigd op landde zodra je naar
+     een ander dashboard wisselde. */
+   'werk', 'werving', 'documenten',
    'exact', 'post', 'postbus', 'overleg'],
   (p) => setPage(p))
 

@@ -7439,5 +7439,154 @@ console.log('\n58. De zijbalk is weg')
     uitleg.includes('() => zetMenuNodig(false)'))
 }
 
+/* ====================================================================
+ *  59. Geen doodlopende wegen
+ *
+ *  Bij de UX-verbouwing heb ik acht lezers de app laten doorspitten, en die
+ *  vonden iets wat geen enkele test zag: overal wegen die naar niets leiden.
+ *
+ *    - twee meldingen wezen naar een pagina die niet bestaat. 'meldingen'
+ *      (het scherm heet tickets) en 'werknemers' (het heet chauffeurs). Klik
+ *      erop en er gebeurt niets -- juist bij de mensen die toch al twijfelden
+ *      of de app iets met hun melding deed.
+ *    - de knop "Openen" in het postvak deed goto('financieel'), en dat scherm
+ *      heeft alleen het management. De administratie -- de rol die dit
+ *      postvak dagelijks leegwerkt -- bleef staan waar ze stond.
+ *    - elf bestaande schermen stonden niet in de zoeklijst en waren dus
+ *      alleen via het menu te vinden. Een klant die "facturen" typte kreeg
+ *      vier treffers en niet zijn eigen facturenscherm.
+ *    - de takenmail (?open=werk) deed niets bij de ontwikkelaar: dat
+ *      dashboard rendert Werk wel maar noemde het niet als navigatiedoel.
+ *    - en op een telefoon navigeerden twee van de vier vakken bij de
+ *      administratie naar een groepskop, wat een leeg scherm oplevert.
+ *
+ *  Waarom niets dit ving: de zelftest keek maar EEN kant op -- staat elk
+ *  scherm uit de zoeklijst in de kaart. Nooit of elk scherm in de kaart ook
+ *  vindbaar is, en nooit of een meldingslink ergens uitkomt.
+ *
+ *  Dit hoofdstuk kijkt beide kanten op, en per klasse in plaats van per
+ *  geval. Een nieuwe dode link valt er dus ook in.
+ * ==================================================================== */
+
+console.log('\n59. Geen doodlopende wegen')
+
+{
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const { DASHBOARDS_MET, SCHERMEN, VENSTER_ITEMS } =
+    await import('../src/lib/schermen.ts')
+
+  const bestaat = new Set(Object.keys(DASHBOARDS_MET))
+
+  /*
+   * Drie sleutels zijn een menu-item en geen pagina: ze openen een venster.
+   * Nagemeten -- er is geen enkel dashboard met een tak ervoor. Ze horen dus
+   * wel in het menu en niet in de zoeklijst, en dat staat benoemd in
+   * schermen.ts en niet hier: het is een eigenschap van die sleutels.
+   */
+  const vensters = new Set<string>(VENSTER_ITEMS)
+  for (const sleutel of vensters) {
+    check(`${sleutel} is een venster en geen pagina`, bestaat.has(sleutel))
+  }
+
+  /* ---- beide kanten op ---- */
+
+  /* Deze richting stond er al. */
+  const zonderDashboard = SCHERMEN
+    .map((s) => s.page)
+    .filter((p) => !bestaat.has(p))
+  check('elk scherm uit de zoeklijst heeft een dashboard',
+    zonderDashboard.length === 0, zonderDashboard.join(', '))
+
+  /*
+   * En deze niet. Dit is het gat waardoor elf schermen onvindbaar konden
+   * blijven: ze stonden in de kaart, dus het menu kende ze, maar in de
+   * zoeklijst niet -- en de zoekbalk is op een telefoon de kortste weg.
+   */
+  const inZoeklijst = new Set(SCHERMEN.map((s) => s.page))
+  const onvindbaar = [...bestaat]
+    .filter((p) => !inZoeklijst.has(p) && !vensters.has(p))
+    .sort()
+  check('en elk scherm uit de kaart staat in de zoeklijst',
+    onvindbaar.length === 0, 'niet te vinden: ' + onvindbaar.join(', '))
+
+  /* ---- geen melding die nergens uitkomt ---- */
+
+  /*
+   * Per klasse en niet per geval: elke link in elk bestand onder src/lib
+   * moet een pagina zijn. Zo valt de volgende dode link er ook in, en niet
+   * pas als iemand hem aanklikt.
+   *
+   * De zoekopdracht is met opzet ruim -- link: '<iets>' -- want het gaat er
+   * juist om dat er geen enkele buiten valt.
+   */
+  const doden: string[] = []
+  for (const naam of readdirSync('src/lib')) {
+    if (!naam.endsWith('.ts')) continue
+    const tekst = readFileSync('src/lib/' + naam, 'utf8')
+    for (const m of tekst.matchAll(/link: '([a-z-]+)'/g)) {
+      if (!bestaat.has(m[1])) doden.push(`${naam}: ${m[1]}`)
+    }
+  }
+  check('elke meldingslink wijst naar een scherm dat bestaat',
+    doden.length === 0, doden.join(' | '))
+
+  /* ---- het postvak brengt je naar je eigen bonnen ---- */
+
+  const postbus = readFileSync('src/components/Postbus.tsx', 'utf8')
+  /*
+   * De knop moet kiezen. goto('financieel') hardcoderen betekent dat hij
+   * werkt voor het management en voor niemand anders -- en dat is niet te
+   * zien aan de knop.
+   */
+  check('het postvak kiest het bonnenscherm van dit dashboard',
+    postbus.includes("kiesPagina(['kosten', 'financieel']"),
+    'staat nog vast op een scherm')
+  /*
+   * Op de AANROEP en niet op de tekst.
+   *
+   * Dit sloeg eerst aan op mijn eigen commentaar erboven, waarin staat wat
+   * er misging -- en die uitleg hoort te blijven staan. Dezelfde fout heb ik
+   * in dit bestand al twee keer gemaakt (hoofdstuk 52 en 56); vandaar hier
+   * meteen het patroon van de aanroep.
+   */
+  check('en niet meer vast op financieel',
+    !/onNaarBon={\(\) => goto\('financieel'\)}/.test(postbus))
+
+  /* ---- de takenmail komt aan ---- */
+
+  /*
+   * Elk dashboard dat een scherm RENDERT moet het ook als navigatiedoel
+   * opgeven, anders doet een diepe link of een knop in een mail niets --
+   * en blijft het doel in useNav hangen, zodat je er later onaangekondigd
+   * op landt in een ander dashboard.
+   *
+   * Alleen voor de drie waar het misging; de hele lijst nalopen zou het
+   * parseren van acht dashboards vragen, en dat is een test die zichzelf
+   * niet meer laat lezen.
+   */
+  const dev = readFileSync('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
+  const doelen = /useNavTarget\(\s*\[([^\]]*)\]/.exec(dev)?.[1] ?? ''
+  for (const nodig of ['werk', 'werving', 'documenten']) {
+    check(`de ontwikkelaar kan naar ${nodig} worden gestuurd`,
+      doelen.includes(`'${nodig}'`) && dev.includes(`page === '${nodig}'`))
+  }
+
+  /* ---- en de onderbalk op een telefoon ---- */
+
+  const shell = readFileSync('src/components/Shell.tsx', 'utf8')
+  /*
+   * items.slice(0, 4) pakte de eerste vier MENU-items, en twee daarvan zijn
+   * bij de administratie een groepskop. Die bestaan als pagina niet, dus
+   * leverde een tik een leeg scherm op met de titel "Te doen".
+   */
+  /* Ook hier op de aanroep: de uitleg in de Shell noemt het oude patroon,
+     en dat is de reden dat het er staat. */
+  check('de onderbalk pakt echte schermen en geen groepskoppen',
+    shell.includes('mobielItems.map')
+      && !/{items\.slice\(0, 4\)\.map/.test(shell))
+  check('en die lijst slaat groepskoppen over',
+    /mobielItems = useMemo\(\s*\(\) =>\s*items\.flatMap/.test(shell))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

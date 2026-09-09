@@ -285,7 +285,10 @@ export const koppelingen = {
         kind: 'info',
         title: `${door.name} is gekoppeld`,
         body: `Aan ${koppeling.werkgeverNaam}.`,
-        link: 'werknemers',
+        /* Het scherm heet 'chauffeurs'; 'werknemers' bestaat niet. Een
+           werkgever die iemand uitnodigde kreeg dus een melding die bij het
+           aanklikken niets deed. */
+        link: 'chauffeurs',
       })
     }
 
@@ -310,7 +313,10 @@ export const koppelingen = {
         kind: 'waarschuwing',
         title: `${door.name} gaat niet akkoord`,
         body: `Het koppelverzoek voor ${koppeling.werkgeverNaam} is geweigerd.`,
-        link: 'werknemers',
+        /* Het scherm heet 'chauffeurs'; 'werknemers' bestaat niet. Een
+           werkgever die iemand uitnodigde kreeg dus een melding die bij het
+           aanklikken niets deed. */
+        link: 'chauffeurs',
       })
     }
 

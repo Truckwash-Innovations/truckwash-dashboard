@@ -114,3 +114,26 @@ export function nogGeldig(tot: number, nu = Date.now()) {
 
 export const initials = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+
+/**
+ * "2026-03" wordt "maart 2026".
+ *
+ * Voor filterchips en periodekiezers. Een chip die "Periode: 2026-03" zegt
+ * is te lezen en niet te herkennen -- je moet erbij nadenken welke maand dat
+ * is, en dat is precies de wrijving die een filter niet mag hebben.
+ *
+ * Een onbekende vorm komt er onveranderd uit. Dat is met opzet: liever de
+ * ruwe waarde tonen dan "Invalid Date", want dan is nog te zien wat er in
+ * stond.
+ */
+export function maandNaam(jjjjmm: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(jjjjmm)
+  if (!m) return jjjjmm
+  const namen = [
+    'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+    'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+  ]
+  const nr = Number(m[2])
+  if (nr < 1 || nr > 12) return jjjjmm
+  return `${namen[nr - 1]} ${m[1]}`
+}

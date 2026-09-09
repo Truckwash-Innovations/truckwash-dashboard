@@ -12,6 +12,7 @@ import {
 } from '../lib/postbus'
 import { MAIL_STATUS, type Expense, type MailBericht, type MailStatus } from '../lib/types'
 import { dateTime, money, relative } from '../lib/format'
+import { kiesPagina } from '../lib/schermen'
 import { Badge, Card, Empty, Field, Modal, Stat } from './ui'
 import { useAuth } from '../store/useAuth'
 import { usePerms, useNav } from '../store/useNav'
@@ -48,6 +49,7 @@ export default function Postbus() {
   const me = useAuth((s) => s.user)!
   const perms = usePerms()
   const goto = useNav((s) => s.goto)
+  const rol = useAuth((s) => s.role)
 
   const [tab, setTab] = useState<Tab>('in')
   const [status, setStatus] = useState<MailStatus | 'alles'>('alles')
@@ -68,6 +70,23 @@ export default function Postbus() {
     [alle, tab, status, zoek],
   )
 
+  /*
+   * Waar "Openen" heen gaat, per dashboard.
+   *
+   * Hier stond goto('financieel'), en dat scherm heeft alleen het
+   * management. De administratie -- die dit postvak dagelijks leegwerkt --
+   * bleef dus staan waar ze stond als ze op Openen drukte. Haar
+   * bonnenscherm heet 'kosten'.
+   *
+   * kiesPagina() geeft de eerste kandidaat die het huidige dashboard kent.
+   * De volgorde is dus de voorkeur: eerst het scherm van de administratie,
+   * dan dat van het management. Kent geen van beide dashboards er een, dan
+   * komt de eerste eruit en merkt de gebruiker hetzelfde als eerst -- maar
+   * dat geval bestaat niet: elk dashboard dat dit postvak rendert heeft er
+   * een van de twee.
+   */
+  const naarDeBon = kiesPagina(['kosten', 'financieel'], me?.roles ?? [], rol)
+
   const geopend = alle.find((m) => m.id === open) ?? null
   const nieuw = onbekeken(alle)
   const verkoop = aantalVerkoopfacturen(alle)
@@ -82,7 +101,7 @@ export default function Postbus() {
         bericht={geopend}
         bon={bijbehorendeBon(geopend, bonnen)}
         onTerug={() => setOpen(null)}
-        onNaarBon={() => goto('financieel')}
+        onNaarBon={() => goto(naarDeBon)}
         door={me}
       />
     )

@@ -115,6 +115,16 @@ export default function Shell({
   const menuNodig = useRondleiding((s) => s.menuNodig)
   const menuZichtbaar = menuOpen || menuNodig
 
+  /*
+   * De vier vakken van de onderbalk op een telefoon.
+   *
+   * Groepskoppen eruit: die zijn geen pagina en navigeren naar niets. Zie de
+   * uitleg bij de onderbalk zelf.
+   */
+  const mobielItems = useMemo(
+    () => items.flatMap((it) => (it.kinderen?.length ? it.kinderen : [it])).slice(0, 4),
+    [items])
+
   // Elk schermwissel in het spoor, zodat een melding laat zien waar iemand
   // liep vlak voordat er iets misging.
   useEffect(() => { trail.page(roleLabel, active) }, [roleLabel, active])
@@ -348,7 +358,19 @@ export default function Shell({
           *  zoekt -- op een klein scherm is dat toch sneller dan bladeren.
           * ---------------------------------------------------------- */}
         <nav className="mobile-nav" aria-label="Snel naar">
-          {items.slice(0, 4).map((it) => {
+          {/*
+            De eerste vier ECHTE schermen, en niet de eerste vier menu-items.
+
+            Hier stond items.slice(0, 4), en bij de administratie zijn twee van
+            die vier een groepskop -- 'inkoop-groep' en 'verkoop-groep'. Die
+            bestaan als pagina niet, dus zette een tik op een telefoon de
+            pagina op iets waar geen enkele tak voor is: een leeg scherm met de
+            titel "Te doen", zonder melding.
+
+            In de zijbalk viel dat niet op, want daar vouwt een kop open. De
+            onderbalk gebruikte dezelfde lijst en navigeerde gewoon.
+          */}
+          {mobielItems.map((it) => {
             const Icon = it.icon
             return (
               <button

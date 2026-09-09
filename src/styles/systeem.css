@@ -1131,3 +1131,127 @@ kbd.toets {
   display: block;
   grid-template-columns: none;
 }
+
+/* ==================================================================
+   20. Keuzelijsten in de filterbalk
+   ==================================================================
+
+   Casper: "Gebruik waar mogelijk dropdowns, date pickers en multi-select
+   filters."
+
+   Een gewone <select>, en met opzet geen zelfgebouwde lijst. Een eigen
+   dropdown betekent focusbeheer, pijltjes, typen-om-te-zoeken en een
+   schermlezer die het snapt -- alles wat de browser al doet, en op een
+   telefoon doet hij het beter dan wij ooit gaan doen.
+
+   Wat er wel bij hoort: hij moet eruitzien als de knoppen ernaast, en
+   zichtbaar maken dat er iets aan staat.
+   ================================================================== */
+
+.filterbalk select {
+  height: var(--knop-h);
+  max-width: 200px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-klein);
+  font-family: inherit;
+  cursor: pointer;
+}
+.filterbalk select:hover { border-color: var(--text-3); }
+
+/* Staat er een filter aan, dan is dat te zien aan de keuzelijst zelf en niet
+   alleen aan de chip eronder. Twee plekken die hetzelfde zeggen, en dat is
+   hier geen verdubbeling: de chip vertel je wat er aanstaat, de lijst waar
+   je het weghaalt. */
+.filterbalk select[data-aan="ja"] {
+  border-color: var(--line-ui);
+  background: var(--tint-ui-weak);
+  color: var(--text-ui);
+  font-weight: var(--fw-medium);
+}
+
+/* ==================================================================
+   21. De kerncijfers onder een paginatitel
+   ==================================================================
+
+   Vervangt drie Stat-kaarten die samen 140 pixels hoog waren om drie
+   getallen te tonen. Op een werklijst is die hoogte de eerste vier regels
+   van de tabel, en die zijn meer waard dan een omlijsting om een getal.
+
+   Casper: "Gebruik geen enorme verzameling cards. Elke component moet een
+   duidelijke reden hebben."
+   ================================================================== */
+
+.kerncijfers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-klein);
+  color: var(--text-3);
+}
+.kerncijfers b {
+  color: var(--text);
+  font-weight: var(--fw-half);
+  font-variant-numeric: tabular-nums;
+}
+.kerncijfers .scheiding { color: var(--line); }
+
+/* Een cijfer dat om aandacht vraagt. Alleen als er werkelijk iets ligt --
+   een nul hoort geen kleur te krijgen. */
+.kerncijfers .let b { color: var(--text-warn); }
+
+/* ==================================================================
+   22. Tekst die moet krimpen, en signalen in een rij
+   ==================================================================
+
+   Een tabelrij is 36px en een regel hoog. Dat is met opzet: iemand die
+   tweehonderd facturen langsgaat scant kolommen, en dat kan alleen als elke
+   rij even hoog is. Een omschrijving van tachtig tekens hoort die rij niet
+   op te blazen.
+
+   Wat er dan met de rest gebeurt
+   ------------------------------
+
+   In de oude tabel stond onder de omschrijving een stapeltje: waar de bon
+   vandaan kwam, of hij is voorgelezen, of het lezen vastliep, of hij
+   zichzelf mag goedkeuren, of er een bijlage is, en de afkeurreden. Vijf
+   tot zeven regels per bon. Bij tien bonnen paste er niets meer op het
+   scherm.
+
+   Die informatie verdwijnt niet -- ze wordt een rij pictogrammen in een
+   eigen kolom, elk met een title. Zo is het in een blik te scannen ("welke
+   hebben een bijlage") in plaats van te lezen, en staat het volledige
+   verhaal een klik verder in het detail.
+   ================================================================== */
+
+.tabel .krimp {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (min-width: 1600px) {
+  .tabel .krimp { max-width: 52ch; }
+}
+
+.signalen {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--text-3);
+}
+.signalen > * { flex: none; display: inline-flex; }
+/* Een signaal dat aandacht vraagt -- vastgelopen lezing, punten van twijfel
+   -- krijgt kleur. De rest blijft grijs, anders is het weer een kerstboom. */
+.signalen .let { color: var(--text-warn); }
+.signalen .mis { color: var(--text-danger); }
+.signalen .goed { color: var(--text-ok); }
+
+/* De knoppen in een tabelrij. Vlak naast elkaar, want ze horen bij elkaar,
+   en rechts omdat daar de actiekolom zit. */
+.rijacties { display: inline-flex; gap: var(--s1); justify-content: flex-end; }

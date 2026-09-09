@@ -128,7 +128,10 @@ export const tickets = {
           : status === 'wacht op melder'
             ? 'De ontwikkelaar heeft een vraag voor je.'
             : ticket.title,
-        link: 'meldingen',
+        /* 'meldingen' bestaat niet als pagina; het scherm heet 'tickets'.
+           Nagemeten: geen enkel dashboard heeft een tak voor 'meldingen', dus
+           deze melding deed niets als je erop klikte. */
+        link: 'tickets',
         // De melder is niet de hele dag in de app; een antwoord waar hij
         // niets van hoort is geen antwoord.
         mail: true,

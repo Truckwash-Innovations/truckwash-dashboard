@@ -15,12 +15,21 @@ import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
   regelsKloppen, voorstellen, type Voorstel,
 } from '../../lib/facturen'
-import { dateShort, dateTime, datumMisschienTijd, money } from '../../lib/format'
+import { dateShort, dateTime, datumMisschienTijd, maandNaam, money } from '../../lib/format'
 import {
   BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht, zetBoeking,
 } from '../../lib/boeking'
 import { historieVan } from '../../lib/factuurhistorie'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
+import {
+  Badge, Card, Empty, Field, Filterbalk, Filterchips, Knop, LeegStaat,
+  Modal, Paginakop, Stand, Stat, Tabbladen, Tabel, Zoekveld,
+} from '../../components/ui'
+/* Als type en niet als waarde. Release 1.74.0 viel om op precies het
+   omgekeerde: een component die als "import type" binnenkwam en als waarde
+   werd gebruikt. Een interface die in een gewone import staat overleeft het
+   hier omdat esbuild hem wegstript, maar dat is een eigenschap van deze
+   bundelaar en geen afspraak. */
+import type { Kolom } from '../../components/ui'
 import { magOpenen, postbus } from '../../lib/postbus'
 import Bekijker from '../../components/Bekijker'
 import type { Bekijkbaar } from '../../lib/bekijken'
@@ -78,6 +87,25 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
   const [open, setOpen] = useState<string | null>(openBon ?? null)
 
   /*
+   * De filters naast het zoekveld.
+   *
+   * Casper: "Status, Periode, Leverancier, Bedrag, Verantwoordelijke ...
+   * Filters moeten makkelijk te verwijderen zijn."
+   *
+   * Status is hier het tabblad -- dat is dezelfde vraag en twee plekken
+   * ervoor zou betekenen dat ze elkaar kunnen tegenspreken. De rest staat
+   * hier.
+   *
+   * Waarom juist deze drie: dit zijn de vragen die iemand op een stapel van
+   * tweehonderd bonnen werkelijk stelt. "Alles van Enexis", "alles van vorige
+   * maand", "wat heeft Milos ingediend". Een filter op bedrag klinkt logisch
+   * en wordt in de praktijk niet gebruikt -- daarvoor sorteer je op de kolom.
+   */
+  const [leverancier, setLeverancier] = useState('')
+  const [periode, setPeriode] = useState('')
+  const [wie, setWie] = useState('')
+
+  /*
    * Binnenkomen op een bon.
    *
    * Uit de werklijst ("Openen") of uit een mail met ?open=kosten&id=exp_123.
@@ -93,15 +121,58 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
 
   const alle = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
 
+  /*
+   * Wat er te kiezen valt, uit de bonnen zelf.
+   *
+   * Geen vaste lijst: een leverancier die niet factureert hoort niet in de
+   * keuzelijst te staan, en een die nieuw is hoort er meteen in te staan
+   * zonder dat iemand ergens iets moet toevoegen.
+   */
+  const leveranciers = useMemo(
+    () => [...new Set(alle.map((e) => e.supplier).filter((n): n is string => !!n))]
+      .sort((a, b) => a.localeCompare(b, 'nl')),
+    [alle])
+
+  const indieners = useMemo(
+    () => [...new Set(alle.map((e) => e.submittedByName).filter((n): n is string => !!n))]
+      .sort((a, b) => a.localeCompare(b, 'nl')),
+    [alle])
+
+  /* De perioden waar bonnen in zitten, nieuwste eerst. Als 2026-03. */
+  const perioden = useMemo(
+    () => [...new Set(alle.map((e) => new Date(e.date).toISOString().slice(0, 7)))]
+      .sort().reverse(),
+    [alle])
+
   const rijen = useMemo(
     () => alle
       .filter((e) => (tab === 'alles' ? true : e.status === tab))
       .filter((e) => pastBijZoek(e, zoek))
+      .filter((e) => !leverancier || e.supplier === leverancier)
+      .filter((e) => !wie || e.submittedByName === wie)
+      .filter((e) => !periode || new Date(e.date).toISOString().slice(0, 7) === periode)
       .sort((a, b) => b.date - a.date),
-    /* `zoek` hoort hier ook in. Zonder dat werd de lijst pas opnieuw
-       gefilterd als je van tabblad wisselde, en leek het zoekveld stuk. */
-    [alle, tab, zoek],
+    /* Alle vier de filters hoorden hier in. `zoek` ontbrak eerst, en dan werd
+       de lijst pas opnieuw gefilterd als je van tabblad wisselde -- het
+       zoekveld leek stuk terwijl er niets mis mee was. */
+    [alle, tab, zoek, leverancier, wie, periode],
   )
+
+  /* Wat er aan staat, voor de chips eronder. Op een plek, zodat de chips en
+     het wissen niet uit elkaar kunnen lopen. */
+  const actieveFilters = [
+    ...(leverancier ? [{ label: 'Leverancier', waarde: leverancier, weg: () => setLeverancier('') }] : []),
+    ...(periode ? [{ label: 'Periode', waarde: maandNaam(periode), weg: () => setPeriode('') }] : []),
+    ...(wie ? [{ label: 'Ingediend door', waarde: wie, weg: () => setWie('') }] : []),
+    ...(zoek.trim() ? [{ label: 'Zoeken', waarde: zoek.trim(), weg: () => setZoek('') }] : []),
+  ]
+
+  function wisFilters() {
+    setLeverancier('')
+    setPeriode('')
+    setWie('')
+    setZoek('')
+  }
 
   /*
    * Beide standen wachten op een mens.
@@ -191,221 +262,321 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
   /* Op welke tabbladen valt er iets goed te keuren. */
   const teKiezenTab = tab === 'open' || tab === 'eerste_akkoord'
 
+  /* ---------------------------------------------------------------- *
+   *  De kolommen
+   *
+   *  Casper, hoofdstuk 7: "documentnummer, leverancier/relatie, datum,
+   *  bedrag, btw, status, verantwoordelijke, vervaldatum, actie". En
+   *  hoofdstuk 45: "bedragen rechts uitlijnen, belangrijke informatie eerst,
+   *  secundaire informatie subtieler tonen."
+   *
+   *  Wat er uit de oude tabel verdwenen is: het stapeltje regels onder de
+   *  omschrijving. Daar stond per bon waar hij vandaan kwam, of hij is
+   *  voorgelezen, of het lezen vastliep, of hij zichzelf mocht goedkeuren, of
+   *  er een bijlage was en waarom hij was afgekeurd -- vijf tot zeven regels.
+   *  Bij tien bonnen paste er niets meer op het scherm.
+   *
+   *  Die informatie is niet weg; ze is een kolom pictogrammen geworden, elk
+   *  met een title. Zo is ze te SCANNEN in plaats van te lezen: "welke hebben
+   *  een bijlage" is nu een blik langs een kolom, en het volledige verhaal
+   *  staat een klik verder in het detail.
+   * ---------------------------------------------------------------- */
+
+  const kolommen: Kolom<Expense>[] = [
+    {
+      sleutel: 'datum',
+      kop: 'Datum',
+      breedte: 118,
+      sorteer: (x, y) => x.date - y.date,
+      toon: (e) => datumMisschienTijd(e.date),
+    },
+    {
+      sleutel: 'leverancier',
+      kop: 'Leverancier',
+      sorteer: (x, y) => (x.supplier ?? '').localeCompare(y.supplier ?? '', 'nl'),
+      toon: (e) => (
+        <span className="sterk krimp">
+          {e.supplier || <span className="zacht">onbekend</span>}
+        </span>
+      ),
+    },
+    {
+      sleutel: 'nummer',
+      kop: 'Factuurnr.',
+      breedte: 130,
+      wegOnder: 1280,
+      zacht: true,
+      sorteer: (x, y) => (x.factuurnummer ?? '').localeCompare(y.factuurnummer ?? '', 'nl'),
+      toon: (e) => e.factuurnummer || '—',
+    },
+    {
+      sleutel: 'omschrijving',
+      kop: 'Omschrijving',
+      sorteer: (x, y) => (x.description ?? '').localeCompare(y.description ?? '', 'nl'),
+      toon: (e) => (
+        <span className="krimp" title={e.description || undefined}>
+          {e.description || <span className="zacht">zonder omschrijving</span>}
+          <span className="zacht"> · {e.category}</span>
+        </span>
+      ),
+    },
+    {
+      sleutel: 'signalen',
+      kop: '',
+      breedte: 96,
+      toon: (e) => <Signalen bon={e} />,
+    },
+    {
+      sleutel: 'excl',
+      kop: 'Excl.',
+      breedte: 104,
+      getal: true,
+      sorteer: (x, y) => x.amountExcl - y.amountExcl,
+      toon: (e) => (e.amountExcl ? money(e.amountExcl) : <span className="zacht">leeg</span>),
+    },
+    {
+      sleutel: 'btw',
+      kop: 'Btw',
+      breedte: 92,
+      getal: true,
+      zacht: true,
+      wegOnder: 1120,
+      toon: (e) => money((e.amountExcl * e.vatPct) / 100),
+    },
+    {
+      sleutel: 'incl',
+      kop: 'Incl.',
+      breedte: 104,
+      getal: true,
+      sorteer: (x, y) =>
+        x.amountExcl * (1 + x.vatPct / 100) - y.amountExcl * (1 + y.vatPct / 100),
+      toon: (e) => money(e.amountExcl + (e.amountExcl * e.vatPct) / 100),
+    },
+    {
+      sleutel: 'vervalt',
+      kop: 'Vervalt',
+      breedte: 110,
+      wegOnder: 1440,
+      zacht: true,
+      sorteer: (x, y) => (x.vervaldatum ?? 0) - (y.vervaldatum ?? 0),
+      toon: (e) => (e.vervaldatum ? dateShort(e.vervaldatum) : '—'),
+    },
+    {
+      sleutel: 'wie',
+      kop: 'Ingediend door',
+      breedte: 150,
+      wegOnder: 1360,
+      zacht: true,
+      sorteer: (x, y) => (x.submittedByName ?? '').localeCompare(y.submittedByName ?? '', 'nl'),
+      toon: (e) => <span className="krimp">{e.submittedByName || '—'}</span>,
+    },
+    {
+      sleutel: 'stand',
+      kop: 'Status',
+      breedte: 150,
+      sorteer: (x, y) => x.status.localeCompare(y.status),
+      toon: (e) => <BonStand bon={e} />,
+    },
+    {
+      /* ------------------------------------------------------------ *
+       *  Snelle acties
+       *
+       *  Casper, hoofdstuk 9: "De gebruiker moet niet iedere keer een
+       *  document volledig hoeven openen om een simpele actie uit te
+       *  voeren."
+       *
+       *  Aftekenen of afkeuren kan dus vanuit de rij. Bij een stapel van
+       *  dezelfde leverancier is dat het verschil tussen tweehonderd keer
+       *  openen-lezen-sluiten en tweehonderd keer een blik en een klik.
+       *
+       *  De knoppen houden de klik bij zich (stopPropagation): zonder dat
+       *  klapt bij elke goedkeuring ook het detailvenster open, en dan is
+       *  doorwerken onmogelijk.
+       *
+       *  ZELFTEST 55 HANGT HIERAAN. Die controleert dat de knoppenrij ook
+       *  voor 'eerste_akkoord' geldt en dat hij uit staat als je zelf de
+       *  eerste was. Dat was namelijk een keer stuk: de rij stond achter
+       *  status === 'open' en daarmee was de tweede handtekening
+       *  onbereikbaar -- er was geen enkele weg, want het detailvenster
+       *  heeft ook geen goedkeurknop. Casper: "een tweede persoon heeft
+       *  geen knop?"
+       * ------------------------------------------------------------ */
+      sleutel: 'acties',
+      kop: '',
+      breedte: 96,
+      toon: (e) => (
+        <span
+          className="rijacties"
+          onClick={(ev) => ev.stopPropagation()}
+        >
+          {(e.status === 'open' || e.status === 'eerste_akkoord') ? (
+            <>
+              <Knop
+                klein
+                soort="gewoon"
+                disabled={e.status === 'eerste_akkoord' && e.eersteDoor === user.id}
+                onClick={() => void keurGoed([e.id])}
+                ikoon={e.status === 'eerste_akkoord' ? <CheckCheck size={14} /> : <Check size={14} />}
+                title={e.status === 'open'
+                  ? 'Goedkeuren'
+                  : e.eersteDoor === user.id
+                    ? 'Je hebt deze factuur zelf nagekeken; de tweede handtekening moet van iemand anders komen'
+                    : `Tweede handtekening zetten${e.eersteDoorNaam ? ` (${e.eersteDoorNaam} ging voor)` : ''}`}
+                aria-label={e.status === 'open' ? 'Goedkeuren' : 'Tweede handtekening zetten'}
+              />
+              <Knop
+                klein
+                soort="gevaar"
+                onClick={() => { setAfkeuren(e); setReden('') }}
+                ikoon={<X size={14} />}
+                title="Afkeuren"
+                aria-label="Afkeuren"
+              />
+            </>
+          ) : (
+            <Knop
+              klein
+              soort="bij"
+              onClick={() => void expRepo.reopen(e.id).then(() => toast.info('Terug naar te valideren'))}
+              ikoon={<RotateCcw size={14} />}
+              title="Heropenen"
+              aria-label="Heropenen"
+            />
+          )}
+        </span>
+      ),
+    },
+  ]
+
   return (
     <>
-      <div className="grid cols-3 mb">
-        <Stat
-          label="Te valideren"
-          value={teValideren.length}
-          delta={{ text: money(openBedrag), dir: 'flat' }}
-          icon={<Clock size={17} />}
-          tone={teValideren.length ? 'warn' : 'ok'}
-        />
-        <Stat
-          label="Bedrag nog leeg"
-          value={zonderBedrag}
-          icon={<Euro size={17} />}
-          tone={zonderBedrag ? 'warn' : undefined}
-        />
-        <Stat
-          label="Al voorgelezen"
-          value={alle.filter((e) => e.gelezen).length}
-          icon={<ScanText size={17} />}
-        />
+      <Paginakop
+        titel="Kostenposten"
+        uitleg="Inkoopfacturen en bonnen nakijken, aftekenen en klaarzetten voor de boekhouding."
+      />
+
+      {/*
+        De kerncijfers als regel en niet als drie kaarten.
+
+        Hier stonden drie Stat-kaarten van samen 140 pixels hoog om drie
+        getallen te tonen. Op een werklijst is dat de eerste vier regels van
+        de tabel, en die zijn meer waard. Casper: "Gebruik geen enorme
+        verzameling cards."
+      */}
+      <div className="kerncijfers">
+        <span className={teValideren.length ? 'let' : undefined}>
+          <b>{teValideren.length}</b> te valideren
+        </span>
+        <span className="scheiding" aria-hidden="true">·</span>
+        <span><b>{money(openBedrag)}</b> openstaand</span>
+        {zonderBedrag > 0 && (
+          <>
+            <span className="scheiding" aria-hidden="true">·</span>
+            <span className="let"><b>{zonderBedrag}</b> zonder bedrag</span>
+          </>
+        )}
+        <span className="scheiding" aria-hidden="true">·</span>
+        <span><b>{alle.filter((e) => e.gelezen).length}</b> voorgelezen</span>
       </div>
 
-      <Card
-        title="Kostenposten"
-        flush
-        action={
-          <div className="row" style={{ gap: 6 }}>
-            {gekozenRijen.length > 0 && (
-              <button
-                className="btn ok sm"
-                onClick={() => void keurGoed(gekozenRijen.map((r) => r.id))}
-              >
-                <CheckCheck size={14} /> {gekozenRijen.length} goedkeuren
-              </button>
-            )}
-            <div className="row" style={{ gap: 6 }}>
-              <input
-                className="input"
-                style={{ minWidth: 200 }}
-                value={zoek}
-                onChange={(e) => setZoek(e.target.value)}
-                placeholder="Zoek op leverancier, nummer, bedrag…"
-                aria-label="Zoeken in kostenposten"
-              />
-              {zoek && (
-                <button className="btn ghost sm" onClick={() => setZoek('')} title="Zoekterm wissen">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                className={`btn sm ${tab === t.key ? 'primary' : 'ghost'}`}
-                onClick={() => { setTab(t.key); setSelected(new Set()) }}
-              >
-                {t.label}
-                {t.key === 'open' && teValideren.length > 0 && ` (${teValideren.length})`}
-              </button>
-            ))}
-          </div>
+      <Tabbladen
+        actief={tab}
+        kies={(k) => { setTab(k as Tab); setSelected(new Set()) }}
+        tabs={TABS.map((t) => ({
+          sleutel: t.key,
+          label: t.label,
+          /* Het aantal per tabblad, uit de hele lijst en niet uit de
+             gefilterde -- anders zegt een tabblad nul terwijl er werk ligt
+             dat je zelf hebt weggefilterd. */
+          aantal: t.key === 'alles'
+            ? alle.length
+            : alle.filter((e) => e.status === t.key).length,
+        }))}
+      />
+
+      <Filterbalk>
+        <Zoekveld
+          waarde={zoek}
+          zet={setZoek}
+          hint="Zoek op leverancier, nummer, bedrag…"
+          sneltoets
+        />
+
+        <select
+          value={leverancier}
+          onChange={(e) => setLeverancier(e.target.value)}
+          data-aan={leverancier ? 'ja' : undefined}
+          aria-label="Filter op leverancier"
+        >
+          <option value="">Alle leveranciers</option>
+          {leveranciers.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+
+        <select
+          value={periode}
+          onChange={(e) => setPeriode(e.target.value)}
+          data-aan={periode ? 'ja' : undefined}
+          aria-label="Filter op periode"
+        >
+          <option value="">Alle perioden</option>
+          {perioden.map((m) => <option key={m} value={m}>{maandNaam(m)}</option>)}
+        </select>
+
+        <select
+          value={wie}
+          onChange={(e) => setWie(e.target.value)}
+          data-aan={wie ? 'ja' : undefined}
+          aria-label="Filter op wie het heeft ingediend"
+        >
+          <option value="">Iedereen</option>
+          {indieners.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </Filterbalk>
+
+      <Filterchips chips={actieveFilters} wisAlles={wisFilters} />
+
+      <Tabel
+        rijen={rijen}
+        kolommen={kolommen}
+        sleutelVan={(e) => e.id}
+        opRij={(e) => setOpen(e.id)}
+        actief={open ?? undefined}
+        sorteerOp="datum"
+        omgekeerd
+        /* Kiezen kan alleen waar er iets te beslissen valt. Op het tabblad
+           Goedgekeurd zou een vinkje suggereren dat er een bulkactie is. */
+        gekozen={teKiezenTab ? selected : undefined}
+        setGekozen={teKiezenTab ? setSelected : undefined}
+        /* Wie zijn eigen eerste handtekening al zette kan de tweede niet
+           zetten; dan hoort hij ook niet in een stapel te kunnen. */
+        nietTeKiezen={(e) => e.status === 'eerste_akkoord' && e.eersteDoor === user.id}
+        bulk={[
+          {
+            label: 'Goedkeuren',
+            soort: 'hoofd',
+            ikoon: <CheckCheck size={14} />,
+            doe: (ids) => void keurGoed(ids),
+          },
+        ]}
+        leeg={
+          <LeegStaat
+            gefilterd={actieveFilters.length > 0}
+            titel={actieveFilters.length > 0
+              ? 'Niets gevonden'
+              : tab === 'open'
+                ? 'Alles nagekeken'
+                : 'Niets in deze lijst'}
+            uitleg={actieveFilters.length > 0
+              ? 'Er zijn geen kostenposten die aan deze filters voldoen.'
+              : tab === 'open'
+                ? 'Er ligt niets meer te valideren. Zodra er een factuur binnenkomt staat hij hier.'
+                : undefined}
+            actie={actieveFilters.length > 0
+              ? <Knop soort="gewoon" onClick={wisFilters}>Filters wissen</Knop>
+              : undefined}
+          />
         }
-      >
-        {rijen.length === 0 ? (
-          <Empty text="Niets in deze lijst." icon={<Receipt size={30} />} />
-        ) : (
-          <div className="table-wrap" style={{ maxHeight: '62vh', overflowY: 'auto' }}>
-            <table className="data">
-              <thead>
-                <tr>
-                  {/* Ook op 'wacht op tweede': daar staat vaak een stapel van
-                      dezelfde ochtend, en die hoort in één keer te kunnen.
-                      keurGoed() slaat over wat je zelf hebt nagekeken en zegt
-                      dat erbij. */}
-                  {teKiezenTab && (
-                    <th style={{ width: 34 }}>
-                      <input
-                        type="checkbox"
-                        checked={selected.size > 0 && selected.size === rijen.length}
-                        onChange={(e) =>
-                          setSelected(e.target.checked ? new Set(rijen.map((r) => r.id)) : new Set())
-                        }
-                      />
-                    </th>
-                  )}
-                  <th>Datum</th>
-                  <th>Leverancier</th>
-                  <th>Omschrijving</th>
-                  <th>Ingediend door</th>
-                  <th className="num">Excl.</th>
-                  <th className="num">Btw</th>
-                  <th className="num">Incl.</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rijen.map((e) => {
-                  const btw = (e.amountExcl * e.vatPct) / 100
-                  return (
-                    <tr key={e.id}>
-                      {teKiezenTab && (
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selected.has(e.id)}
-                            onChange={() => wissel(e.id)}
-                          />
-                        </td>
-                      )}
-                      <td>{datumMisschienTijd(e.date)}</td>
-                      <td><strong>{e.supplier || <span className="hint">onbekend</span>}</strong></td>
-                      <td>
-                        <button className="kosten-open" onClick={() => setOpen(e.id)}>
-                          {e.description || 'Zonder omschrijving'}
-                        </button>
-                        <div className="kosten-categorie">{e.category}</div>
-                        {e.source === 'mail' && (
-                          <div className="bon-uit-mail">
-                            <Mail size={12} /> Per mail binnengekomen
-                            {e.amountExcl === 0 && ' — bedrag nog invullen'}
-                          </div>
-                        )}
-                        {e.gelezen && (
-                          <div className="kosten-gelezen">
-                            <ScanText size={12} /> Voorgelezen
-                            {(e.gelezen.twijfel?.length ?? 0) > 0
-                              && ` · ${e.gelezen.twijfel!.length} punt${e.gelezen.twijfel!.length === 1 ? '' : 'en'} van twijfel`}
-                          </div>
-                        )}
-                        <LeesStatus bon={e} />
-                        <VanzelfAkkoord bon={e} kort />
-                        <Bijlage bon={e} />
-                        {e.rejectReason && (
-                          <div className="kosten-reden">Reden: {e.rejectReason}</div>
-                        )}
-                      </td>
-                      <td>{e.submittedByName}</td>
-                      <td className="num">{money(e.amountExcl)}</td>
-                      <td className="num" style={{ color: 'var(--text-3)' }}>{money(btw)}</td>
-                      <td className="num">{money(e.amountExcl + btw)}</td>
-                      <td>
-                        {e.status === 'open' && <Badge tone="warn">Open</Badge>}
-                        {e.status === 'eerste_akkoord' && (
-                          <Badge tone="warn" dot>
-                            1 van 2{e.eersteDoorNaam ? ` · ${e.eersteDoorNaam}` : ''}
-                          </Badge>
-                        )}
-                        {e.status === 'goedgekeurd' && (
-                          <Badge tone="ok"><Check size={11} /> {e.approvedByName ?? 'Akkoord'}</Badge>
-                        )}
-                        {e.status === 'afgekeurd' && (
-                          <Badge tone="danger"><X size={11} /> Afgekeurd</Badge>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {/*
-                          Ook bij 'eerste_akkoord'.
-
-                          Hier stond alleen `e.status === 'open'`, en daarmee
-                          was de tweede handtekening onbereikbaar: een bon die
-                          op "wacht op tweede" stond kreeg alleen een
-                          Heropenen-knop. Het tabblad ervoor bestond wel, de
-                          serverkant kon het (repo.decide zet netjes de eerste
-                          of de tweede), en het detailvenster heeft helemaal
-                          geen goedkeurknop -- dus er was geen enkele weg.
-                          Casper: "een tweede persoon heeft geen knop?"
-
-                          Wie zijn eigen eerste handtekening al zette, ziet de
-                          knop uitgeschakeld met de reden erbij. Dat is
-                          eerlijker dan hem verbergen: dan lijkt het alsof er
-                          niets te doen valt, terwijl er op een collega wordt
-                          gewacht.
-                        */}
-                        {(e.status === 'open' || e.status === 'eerste_akkoord') ? (
-                          <>
-                            <button
-                              className="btn ok sm"
-                              disabled={e.status === 'eerste_akkoord' && e.eersteDoor === user.id}
-                              onClick={() => void keurGoed([e.id])}
-                              title={e.status === 'open'
-                                ? 'Goedkeuren'
-                                : e.eersteDoor === user.id
-                                  ? 'Je hebt deze factuur zelf nagekeken; de tweede handtekening moet van iemand anders komen'
-                                  : `Tweede handtekening zetten${e.eersteDoorNaam ? ` (${e.eersteDoorNaam} ging voor)` : ''}`}
-                            >
-                              {e.status === 'eerste_akkoord' ? <CheckCheck size={14} /> : <Check size={14} />}
-                            </button>{' '}
-                            <button
-                              className="btn danger sm"
-                              onClick={() => { setAfkeuren(e); setReden('') }}
-                              title="Afkeuren"
-                            >
-                              <X size={14} />
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            className="btn ghost sm"
-                            onClick={() => void expRepo.reopen(e.id).then(() => toast.info('Terug naar te valideren'))}
-                            title="Heropenen"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      />
 
       <BonDetail
         bon={gekozen}
@@ -1580,6 +1751,106 @@ function Veld({ label, waarde, mono }: { label: string; waarde?: string; mono?: 
 }
 
 /* ---------------------------- De bijlage -------------------------- */
+
+/* ================================================================== *
+ *  De stand van een bon, als badge
+ *
+ *  Stond als vier losse blokjes in de tabelcel. Op een plek, omdat dezelfde
+ *  vier standen straks ook in Te verwerken en op de detailpagina staan -- en
+ *  drie keer hetzelfde met de hand is drie kansen dat "wacht op tweede" er
+ *  ergens anders uitziet.
+ *
+ *  De stip zit in .stand (systeem.css): status mag niet alleen kleur zijn.
+ * ================================================================== */
+
+function BonStand({ bon }: { bon: Expense }) {
+  if (bon.status === 'open') return <Stand stemming="nieuw">Te valideren</Stand>
+  if (bon.status === 'eerste_akkoord') {
+    return (
+      <Stand stemming="wacht">
+        {bon.eersteDoorNaam ? `1 van 2 · ${bon.eersteDoorNaam}` : '1 van 2'}
+      </Stand>
+    )
+  }
+  if (bon.status === 'goedgekeurd') {
+    return <Stand stemming="akkoord">{bon.approvedByName ?? 'Goedgekeurd'}</Stand>
+  }
+  return <Stand stemming="afgekeurd">Afgekeurd</Stand>
+}
+
+/* ================================================================== *
+ *  De signalen bij een bon
+ *
+ *  Wat hier eerst als vijf tot zeven regels ONDER de omschrijving stond:
+ *  waar de bon vandaan kwam, of hij is voorgelezen, of het lezen vastliep, of
+ *  hij zichzelf mocht goedkeuren, of er een bijlage is. Bij tien bonnen paste
+ *  er niets meer op het scherm.
+ *
+ *  Nu pictogrammen op een rij, elk met een title. Dat is een andere manier van
+ *  kijken: niet lezen wat er bij deze bon aan de hand is, maar langs een kolom
+ *  scannen welke bonnen iets hebben. Voor iemand die tweehonderd facturen
+ *  langsgaat is dat het verschil tussen doorwerken en doorlezen.
+ *
+ *  Wat er NIET verdwijnt: het volledige verhaal staat in het detailvenster,
+ *  waar de ruimte ervoor is.
+ * ================================================================== */
+
+function Signalen({ bon }: { bon: Expense }) {
+  const twijfel = bon.gelezen?.twijfel?.length ?? 0
+
+  return (
+    <span className="signalen">
+      {bon.source === 'mail' && (
+        <span title={bon.amountExcl === 0
+          ? 'Per mail binnengekomen — bedrag nog invullen'
+          : 'Per mail binnengekomen'}>
+          <Mail size={14} />
+        </span>
+      )}
+
+      {bon.leesStatus === 'bezig' && (
+        <span className="let" title="Wordt nu gelezen">
+          <Loader2 size={14} className="spin" />
+        </span>
+      )}
+      {bon.leesStatus === 'wacht' && (
+        <span title="Wacht op de lokale lezer">
+          <Clock size={14} />
+        </span>
+      )}
+      {bon.leesStatus === 'mislukt' && (
+        <span className="mis" title="Het lezen is mislukt">
+          <AlertTriangle size={14} />
+        </span>
+      )}
+
+      {bon.gelezen && (
+        <span
+          className={twijfel > 0 ? 'let' : 'goed'}
+          title={twijfel > 0
+            ? `Voorgelezen · ${twijfel} punt${twijfel === 1 ? '' : 'en'} van twijfel`
+            : 'Voorgelezen'}
+        >
+          <ScanText size={14} />
+        </span>
+      )}
+
+      {bon.goedkeuringBron === 'automatisch' && (
+        <span title={bon.goedkeuringReden ?? 'Vanzelf goedgekeurd'}>
+          <Sparkles size={14} />
+        </span>
+      )}
+
+      {bon.rejectReason && (
+        <span className="mis" title={`Afgekeurd: ${bon.rejectReason}`}>
+          <X size={14} />
+        </span>
+      )}
+
+      <Bijlage bon={bon} />
+    </span>
+  )
+}
 
 function Bijlage({ bon }: { bon: Expense }) {
   const post = useLiveQuery<MailBericht | undefined>(
