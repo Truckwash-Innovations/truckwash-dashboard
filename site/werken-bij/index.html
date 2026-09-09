@@ -44,7 +44,7 @@
       <p class="label">Werken bij Truckwash 1 Group</p>
       <h1 style="font-size:clamp(32px,5vw,56px);margin-bottom:14px">Een leuke en<br><em>actieve job</em></h1>
       <p style="color:#c3d0e8;font-size:19px;max-width:56ch;margin:0">Geen diploma's of certificaten nodig. Wel de wil om te leren en te groeien.</p>
-      <p style="color:#c3d0e8;font-size:19px;max-width:56ch;margin:var(--s2) 0 0">Er werken 10 mensen bij Truckwash 1 Group. Word jij de volgende?</p>
+      <p style="color:#c3d0e8;font-size:19px;max-width:56ch;margin:var(--s2) 0 0">Er werken <span data-live="medewerkers">10</span> mensen bij Truckwash 1 Group. Word jij de volgende?</p>
     </div>
   </div>
   <section class="blok licht" style="padding-top:var(--s4)">
@@ -147,6 +147,12 @@
 </footer>
 <script src="/assets/data.js" defer></script>
 <script src="/assets/app.js" defer></script>
+<!-- live.js haalt bij het openen de actuele gegevens op en werkt bij wat er
+     sinds de bouw kan zijn veranderd: de vestigingen, de vacatures, de
+     tellingen en de openingstijden. Na app.js, want hij past window.SITE_DATA
+     ter plekke aan en die moet dan al bestaan. Gaat het ophalen mis, dan
+     blijft deze gebouwde pagina gewoon staan. -->
+<script src="/assets/live.js" defer></script>
 <!-- trucky.js staat hier met opzet NIET. toestemming.js haalt hem pas op als
      de bezoeker hem aanzet: er gaat dan een vraag naar onze server, en dat is
      niet nodig om deze site te lezen. -->

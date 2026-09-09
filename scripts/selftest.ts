@@ -6319,5 +6319,278 @@ console.log('\n51. Mensen beheren')
     server.includes('listUsers({ page: 1, perPage: 200 })'))
 }
 
+/* ====================================================================
+ *  52. De site haalt zijn eigen gegevens op
+ *
+ *  Casper: "als ik iets aanpas, dan moet je het wel live op de website
+ *  aanpassen" en "zorg ervoor dat de website live wordt aangepast als ik een
+ *  locatie in de app ect bijmaak, ook vacatures ect".
+ *
+ *  De site werd gebouwd uit een momentopname die iemand met de hand moest
+ *  verversen. Die stond zes dagen stil en had de vacatures helemaal niet, want
+ *  die kwamen pas met migratie 0068. Er stond "Er werken 5 mensen" terwijl het
+ *  er tien waren.
+ *
+ *  site/assets/live.js haalt bij het openen van elke pagina de actuele
+ *  gegevens op. Dat bestand wordt in het websiteproject gemaakt -- dat is geen
+ *  git-repo en staat alleen op de laptop van Casper -- maar het EINDRESULTAAT
+ *  staat hier in site/ en is dus wel te toetsen. Dat is ook wat er live gaat.
+ *
+ *  Hier draait het echt: met een nagebootste DOM en een nagebootste fetch,
+ *  tegen opmaak die uit de gebouwde pagina's komt.
+ * ==================================================================== */
+
+console.log('\n52. De site haalt zijn eigen gegevens op')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const script = readFileSync('site/assets/live.js', 'utf8')
+
+  check('live.js weet waar hij het moet halen',
+    /window\.LIVE_BRON="https:\/\/[a-z0-9]+\.supabase\.co\/functions\/v1\/website-gegevens"/
+      .test(script), script.slice(0, 90))
+
+  check('en elke pagina laadt hem',
+    readFileSync('site/locaties/index.html', 'utf8')
+      .includes('<script src="/assets/live.js" defer></script>'))
+
+  /* ---- een nagebootste pagina, en dan het script erop ---- */
+
+  /*
+   * Geen jsdom in dit project, dus precies zoveel DOM als live.js aanraakt.
+   * Dat is minder mooi dan een echte browser en meer waard dan niets: het
+   * toetst de vorm van het antwoord, de volgorde en het opnieuw opbouwen van
+   * de lijsten -- juist de dingen die stilletjes fout gaan.
+   */
+  const maakElement = (klasse: string, tag = 'div') => {
+    const el: Record<string, unknown> = {
+      tagName: tag.toUpperCase(),
+      className: klasse,
+      textContent: '',
+      cells: [] as unknown[],
+      kinderen: [] as unknown[],
+      attrs: {} as Record<string, string>,
+      setAttribute(k: string, v: string) { (el.attrs as Record<string, string>)[k] = v },
+      insertAdjacentHTML(_waar: string, html: string) { el.html = String(el.html ?? '') + html },
+      querySelectorAll() { return [] },
+    }
+    return el
+  }
+
+  /* De houder van de vestigingenrijen, met een bestaande rij erin. */
+  const rijOud = maakElement('locrij', 'a')
+  const locHouder = maakElement('raster')
+  ;(locHouder as Record<string, unknown>).querySelectorAll = (sel: string) =>
+    (sel === 'a.locrij' ? [rijOud] : [])
+  ;(rijOud as Record<string, unknown>).parentNode = locHouder
+
+  const vacOud = maakElement('vacrij')
+  const vacHouder = maakElement('raster')
+  ;(vacHouder as Record<string, unknown>).querySelectorAll = (sel: string) =>
+    (sel === '.vacrij' ? [vacOud] : [])
+  ;(vacOud as Record<string, unknown>).parentNode = vacHouder
+
+  const telVest = maakElement('', 'span')
+  const telMede = maakElement('', 'span')
+  ;(telVest as Record<string, unknown>).textContent = '2'
+  ;(telMede as Record<string, unknown>).textContent = '5'
+
+  const gewist: string[] = []
+  const nepDocument = {
+    readyState: 'complete',
+    addEventListener() {},
+    querySelector(sel: string) {
+      if (sel === 'a.locrij') return rijOud
+      if (sel === '.vacrij') return vacOud
+      if (sel === 'table.uren') return null
+      return null
+    },
+    querySelectorAll(sel: string) {
+      if (sel === '[data-live="vestigingen"]') return [telVest]
+      if (sel === '[data-live="medewerkers"]') return [telMede]
+      return []
+    },
+  }
+
+  /* Verwijderen loopt via el.parentNode.removeChild; die tellen we mee. */
+  ;(locHouder as Record<string, unknown>).removeChild = (el: { className: string }) => {
+    gewist.push(el.className)
+  }
+  ;(vacHouder as Record<string, unknown>).removeChild = (el: { className: string }) => {
+    gewist.push(el.className)
+  }
+
+  const antwoord = {
+    ok: true,
+    medewerkers: 10,
+    vestigingen: [
+      {
+        slug: 'utrecht', naam: 'Truckwash Utrecht', adres: 'Handelsweg 14',
+        postcode: '3542 AB', plaats: 'Utrecht', telefoon: '0301234567',
+        lat: 52.1, lon: 5.1,
+        openingstijden: { ma: { van: '07:00', tot: '19:00' }, zo: null },
+      },
+      {
+        slug: 'nieuw', naam: 'Truckwash Nieuw', adres: 'Nieuwstraat 1',
+        postcode: '1000 AA', plaats: 'Nieuwstad', telefoon: '0201112233',
+        lat: 52.3, lon: 4.9, openingstijden: {},
+      },
+    ],
+    vacatures: [
+      { slug: 'washeld', titel: 'Washeld', intro: 'Kom bij ons wassen.' },
+      { slug: 'chauffeur', titel: 'Chauffeur', intro: 'Rij met ons mee.' },
+      { slug: 'derde', titel: 'Derde', intro: 'Nieuw erbij.' },
+    ],
+  }
+
+  const nepVenster: Record<string, unknown> = {
+    LIVE_BRON: 'https://proef.example/functions/v1/website-gegevens',
+    /* Zoals data.js hem neerzet: met één oude vestiging erin. */
+    SITE_DATA: { locaties: [{ slug: 'oud', plaats: 'Oudstad' }] },
+    dispatchEvent() {},
+    addEventListener() {},
+  }
+
+  let gevraagd = 0
+  const nepFetch = async () => {
+    gevraagd++
+    return { ok: true, json: async () => antwoord }
+  }
+
+  const opslag = new Map<string, string>()
+  const nepSessie = {
+    getItem: (k: string) => opslag.get(k) ?? null,
+    setItem: (k: string, v: string) => void opslag.set(k, v),
+  }
+
+  /*
+   * Het script draait in een eigen functie met zijn globals als parameters.
+   * Zo hoeven we niets aan de echte globalThis te hangen -- en dan kan een
+   * volgend hoofdstuk er ook geen last van krijgen.
+   */
+  const draai = new Function(
+    'window', 'document', 'fetch', 'sessionStorage', 'CustomEvent', 'location',
+    script,
+  )
+
+  /*
+   * Precies wat app.js op zijn eerste regel doet: `const DATA =
+   * window.SITE_DATA`. Die verwijzing pakt hij één keer en houdt hij vast.
+   *
+   * Deze regel is de hele reden dat live.js de array bijwerkt in plaats van
+   * hem te vervangen -- en zonder deze regel toetst dit hoofdstuk dat niet.
+   * Nagegaan door live.js te laten vervangen: dan blijft alles hieronder
+   * groen behalve deze.
+   */
+  const zoalsAppJs = nepVenster.SITE_DATA as { locaties: { slug: string }[] }
+
+  draai(
+    nepVenster, nepDocument, nepFetch, nepSessie,
+    class { constructor() { /* leeg */ } },
+    { pathname: '/locaties/' },
+  )
+
+  /* live.js is async; even wachten tot de belofte rond is. */
+  await new Promise((r) => setTimeout(r, 20))
+
+  check('hij heeft de gegevens opgehaald', gevraagd === 1, String(gevraagd))
+
+  /* ---- de postcodezoeker ---- */
+
+  /*
+   * Ter plekke bijwerken, niet vervangen. app.js doet bovenaan
+   * `const DATA = window.SITE_DATA` en houdt die verwijzing vast; een nieuw
+   * object toewijzen ziet hij nooit meer.
+   */
+  const zoeker = zoalsAppJs
+  check('de vestigingen van de zoeker zijn bijgewerkt',
+    zoeker.locaties.length === 2, String(zoeker.locaties.length))
+  /* En window.SITE_DATA wijst nog naar hetzelfde object; anders keek app.js
+     naar een lijst die niemand meer bijwerkt. */
+  check('en app.js kijkt nog naar dezelfde lijst',
+    nepVenster.SITE_DATA === zoalsAppJs)
+  check('en de oude is echt weg',
+    !zoeker.locaties.some((l) => l.slug === 'oud'))
+  check('de nieuwe vestiging staat erin',
+    zoeker.locaties.some((l) => l.slug === 'nieuw'))
+
+  /* De openingstijden komen in de vorm die app.js verwacht. */
+  const utrecht = zoeker.locaties.find((l) => l.slug === 'utrecht') as
+    { uren: { dag: string; tijd: string }[] }
+  check('met openingstijden per dag',
+    utrecht.uren.length === 7, String(utrecht.uren.length))
+  check('maandag uit de database',
+    utrecht.uren[0].dag === 'Maandag' && utrecht.uren[0].tijd === '07:00 - 19:00',
+    JSON.stringify(utrecht.uren[0]))
+  /* Een dag zonder tijden is geen ontbrekende dag maar een gesloten dag. */
+  check('en zondag dicht in plaats van weg',
+    utrecht.uren[6].dag === 'Zondag' && utrecht.uren[6].tijd === 'Gesloten')
+
+  /* ---- de lijsten ---- */
+
+  check('de oude vestigingsrij is opgeruimd', gewist.includes('locrij'))
+  check('en er staan twee nieuwe',
+    ((locHouder.html as string) ?? '').split('class="locrij"').length - 1 === 2,
+    String(locHouder.html ?? '').slice(0, 120))
+  check('de nieuwe vestiging krijgt een eigen link',
+    ((locHouder.html as string) ?? '').includes('href="/locaties/nieuw/"'))
+  check('met een doorlopend nummer',
+    ((locHouder.html as string) ?? '').includes('>01<')
+      && ((locHouder.html as string) ?? '').includes('>02<'))
+
+  check('de oude vacature is opgeruimd', gewist.includes('vacrij'))
+  check('en er staan drie nieuwe',
+    ((vacHouder.html as string) ?? '').split('class="vacrij"').length - 1 === 3)
+  check('de derde vacature staat erbij',
+    ((vacHouder.html as string) ?? '').includes('href="/werken-bij/derde/"'))
+
+  /* ---- de tellingen ---- */
+
+  check('het aantal vestigingen is bijgewerkt', telVest.textContent === '2',
+    String(telVest.textContent))
+  check('en het aantal medewerkers ook', telMede.textContent === '10',
+    String(telMede.textContent))
+
+  /* ---- en wat er gebeurt als het misgaat ---- */
+
+  /*
+   * Dit is de belangrijkste check van het hoofdstuk. Gaat het ophalen mis,
+   * dan moet de gebouwde pagina staan blijven -- niet half leeg raken. Een
+   * site die bij een storing zijn vestigingen kwijtraakt is erger dan een
+   * site met de stand van gisteren.
+   */
+  const stukVenster: Record<string, unknown> = {
+    LIVE_BRON: 'https://proef.example/functions/v1/website-gegevens',
+    SITE_DATA: { locaties: [{ slug: 'oud', plaats: 'Oudstad' }] },
+    dispatchEvent() {}, addEventListener() {},
+  }
+  const stukHouder = maakElement('raster')
+  const stukRij = maakElement('locrij', 'a')
+  ;(stukRij as Record<string, unknown>).parentNode = stukHouder
+  ;(stukHouder as Record<string, unknown>).removeChild = () => {
+    throw new Error('er had niets opgeruimd mogen worden')
+  }
+
+  const stukDocument = {
+    readyState: 'complete',
+    addEventListener() {},
+    querySelector: (sel: string) => (sel === 'a.locrij' ? stukRij : null),
+    querySelectorAll: () => [],
+  }
+
+  new Function('window', 'document', 'fetch', 'sessionStorage', 'CustomEvent', 'location', script)(
+    stukVenster, stukDocument,
+    async () => { throw new Error('geen verbinding') },
+    { getItem: () => null, setItem: () => {} },
+    class { constructor() { /* leeg */ } },
+    { pathname: '/locaties/' },
+  )
+  await new Promise((r) => setTimeout(r, 20))
+
+  check('bij een storing blijft de gebouwde pagina staan',
+    (stukVenster.SITE_DATA as { locaties: unknown[] }).locaties.length === 1
+      && stukHouder.html === undefined)
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

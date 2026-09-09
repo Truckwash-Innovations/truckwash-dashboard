@@ -42,7 +42,7 @@
   <div class="hero">
     <canvas id="drie" aria-label="Driedimensionale weergave van een vrachtwagen in de wasstraat"></canvas>
     <div class="shell"><div class="hero-in">
-      <span class="oogje">19 vestigingen in Nederland</span>
+      <span class="oogje"><span data-live="vestigingen">19</span> vestigingen in Nederland</span>
       <h1>Wassen zonder<br>afspraak. <em>Prijs<br>vooraf bekend.</em></h1>
       <p class="lead">Rij binnen bij de dichtstbijzijnde vestiging. Geen planning vooraf, geen offerte achteraf &mdash; je weet wat het kost voordat je de poort in draait.</p>
       <div class="zoeker">
@@ -217,6 +217,12 @@
 <script src="/assets/data.js" defer></script>
 <script src="/assets/three.min.js" defer></script>
 <script src="/assets/app.js" defer></script>
+<!-- live.js haalt bij het openen de actuele gegevens op en werkt bij wat er
+     sinds de bouw kan zijn veranderd: de vestigingen, de vacatures, de
+     tellingen en de openingstijden. Na app.js, want hij past window.SITE_DATA
+     ter plekke aan en die moet dan al bestaan. Gaat het ophalen mis, dan
+     blijft deze gebouwde pagina gewoon staan. -->
+<script src="/assets/live.js" defer></script>
 <!-- trucky.js staat hier met opzet NIET. toestemming.js haalt hem pas op als
      de bezoeker hem aanzet: er gaat dan een vraag naar onze server, en dat is
      niet nodig om deze site te lezen. -->
