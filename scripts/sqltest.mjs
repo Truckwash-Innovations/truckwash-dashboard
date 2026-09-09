@@ -6554,6 +6554,140 @@ console.log('\n53. Je eigen woonadres, en verder niets')
     !eerste.fout && eerste.rijen[0].bsn === null, JSON.stringify(eerste))
 }
 
+/* ==================================================================== *
+ *  54. Een klant weggooien
+ *
+ *  Casper wil klanten kunnen beheren, en vier testklanten kwijt. Verwijderen
+ *  is daarvan het gevaarlijkste stuk, om drie redenen die je geen van drieen
+ *  ziet gebeuren:
+ *
+ *    1. wash_jobs.company_id staat op restrict. Een klant met wasbeurten kan
+ *       Postgres niet verwijderen -- maar de foutmelding gaat over een vreemde
+ *       sleutel en niet over omzet.
+ *    2. verkoopfactuur.company_id en company_exact.company_id hebben helemaal
+ *       GEEN vreemde sleutel. Die blijven dus achter en wijzen naar een
+ *       bedrijf dat niet meer bestaat. Niets houdt het tegen, niets meldt het.
+ *    3. Er stond geen verwijdertrigger op companies, dus elk apparaat hield de
+ *       gewiste klant in zijn plaatselijke kopie.
+ *
+ *  0075 zet daar een slot en een melding op. Dit hoofdstuk toetst allebei.
+ * ==================================================================== */
+
+console.log('\n54. Een klant weggooien')
+
+{
+  await asServer(db)
+  await db.exec(`
+    insert into public.companies (id, name, contact, email, phone, city, contract_discount_pct)
+    values
+      ('co_weg',   'Mag Weg B.V.',    'A', 'a@x.nl', '1', 'Utrecht', 0),
+      ('co_beurt', 'Heeft Beurten',   'B', 'b@x.nl', '2', 'Venlo',   0),
+      ('co_fact',  'Heeft Facturen',  'C', 'c@x.nl', '3', 'Ede',     0)
+    on conflict (id) do nothing;
+
+    insert into public.wash_jobs
+      (id, ticket, company_id, company_name, plate, service, status, scheduled_at)
+    values ('wj_54', 'T54', 'co_beurt', 'Heeft Beurten', 'AA-11-BB', 'buitenwas',
+            'gereed', 1)
+    on conflict (id) do nothing;
+
+    insert into public.verkoopfactuur
+      (id, company_id, company_naam, periode, bedrag_excl, btw_bedrag, bedrag_incl)
+    values ('vf_54', 'co_fact', 'Heeft Facturen', '2026-05', 100, 21, 121)
+    on conflict (id) do nothing;
+  `)
+
+  const belet = async (id) => (await db.query(
+    `select public.klant_verwijderen_belet('${id}') as reden`)).rows[0].reden
+
+  /* --- vooraf vragen, zodat het scherm het kan zeggen --- */
+
+  check('een klant zonder iets eraan mag weg', (await belet('co_weg')) === null,
+    String(await belet('co_weg')))
+
+  const rBeurt = await belet('co_beurt')
+  check('een klant met wasbeurten niet', typeof rBeurt === 'string' && rBeurt.length > 20,
+    String(rBeurt))
+  /*
+   * En de reden moet leesbaar zijn. Postgres zegt hier uit zichzelf iets over
+   * een vreemde sleutel op wash_jobs; daar heeft de administratie niets aan.
+   */
+  check('en zegt waarom, in gewone woorden',
+    (rBeurt || '').includes('wasbeurten') && !(rBeurt || '').includes('foreign key'),
+    String(rBeurt))
+
+  const rFact = await belet('co_fact')
+  check('een klant met verkoopfacturen ook niet',
+    (rFact || '').includes('verkoopfacturen'), String(rFact))
+
+  /* --- en het slot doet hetzelfde, ook buiten het scherm om --- */
+
+  const wis = async (id) => {
+    try {
+      await db.exec(`delete from public.companies where id = '${id}'`)
+      return 'weg'
+    } catch (e) {
+      return e.message
+    }
+  }
+
+  /*
+   * Dit is de val. verkoopfactuur heeft GEEN vreemde sleutel naar companies,
+   * dus zonder de trigger van 0075 zou Postgres deze verwijdering gewoon
+   * uitvoeren en bleef er een factuur achter die naar niets wijst.
+   */
+  const uitFact = await wis('co_fact')
+  check('verwijderen wordt geweigerd, ook zonder vreemde sleutel',
+    uitFact !== 'weg' && uitFact.includes('verkoopfacturen'), uitFact)
+
+  check('de klant staat er dus nog',
+    (await db.query(`select count(*)::int as n from public.companies
+                      where id = 'co_fact'`)).rows[0].n === 1)
+
+  const uitBeurt = await wis('co_beurt')
+  check('en een klant met wasbeurten blijft ook staan',
+    uitBeurt !== 'weg' && uitBeurt.includes('wasbeurten'), uitBeurt)
+
+  /* --- wat wel weg mag, gaat weg en meldt zich --- */
+
+  const voor = (await db.query(
+    `select count(*)::int as n from public.deletion_log where record_id = 'co_weg'`)).rows[0].n
+  check('er ligt nog geen verwijderregel', voor === 0)
+
+  check('een lege klant mag wel weg', (await wis('co_weg')) === 'weg')
+
+  /*
+   * En dat moet gemeld worden. Zonder deze regel houdt elke telefoon en elke
+   * laptop de gewiste klant in zijn plaatselijke kopie: de opruimmachinerie
+   * werkt wel, maar krijgt niets te horen.
+   */
+  const na = (await db.query(
+    `select naam, tabel from public.deletion_log where record_id = 'co_weg'`)).rows
+  check('en de verwijdering meldt zichzelf', na.length === 1, String(na.length))
+  check('met de naam erbij, niet alleen het id',
+    na.length === 1 && na[0].naam === 'Mag Weg B.V.', JSON.stringify(na))
+  check('en de tabel waar hij in stond',
+    na.length === 1 && na[0].tabel === 'companies', JSON.stringify(na))
+
+  /* --- een klant met alleen een inlogaccount --- */
+
+  /*
+   * profiles.company_id gaat bij een verwijdering op null (0001:66), dus
+   * Postgres houdt dit NIET tegen. Toch weigeren: die mensen zouden anders
+   * hun klantenportaal kwijtraken zonder dat iemand het doorhad.
+   */
+  await db.exec(`
+    insert into public.companies (id, name, contact, email, phone, city, contract_discount_pct)
+    values ('co_mens', 'Heeft Mensen', 'D', 'd@x.nl', '4', 'Asten', 0)
+    on conflict (id) do nothing;
+    update public.profiles set company_id = 'co_mens'
+     where email = 'klant@transportjansen.nl';
+  `)
+  const rMens = await belet('co_mens')
+  check('een klant met inlogaccounts wordt ook tegengehouden',
+    (rMens || '').includes('inlogaccounts'), String(rMens))
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

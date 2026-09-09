@@ -6592,5 +6592,119 @@ console.log('\n52. De site haalt zijn eigen gegevens op')
       && stukHouder.html === undefined)
 }
 
+/* ====================================================================
+ *  53. Klanten beheren
+ *
+ *  Casper: "Daarnaast moet je alle klanten, gebruikers ect kunnen beheren bij
+ *  managment, kunnen aanmaken."
+ *
+ *  Hij kon het niet vinden omdat het er niet was. Drie dingen heten "Klant":
+ *  public.companies (het factuuradres), Werkgever (het transportbedrijf) en de
+ *  rol customer (het inlogaccount). Het menu-item "Klanten" opende het
+ *  werkgeversscherm; voor companies bestond geen scherm en ook geen repo -- er
+ *  stond in de hele app geen enkele schrijfactie op db.companies.
+ *
+ *  De synchronisatie was er wel al, op alle zes de plekken. Er ontbrak dus een
+ *  scherm, geen leidingwerk.
+ * ==================================================================== */
+
+console.log('\n53. Klanten beheren')
+
+{
+  const { klanten, pastBijZoek } = await import('../src/lib/klanten.ts')
+  const { db } = await import('../src/lib/db')
+
+  /* ---- aanmaken ---- */
+
+  const gemaakt = await klanten.maak({
+    name: '  Transport De Wit  ',
+    contact: 'J. de Wit',
+    email: 'facturen@dewit.nl',
+    city: 'Venlo',
+  })
+
+  check('een klant aanmaken levert een id op',
+    typeof gemaakt.id === 'string' && gemaakt.id.startsWith('co'), gemaakt.id)
+  check('en de naam wordt opgeschoond', gemaakt.name === 'Transport De Wit', gemaakt.name)
+  /* Zonder korting is nul, niet undefined -- die waarde gaat op een factuur. */
+  check('zonder opgave is de korting nul', gemaakt.contractDiscountPct === 0)
+
+  const uitDb = await db.companies.get(gemaakt.id)
+  check('hij staat meteen in de plaatselijke opslag', uitDb?.name === 'Transport De Wit')
+
+  /*
+   * En in de wachtrij, want anders staat hij alleen op dit apparaat. Dat is
+   * het hele punt van de offline-eerst opzet: schrijven gaat plaatselijk en de
+   * wachtrij brengt het naar de server.
+   */
+  const inWachtrij = await db.outbox
+    .filter((r) => r.entity === 'companies' && r.recordId === gemaakt.id)
+    .toArray()
+  check('en in de wachtrij naar de server', inWachtrij.length >= 1,
+    String(inWachtrij.length))
+  check('als een put', inWachtrij.some((r) => r.op === 'put'))
+
+  /* ---- wijzigen ---- */
+
+  const gewijzigd = await klanten.wijzig(gemaakt.id, { city: 'Venlo-Zuid', contractDiscountPct: 12 })
+  check('wijzigen werkt', gewijzigd?.city === 'Venlo-Zuid' && gewijzigd?.contractDiscountPct === 12)
+  check('en laat de rest staan', gewijzigd?.contact === 'J. de Wit')
+  check('een onbekende klant wijzigen doet niets',
+    (await klanten.wijzig('co_bestaatniet', { city: 'X' })) === null)
+
+  /* ---- verwijderen ---- */
+
+  await klanten.verwijder(gemaakt.id)
+  check('verwijderen haalt hem plaatselijk weg',
+    (await db.companies.get(gemaakt.id)) === undefined)
+
+  /*
+   * En de wachtrij moet het weten. Zonder deze regel is de klant alleen op dit
+   * apparaat weg en staat hij op de server en op elke andere telefoon nog.
+   */
+  const wisRegel = await db.outbox
+    .filter((r) => r.entity === 'companies' && r.recordId === gemaakt.id && r.op === 'delete')
+    .toArray()
+  check('en zet een verwijdering in de wachtrij', wisRegel.length === 1,
+    String(wisRegel.length))
+
+  /* ---- zoeken ---- */
+
+  const klant = {
+    id: 'co_x', name: 'Chemtrans B.V.', contact: 'W. Bakker',
+    email: 'w@chemtrans.nl', phone: '0201234567', city: 'Amsterdam',
+    contractDiscountPct: 0, updatedAt: 0,
+  }
+  check('zoeken op naam', pastBijZoek(klant, 'chemtrans'))
+  check('op plaats', pastBijZoek(klant, 'amsterdam'))
+  check('op contactpersoon', pastBijZoek(klant, 'bakker'))
+  check('op een stuk van het mailadres', pastBijZoek(klant, 'chemtrans.nl'))
+  check('een lege zoekopdracht laat alles zien', pastBijZoek(klant, '   '))
+  check('en iets dat er niet in staat vindt niets', !pastBijZoek(klant, 'zzzz'))
+
+  /* ---- het scherm hangt in het menu ---- */
+
+  const { readFileSync } = await import('node:fs')
+  const dash = readFileSync('src/dashboards/management/ManagementDashboard.tsx', 'utf8')
+
+  check('het scherm staat in het managementmenu',
+    /key: 'klanten', label: 'Facturatieklanten'/.test(dash))
+  check('en wordt ook echt gerenderd',
+    dash.includes("{page === 'klanten' && <Klanten"))
+
+  /*
+   * Dit was een stille fout: 'klanten' werd omgeleid naar 'personeel'. Wie in
+   * de zoekbalk een klant aanklikte, kreeg de personeelslijst te zien met een
+   * company-id dat nooit een dossier-id kan zijn -- en dan gebeurde er niets,
+   * zonder melding.
+   */
+  check('en wordt niet meer naar personeel omgeleid',
+    !/p === 'klanten' \? 'personeel'/.test(dash))
+
+  const { DASHBOARDS_MET } = await import('../src/lib/schermen.ts')
+  check('de sleutel hoort bij het management',
+    (DASHBOARDS_MET.klanten ?? []).includes('management'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

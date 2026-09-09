@@ -17,6 +17,7 @@ import Beheer from './Beheer'
 import Techniek from './Techniek'
 import Aanmeldingen from './Aanmeldingen'
 import Werkgevers from './Werkgevers'
+import Klanten from './Klanten'
 import Kassas from './Kassas'
 import Vestigingen from './Vestigingen'
 import TruckyScherm from '../administratie/Trucky'
@@ -58,6 +59,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
   werkgevers: { title: 'Klanten', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
+  klanten: { title: 'Facturatieklanten', subtitle: 'De bedrijven waar een factuur heen gaat' },
   kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
   vestigingen: { title: 'Vestigingen', subtitle: "Adressen, foto's en openingstijden" },
   trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
@@ -150,6 +152,16 @@ export default function ManagementDashboard() {
       ? [{ key: 'werkgevers', label: 'Klanten', icon: Briefcase,
            badge: cijfers.nieuweWerkgevers || undefined }]
       : []),
+    /*
+     * Twee schermen die allebei over klanten gaan, en dat is geen fout.
+     * 'werkgevers' zijn de transportbedrijven waarvan de chauffeurs komen
+     * wassen; 'klanten' is public.companies, het adres waar de factuur heen
+     * gaat. Die twee bestaan naast elkaar en het menu hoort dat te zeggen in
+     * plaats van te doen alsof het er een is.
+     */
+    ...(perms.can('customers.view')
+      ? [{ key: 'klanten', label: 'Facturatieklanten', icon: Building2 }]
+      : []),
     ...(perms.can('locations.view')
       ? [{ key: 'vestigingen', label: 'Vestigingen', icon: Building2 }]
       : []),
@@ -178,17 +190,24 @@ export default function ManagementDashboard() {
    * of wissen. Zo raakte een e-mailadres voorgoed bezet.
    */
   const [openPersoon, setOpenPersoon] = useState<string | null>(null)
+  const [openKlant, setOpenKlant] = useState<string | null>(null)
 
   useNavTarget(
     [...items.map((i) => i.key),
      'klanten', 'materiaal', 'storingen', 'werkbonnen', 'installaties', 'onderhoud'],
     (p, id) => {
+      /*
+       * 'klanten' ging hier naar 'personeel'. Wie in de zoekbalk een klant
+       * aanklikte belandde dus op de personeelslijst, met een company-id dat
+       * nooit een dossier-id kan zijn -- en dan gebeurde er niets, zonder
+       * melding. Nu is 'klanten' een echt scherm.
+       */
       const doel =
-        p === 'klanten' ? 'personeel' :
         p === 'materiaal' ? 'voorraad' :
         ['storingen', 'werkbonnen', 'installaties', 'onderhoud'].includes(p) ? 'techniek' : p
       setPage(doel)
       setOpenPersoon(doel === 'personeel' ? id ?? null : null)
+      setOpenKlant(doel === 'klanten' ? id ?? null : null)
     },
   )
 
@@ -412,6 +431,7 @@ export default function ManagementDashboard() {
       {page === 'postbus' && <Postbus />}
       {page === 'agenda' && <Agenda />}
       {page === 'werkgevers' && <Werkgevers />}
+      {page === 'klanten' && <Klanten openId={openKlant} />}
       {page === 'kassas' && <Kassas />}
       {page === 'vestigingen' && <Vestigingen />}
       {page === 'trucky' && <TruckyScherm />}

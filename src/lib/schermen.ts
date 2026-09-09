@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Briefcase, Bug, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
+  AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
   BriefcaseBusiness, FolderOpen, ListTodo, Timer, Truck, Users, Wallet, Wrench,
@@ -240,6 +240,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'grootboek',  label: 'Grootboek',    hint: 'Het rekeningschema uit Exact',    icon: ScrollText, rol: 'administratie', recht: 'admin.desk', ook: ['rekeningschema', 'grootboekrekening', 'boeken'] },
   { page: 'boekhouding', label: 'Boekhouding instellen', hint: 'Hoe facturen worden gelezen, geboekt en goedgekeurd', icon: Settings, rol: 'administratie', recht: 'admin.desk', ook: ['instellingen', 'vier ogen', 'automatisch', 'dagboek', 'btw'] },
   { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },
+  { page: 'klanten',    label: 'Facturatieklanten', hint: 'De bedrijven waar een factuur heen gaat', icon: Building2, recht: 'customers.view', ook: ['klant', 'bedrijf', 'factuuradres', 'debiteur'] },
   { page: 'werkgevers', label: 'Klanten',      hint: 'Bedrijven waarvan de chauffeurs hier wassen', icon: Briefcase, recht: 'employer.view', ook: ['bedrijven', 'transporteur', 'chauffeurs', 'werkgevers', 'werkgever'] },
   { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
   { page: 'chauffeurs', label: 'Chauffeurs',   hint: 'Wie er namens je bedrijf komt wassen', icon: Users,     rol: 'employer', recht: 'employer.staff' },
