@@ -457,6 +457,28 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
        */
       if (e instanceof GeenRechten) {
         await db.outbox.update(r.id!, { tries: r.tries + 1, lastError: msg })
+
+        /*
+         * En kijken of het aan de ouder ligt.
+         *
+         * Een bericht in een kanaal dat de server niet kent wordt geweigerd,
+         * en blijft dat -- de regel kijkt in public.channels en daar staat
+         * niets. Zet de ouder opnieuw in de wachtrij, dan gaat die er in de
+         * volgende ronde eerst door en lukt dit record daarna vanzelf.
+         *
+         * Zonder await op het logboek en zonder de fout te laten vallen: dit
+         * is een poging tot herstel, en als hij niet lukt hoort de melding te
+         * blijven staan zoals hij staat.
+         */
+        try {
+          const gesleept = await haalOuderErbij(r.entity, r.payload)
+          if (gesleept) {
+            logLive('sync', `${r.entity} geweigerd; ${gesleept} opnieuw in de wachtrij gezet`, {
+              detail: r.recordId,
+            })
+          }
+        } catch { /* herstel dat niet lukt hoort de fout niet te overschrijven */ }
+
         continue
       }
 
@@ -504,6 +526,97 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
 /* ------------------------------------------------------------------ *
  *  Pull
  * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Van kind naar ouder
+ *
+ *  Casper: "bij het downloaden krijg ik nog steeds die fout, evenals bij
+ *  verzenden in chat ... fix dit permanent"
+ *
+ *  Nagespeeld in scripts/naspeuren.mjs: een chatbericht in een kanaal dat de
+ *  server NIET kent wordt geweigerd. Terecht -- een bericht toelaten in een
+ *  kanaal dat niet bestaat, betekent berichten toelaten in elk verzonnen
+ *  kanaal-id.
+ *
+ *  Maar daarmee zit het bericht wel vast. De beveiligingsregel op
+ *  chat_messages eist can_see_channel(channel_id), en die kijkt in
+ *  public.channels. Staat het kanaal daar niet, dan is elke poging
+ *  hetzelfde, voor altijd. Precies wat Casper zag: dezelfde fout, telkens
+ *  opnieuw.
+ *
+ *  Hoe een kanaal alleen plaatselijk kan bestaan: het is hier aangemaakt en
+ *  zijn eigen duw is een keer geweigerd. Vóór 0043 was dat een bekende
+ *  toestand -- drieentwintig kanalen tegelijk, allemaal geweigerd omdat de
+ *  regel naar een ROL keek terwijl de app naar een RECHT keek. Die regel is
+ *  gerepareerd, maar de kanalen die toen zijn blijven liggen komen niet
+ *  vanzelf terug: de wachtrij was al leeg of de rij is opgegeven.
+ *
+ *  Dus: wordt een kind geweigerd, dan zetten we zijn OUDER opnieuw in de
+ *  wachtrij. Die gaat er in de volgende ronde eerst door (PUSH_ORDER zet
+ *  ouders vooraan), en daarna lukt het kind vanzelf.
+ *
+ *  Waarom een kaart en niet alleen voor de chat: dit is een klasse en geen
+ *  geval. Elke tabel waarvan de beveiligingsregel naar een ouderrij kijkt
+ *  heeft hetzelfde probleem, en dat zijn er zes.
+ * ------------------------------------------------------------------ */
+
+const OUDER_VAN: Partial<Record<EntityName, {
+  entity: EntityName
+  /** Waar het id van de ouder in de lading staat. */
+  veld: string
+}>> = {
+  /* Bewezen geval: can_see_channel(channel_id) leest public.channels. */
+  chatMessages: { entity: 'channels', veld: 'channelId' },
+  channelReads: { entity: 'channels', veld: 'channelId' },
+  /* doc_toegang en taak_document hangen aan een document; hun regels gaan
+     via mag_document(), en die leest doc_bestand. */
+  docToegang: { entity: 'docBestanden', veld: 'documentId' },
+  taakDocumenten: { entity: 'docBestanden', veld: 'documentId' },
+  /* Een bestelregel mag alleen als de bestelling er staat (0048). */
+  bestelregels: { entity: 'bestellingen', veld: 'bestellingId' },
+  /* En een taakreactie kijkt of de taak bestaat (0067). */
+  taakReacties: { entity: 'taken', veld: 'taakId' },
+}
+
+/*
+ * Wie er deze sessie al een keer is bijgesleept.
+ *
+ * Zonder deze rem zou een ouder die zelf wordt geweigerd bij elke ronde
+ * opnieuw in de wachtrij komen, en dan groeit die rij in plaats van dat hij
+ * leegloopt. Een keer per sessie is genoeg: helpt het niet, dan is er iets
+ * anders aan de hand en hoort de fout te blijven staan zoals hij staat.
+ */
+const alGesleept = new Set<string>()
+
+/**
+ * Zet de ouder van dit record opnieuw in de wachtrij, als die er is.
+ *
+ * Geeft terug of er iets is bijgezet -- alleen voor de logregel; de aanroeper
+ * doet er niets anders mee.
+ */
+async function haalOuderErbij(entity: EntityName, payload: unknown): Promise<string | null> {
+  const ouder = OUDER_VAN[entity]
+  if (!ouder) return null
+
+  const lading = payload as Record<string, unknown> | null
+  const ouderId = lading && typeof lading[ouder.veld] === 'string'
+    ? (lading[ouder.veld] as string)
+    : null
+  if (!ouderId) return null
+
+  const merk = `${ouder.entity}:${ouderId}`
+  if (alGesleept.has(merk)) return null
+
+  /* Alleen als we hem plaatselijk hebben. Hebben we hem niet, dan is er niets
+     te duwen en is de weigering terecht -- dan verwijst het kind naar iets
+     dat nergens bestaat. */
+  const rij = await TABLE_OF[ouder.entity]().get(ouderId)
+  if (!rij) return null
+
+  alGesleept.add(merk)
+  await enqueue(ouder.entity, 'put', ouderId, rij)
+  return merk
+}
 
 const TABLE_OF: Record<EntityName, () => any> = {
   locations: () => db.locations,

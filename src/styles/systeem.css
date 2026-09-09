@@ -1349,3 +1349,178 @@ a.k { text-decoration: none; }
   gap: var(--s2);
   flex: none;
 }
+
+/* ==================================================================
+   25. Het startscherm
+   ==================================================================
+
+   Casper, hoofdstuk 12 en 13: "Het dashboard moet niet volstaan met
+   willekeurige kaartjes ... Prioriteit: 1. Wat moet ik doen? 2. Wat vraagt
+   mijn aandacht?"
+
+   Er stond een raster van grote tegels, allemaal even zwaar, elk met een
+   cijfer. Bij het management eenentwintig stuks -- een tweede menu, en het
+   antwoord op "wat moet ik nu doen" moest je er zelf uit halen.
+
+   Nu twee delen: wat werk heeft als een lijst, en de rest klein en grijs.
+   De scheiding is de verbetering; de opmaak hieronder maakt hem alleen
+   zichtbaar.
+   ================================================================== */
+
+.start-kop {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.start-kop h1 {
+  margin: 0;
+  font-size: var(--fs-titel);
+  font-weight: var(--fw-half);
+  letter-spacing: -.015em;
+  color: var(--text);
+}
+.start-kop p {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-klein);
+  color: var(--text-3);
+}
+.start-kop > div:first-child { flex: 1 1 auto; min-width: 0; }
+.start-snel { flex: none; display: flex; align-items: center; gap: var(--s2); }
+
+/* ---- Op je bord ------------------------------------------------- */
+
+.werklijst-regels {
+  display: grid;
+  gap: var(--s2);
+}
+
+/*
+ * Eén regel per ding, en het aantal vooraan.
+ *
+ * Vooraan en niet achteraan, want dat is waar je naar kijkt: een kolom
+ * getallen onder elkaar is in één blik te lezen. Achteraan zou hij per regel
+ * op een andere plek staan, afhankelijk van de lengte van de naam.
+ */
+.werkregel {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color .12s var(--ease), border-color .12s var(--ease);
+}
+.werkregel:hover { background: var(--surface-2); }
+
+.werkregel .ico {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.werkregel .hoeveel {
+  flex: none;
+  min-width: 2.4ch;
+  font-size: 17px;
+  font-weight: var(--fw-vet);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
+}
+
+.werkregel .wat { flex: 1 1 auto; min-width: 0; display: grid; }
+.werkregel .wat strong {
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.werkregel .wat > span {
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.werkregel .pijl { flex: none; color: var(--text-3); }
+.werkregel:hover .pijl { color: var(--text-2); }
+
+/* De tint zit in het streepje links en in het cijfer. Niet in het hele
+   vlak: tien gekleurde vlakken op een rij is een kerstboom, en dan valt de
+   dringende niet meer op. */
+.werkregel.t-danger  { border-left-color: var(--danger); }
+.werkregel.t-danger  .hoeveel { color: var(--text-danger); }
+.werkregel.t-warn,
+.werkregel.t-oranje  { border-left-color: var(--warn); }
+.werkregel.t-warn    .hoeveel,
+.werkregel.t-oranje  .hoeveel { color: var(--text-warn); }
+.werkregel.t-brand   { border-left-color: var(--brand); }
+.werkregel.t-ok      { border-left-color: var(--ok); }
+.werkregel.t-info    { border-left-color: var(--info); }
+.werkregel.t-paars   { border-left-color: var(--paars); }
+
+/* ---- Verder ----------------------------------------------------- */
+
+.ingangen {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--s2);
+}
+
+.ingang {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-klein);
+  text-align: left;
+  cursor: pointer;
+}
+.ingang:hover { background: var(--surface); border-color: var(--line); color: var(--text); }
+.ingang svg { flex: none; color: var(--text-3); }
+.ingang .naam {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ingang .cijfer {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Niets te doen is goed nieuws en hoort er ook zo uit te zien. */
+.niets-te-doen {
+  margin: 0 0 var(--s5);
+  padding: var(--s4);
+  border: 1px solid var(--line-ok);
+  border-radius: var(--radius-sm);
+  background: var(--tint-ok);
+  color: var(--text-ok);
+  font-size: var(--fs-klein);
+}
+
+@media (max-width: 520px) {
+  .start-kop { flex-direction: column; gap: var(--s3); }
+  .ingangen { grid-template-columns: minmax(0, 1fr); }
+}

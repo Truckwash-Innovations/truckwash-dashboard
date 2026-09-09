@@ -6885,6 +6885,161 @@ console.log('\n56. Twee functies die hetzelfde naar buiten geven')
   await db.exec("delete from public.locations where id = 'loc_verborgen';")
 }
 
+/* ==================================================================== *
+ *  57. De app zei ja en de database nee
+ *
+ *  Casper: "bij het downloaden krijg ik nog steeds die fout, evenals bij
+ *  verzenden in chat ... fix dit permanent"
+ *
+ *  Twee meldingen, drie oorzaken, en bij twee van de drie was er niets mis
+ *  met de regel waar de foutmelding naar wees. Vandaar dat dit hoofdstuk de
+ *  gevallen NAAST elkaar zet in plaats van elk apart: het verschil tussen
+ *  "eigen vestiging" en "andere vestiging", en tussen "met returning" en
+ *  "zonder", is precies waar de oorzaak in zit.
+ *
+ *    1. sees_all_locations() las de kolom all_locations en de LOSSE rechten,
+ *       maar niet wat een ROL meebrengt. locations.all is een roldefault van
+ *       vier rollen, en die staat met opzet niet in grants (permissions.ts,
+ *       togglePermission). Dus zei de app "je ziet alle vestigingen" en de
+ *       database "alleen die van jezelf" -- en een document voor een andere
+ *       vestiging werd geweigerd.
+ *
+ *    2. channels_select en doc_bestand_select gingen via een stabiele
+ *       security-definer-functie die de EIGEN tabel opnieuw bevraagt. Tijdens
+ *       een insert bestaat die rij daar nog niet, dus werd de
+ *       RETURNING-select geweigerd -- waarna PostgreSQL meldt dat de nieuwe
+ *       rij de regel schendt. Die melding wijst naar de insertregel, en daar
+ *       was niets mis mee.
+ *
+ *    3. En een bericht in een kanaal dat de server niet kent blijft terecht
+ *       geweigerd. Dat deel is app-werk (sync.ts sleept de ouder erbij) en
+ *       staat in zelftest 60.
+ * ==================================================================== */
+
+console.log('\n57. De app zei ja en de database nee')
+
+{
+  await asServer(db)
+
+  /* Een profiel zoals het in productie staat: de ROL management, en verder
+     niets aangevinkt. all_locations blijft dus staan op wat de kolom
+     standaard geeft, en grants is leeg. */
+  const baas = 'a5751000-0000-4000-8000-000000000057'
+  await db.exec(`
+    insert into auth.users (id, email) values ('${baas}', 'chef57@truckwash1group.nl')
+      on conflict (id) do nothing;
+    update public.profiles
+       set roles = array['management']::text[], active = true,
+           location_id = 'loc_utr', all_locations = false,
+           grants = array[]::text[], revokes = array[]::text[]
+     where email = 'chef57@truckwash1group.nl';
+  `)
+
+  const mij = (await db.query(
+    "select id from public.profiles where email = 'chef57@truckwash1group.nl'")).rows[0].id
+
+  /* ---- 1. de rol brengt locations.all mee ---- */
+
+  const zietAlles = async () => (await db.query(
+    'select public.sees_all_locations() as x')).rows[0].x
+
+  await db.exec(`set test.uid = '${baas}';`)
+  check('de rol management ziet alle vestigingen', (await zietAlles()) === true)
+  await asServer(db)
+
+  /*
+   * En een intrekking wint. Dat is een bestaande afspraak (hoofdstuk 12) en
+   * hij viel om toen deze functie via heeft_recht ging -- daar gaat een LOS
+   * toegekend recht namelijk voor op een intrekking. Deze deur hoort
+   * andersom te werken.
+   */
+  await db.exec(`update public.profiles set revokes = array['locations.all']::text[]
+                  where id = '${mij}';`)
+  await db.exec(`set test.uid = '${baas}';`)
+  check('en een intrekking sluit die deur alsnog', (await zietAlles()) === false)
+  await asServer(db)
+  await db.exec(`update public.profiles set revokes = array[]::text[] where id = '${mij}';`)
+
+  /* ---- 2. een document voor een ANDERE vestiging ---- */
+
+  const alsBaas = async (sql) => {
+    await db.exec(`set test.uid = '${baas}';`)
+    await db.exec('set role authenticated;')
+    try {
+      await db.query(sql)
+      return true
+    } catch {
+      return false
+    } finally {
+      await db.exec('reset role;')
+      await asServer(db)
+    }
+  }
+
+  const doc = (id, loc, returning) => `
+    insert into public.doc_bestand
+      (id, naam, opslag, emmer, pad, bron, zichtbaarheid, eigenaar, door, door_naam, location_id)
+    values ('${id}', 'x.pdf', 'supabase', 'documenten', 'p/${id}', 'upload',
+            'vestiging', '${mij}', '${mij}', 'Baas', ${loc})${returning ? ' returning id' : ''};`
+
+  check('een document zonder vestiging mag', await alsBaas(doc('d57a', 'null', false)))
+  check('op de eigen vestiging ook', await alsBaas(doc('d57b', "'loc_utr'", false)))
+  /*
+   * Dit is het gemelde geval. Het management ziet in de app alle achttien
+   * vestigingen; de database liet alleen de eigen vestiging door.
+   */
+  check('en op een ANDERE vestiging ook -- dit was de fout',
+    await alsBaas(doc('d57c', "'loc_rtd'", false)))
+
+  /* ---- 3. met returning, want dat is de landmijn ---- */
+
+  /*
+   * Een insert MET returning vraagt ook leesrecht op de nieuwe rij. Ging die
+   * leesregel via een functie die de eigen tabel opnieuw bevraagt, dan zag
+   * die de rij nog niet -- en dan meldt PostgreSQL dat de NIEUWE RIJ de
+   * regel schendt. Precies de melding die naar de verkeerde regel wijst.
+   *
+   * De synchronisatie doet nu een upsert zonder .select(), dus in productie
+   * viel dit niet om. Een .select() erbij en het overleg ligt plat.
+   */
+  check('een document invoegen met returning mag',
+    await alsBaas(doc('d57d', 'null', true)))
+
+  check('een kanaal aanmaken met returning mag',
+    await alsBaas(`
+      insert into public.channels (id, name, kind, private, member_ids)
+      values ('ch57a', 'Nieuw', 'kanaal', false, array[]::text[])
+      returning id;`))
+
+  /* ---- en wat terecht geweigerd blijft ---- */
+
+  await db.exec(`
+    insert into public.channels (id, name, kind, private, member_ids)
+    values ('ch57prive', 'Directie', 'kanaal', true, array[]::text[])
+    on conflict (id) do nothing;`)
+
+  check('een bericht in een prive kanaal waar je geen lid van bent blijft dicht',
+    !(await alsBaas(`
+      insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+      values ('cm57a', 'ch57prive', '${mij}', 'Baas', 'hoi', 1);`)))
+
+  /*
+   * En een bericht in een kanaal dat de server niet kent. Dat hoort geweigerd
+   * te blijven: doorlaten zou betekenen dat elk verzonnen kanaal-id werkt.
+   * Het herstel hiervan zit in de app (sync.ts sleept de ouder erbij).
+   */
+  check('en in een kanaal dat hier niet bestaat ook',
+    !(await alsBaas(`
+      insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+      values ('cm57b', 'ch_bestaat_niet', '${mij}', 'Baas', 'hoi', 1);`)))
+
+  /* En het gewone geval moet blijven werken. */
+  check('maar in een open kanaal gewoon wel',
+    await alsBaas(`
+      insert into public.chat_messages (id, channel_id, author_id, author_name, body, at)
+      values ('cm57c', 'ch57a', '${mij}', 'Baas', 'hoi', 2);`))
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
