@@ -1,0 +1,305 @@
+{
+ "opgehaald": "2026-09-07T06:29:33.952Z",
+ "releases": [
+  {
+   "versie": "1.49.0",
+   "datum": "2026-09-06T12:59:31Z",
+   "kop": "de repo staat nu op naam van Truckwash-Innovations",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.49.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.49.0/Truckwash1-Dashboard-Setup-1.49.0.exe",
+    "bytes": 161436201
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.49.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.49.0/Truckwash1-Dashboard-1.49.0.apk",
+    "bytes": 8012605
+   }
+  },
+  {
+   "versie": "1.48.0",
+   "datum": "2026-09-05T17:32:25Z",
+   "kop": "zien welke kassa's achterlopen, en het verzoek voor DMARC",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.48.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.48.0/Truckwash1-Dashboard-Setup-1.48.0.exe",
+    "bytes": 161437365
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.48.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.48.0/Truckwash1-Dashboard-1.48.0.apk",
+    "bytes": 8012601
+   }
+  },
+  {
+   "versie": "1.47.0",
+   "datum": "2026-09-05T17:01:46Z",
+   "kop": "een beveiligingsscherm voor ontwikkeling",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.47.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.47.0/Truckwash1-Dashboard-Setup-1.47.0.exe",
+    "bytes": 161436012
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.47.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.47.0/Truckwash1-Dashboard-1.47.0.apk",
+    "bytes": 8012089
+   }
+  },
+  {
+   "versie": "1.46.0",
+   "datum": "2026-09-04T23:34:50Z",
+   "kop": "Klant heet overal Klant, en de tegels lopen niet meer over elkaar",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.46.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.46.0/Truckwash1-Dashboard-Setup-1.46.0.exe",
+    "bytes": 161434575
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.46.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.46.0/Truckwash1-Dashboard-1.46.0.apk",
+    "bytes": 8009925
+   }
+  },
+  {
+   "versie": "1.45.0",
+   "datum": "2026-09-04T22:58:27Z",
+   "kop": "Klanten in plaats van Werkgevers, en drie dingen die stoorden",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.45.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.45.0/Truckwash1-Dashboard-Setup-1.45.0.exe",
+    "bytes": 161435087
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.45.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.45.0/Truckwash1-Dashboard-1.45.0.apk",
+    "bytes": 8009881
+   }
+  },
+  {
+   "versie": "1.44.0",
+   "datum": "2026-09-04T22:03:11Z",
+   "kop": "een vastgelopen kassa kun je nu kwijt, en het overleg klaagt niet meer",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.44.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.44.0/Truckwash1-Dashboard-Setup-1.44.0.exe",
+    "bytes": 161434921
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.44.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.44.0/Truckwash1-Dashboard-1.44.0.apk",
+    "bytes": 8009701
+   }
+  },
+  {
+   "versie": "1.43.0",
+   "datum": "2026-09-04T18:20:12Z",
+   "kop": "alles bij de tijd, en wat daarbij stil kapot bleek",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.43.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.43.0/Truckwash1-Dashboard-Setup-1.43.0.exe",
+    "bytes": 161434300
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.43.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.43.0/Truckwash1-Dashboard-1.43.0.apk",
+    "bytes": 8009145
+   }
+  },
+  {
+   "versie": "1.42.0",
+   "datum": "2026-09-04T09:53:58Z",
+   "kop": "een volledig overzicht per bon",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.42.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.42.0/Truckwash1-Dashboard-Setup-1.42.0.exe",
+    "bytes": 130645802
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.42.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.42.0/Truckwash1-Dashboard-1.42.0.apk",
+    "bytes": 7932385
+   }
+  },
+  {
+   "versie": "1.41.0",
+   "datum": "2026-09-04T08:36:18Z",
+   "kop": "elke bijlage zijn eigen bon, en een tijd die klopt",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.41.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.41.0/Truckwash1-Dashboard-Setup-1.41.0.exe",
+    "bytes": 130644494
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.41.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.41.0/Truckwash1-Dashboard-1.41.0.apk",
+    "bytes": 7930790
+   }
+  },
+  {
+   "versie": "1.40.0",
+   "datum": "2026-09-04T08:12:38Z",
+   "kop": "het versienummer weer boven alles wat er al uit is",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.40.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.40.0/Truckwash1-Dashboard-Setup-1.40.0.exe",
+    "bytes": 130644761
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.40.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.40.0/Truckwash1-Dashboard-1.40.0.apk",
+    "bytes": 7930623
+   }
+  },
+  {
+   "versie": "1.39.0",
+   "datum": "2026-09-04T08:04:48Z",
+   "kop": "te zien op welke versie een kassa staat",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.39.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.39.0/Truckwash1-Dashboard-Setup-1.39.0.exe",
+    "bytes": 130644223
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.39.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.39.0/Truckwash1-Dashboard-1.39.0.apk",
+    "bytes": 7930036
+   }
+  },
+  {
+   "versie": "1.38.1",
+   "datum": "2026-09-04T08:08:54Z",
+   "kop": "zien of de machine iets doet",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.38.1.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.38.1/Truckwash1-Dashboard-Setup-1.38.1.exe",
+    "bytes": 130644842
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.38.1.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.38.1/Truckwash1-Dashboard-1.38.1.apk",
+    "bytes": 7930611
+   }
+  },
+  {
+   "versie": "1.38.0",
+   "datum": "2026-09-04T08:00:07Z",
+   "kop": "de eigen AI mag ook meedenken",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.38.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.38.0/Truckwash1-Dashboard-Setup-1.38.0.exe",
+    "bytes": 130643900
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.38.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.38.0/Truckwash1-Dashboard-1.38.0.apk",
+    "bytes": 7929926
+   }
+  },
+  {
+   "versie": "1.37.0",
+   "datum": "2026-09-04T07:29:55Z",
+   "kop": "een ander model voor tekst dan voor foto's",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.37.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.37.0/Truckwash1-Dashboard-Setup-1.37.0.exe",
+    "bytes": 130643171
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.37.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.37.0/Truckwash1-Dashboard-1.37.0.apk",
+    "bytes": 7928017
+   }
+  },
+  {
+   "versie": "1.36.1",
+   "datum": "2026-09-04T07:20:59Z",
+   "kop": "de lezer wacht niet meer als er werk ligt",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.36.1.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.36.1/Truckwash1-Dashboard-Setup-1.36.1.exe",
+    "bytes": 130643364
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.36.1.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.36.1/Truckwash1-Dashboard-1.36.1.apk",
+    "bytes": 7928026
+   }
+  },
+  {
+   "versie": "1.36.0",
+   "datum": "2026-09-04T07:09:13Z",
+   "kop": "overnemen zonder klikken",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.36.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.36.0/Truckwash1-Dashboard-Setup-1.36.0.exe",
+    "bytes": 130643073
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.36.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.36.0/Truckwash1-Dashboard-1.36.0.apk",
+    "bytes": 7928000
+   }
+  },
+  {
+   "versie": "1.35.0",
+   "datum": "2026-09-04T06:55:54Z",
+   "kop": "wat drie keer hetzelfde was, keurt zichzelf goed",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.35.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.35.0/Truckwash1-Dashboard-Setup-1.35.0.exe",
+    "bytes": 130642763
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.35.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.35.0/Truckwash1-Dashboard-1.35.0.apk",
+    "bytes": 7927808
+   }
+  },
+  {
+   "versie": "1.34.0",
+   "datum": "2026-09-03T15:27:39Z",
+   "kop": "de factuur kan ook thuis gelezen worden",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.34.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.34.0/Truckwash1-Dashboard-Setup-1.34.0.exe",
+    "bytes": 130642290
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.34.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.34.0/Truckwash1-Dashboard-1.34.0.apk",
+    "bytes": 7926894
+   }
+  },
+  {
+   "versie": "1.33.0",
+   "datum": "2026-09-03T13:07:42Z",
+   "kop": "een dashboard voor Trucksupply",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.33.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.33.0/Truckwash1-Dashboard-Setup-1.33.0.exe",
+    "bytes": 130641285
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.33.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.33.0/Truckwash1-Dashboard-1.33.0.apk",
+    "bytes": 7925947
+   }
+  },
+  {
+   "versie": "1.32.0",
+   "datum": "2026-09-03T11:04:48Z",
+   "kop": "de overhaul -- app en site op de telefoon, zoeken vanaf het keuzescherm, foto's naar de site, verkoopfacturen apart",
+   "win": {
+    "naam": "Truckwash1-Dashboard-Setup-1.32.0.exe",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.32.0/Truckwash1-Dashboard-Setup-1.32.0.exe",
+    "bytes": 130620246
+   },
+   "apk": {
+    "naam": "Truckwash1-Dashboard-1.32.0.apk",
+    "url": "https://github.com/Truckwash-Innovations/truckwash-dashboard/releases/download/v1.32.0/Truckwash1-Dashboard-1.32.0.apk",
+    "bytes": 7893258
+   }
+  }
+ ]
+}

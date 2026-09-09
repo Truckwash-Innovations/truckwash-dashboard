@@ -43,3 +43,12 @@ graphify-out/
 
 # Werkstroomscripts van deze sessie, geen broncode.
 .werkstroom/
+
+# De werkmap van scripts/site-bouwen.cjs. Bestaat alleen tijdens een herbouw
+# (en bij --droog ook erna); site/ is de uitkomst en die gaat wel mee.
+.site-bouw/
+
+# De momentopname die site-bouwen.cjs bij elke herbouw ophaalt. Hoort niet in
+# de repo: een oude kopie is precies waar de versheidscontrole in
+# scripts/site-bouwen.cjs een rem op zet.
+sitebouw/vestigingen.json

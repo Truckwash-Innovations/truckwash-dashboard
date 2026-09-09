@@ -1,0 +1,1997 @@
+{
+ "locaties": [
+  {
+   "url": "https://truckwash1group.nl/locaties/aalsmeer/",
+   "slug": "aalsmeer",
+   "naam": "Aalsmeer",
+   "lat": 52.2606023,
+   "lng": 4.7997808,
+   "tel": "0203035112",
+   "email": "aalsmeer@truckwash1group.nl",
+   "straat": "Afmijnstraat 4",
+   "postcode": "1187 ZZ",
+   "plaats": "Amstelveen",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "07:00 - 19:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "07:00 - 19:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "07:00 - 19:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 15:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Aalsmeer op het bedrijventerrein Greenpoort aan de Afmijnstraat 4 in Amstelveen, langs de N201. Truckwash Aalsmeer is vanaf de A4 makkelijk te bereiken.",
+   "extra": "Vanuit Amsterdam neem je afslag 3 richting Hoofddorp en vervolgens via de N201. Vanuit Den Haag neem je ook afslag 3 richting Aalsmeer en vervolgens via de N201.",
+   "diensten": [
+    "500 meter vanaf Flora Holland bloemenveiling",
+    "5 minuten vanaf Schiphol Airport",
+    "8 minuten vanaf snelweg A4",
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Aalsmeer-min-scaled-1-1.jpeg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/amsterdam/",
+   "slug": "amsterdam",
+   "naam": "Amsterdam",
+   "lat": 52.3956631,
+   "lng": 4.8003185,
+   "tel": "0203035135",
+   "email": "amsterdam@truckwash1group.nl",
+   "straat": "Galwin 4",
+   "postcode": "1046AW",
+   "plaats": "Amsterdam",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Welkom bij Truckwash 1 Amsterdam, dé toonaangevende bestemming voor het grondig reinigen van vrachtwagens. Je vindt onze wasstraat aan Galwin 4 op bedrijventerrein Sloterdijk, nabij industriewijk Westpoort. Vanaf de A5 neem je afslag 3 Amsterdam-Westpoort.",
+   "extra": "Met twee moderne wasstraten is Truckwash 1 Amsterdam perfect uitgerust voor het reinigen van alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan strenge normen en maken gebruik van de nieuwste reinigingsprogramma’s, waardoor je voertuig weer in optimale staat wordt gebracht. Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je een kop koffie nuttigen in de wachtruimte.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/TW1G-Google-bedrijfspagina-Cards-afbeelding-Amsterdam.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/asten/",
+   "slug": "asten",
+   "naam": "Asten",
+   "lat": 51.4162996,
+   "lng": 5.7567305,
+   "tel": "+31(0)493 670242",
+   "email": "asten@truckwash1group.nl",
+   "straat": "Nobisweg 5",
+   "postcode": "5721 VA",
+   "plaats": "Asten",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 14:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Asten direct langs de A67 in Asten, op het terrein van truckstop Nobis aan de Nobisweg 5.",
+   "extra": "Truckwash 1 Asten beschikt over 2 professionele wasstraten, geschikt voor alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan de hoogste eisen en beschikken over de modernste reinigingsprogramma’s om jou wagen weer spik en span te maken.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Velgen reinigen",
+    "Alcoa reiniging",
+    "Velgen reiniging",
+    "Zuren / Ontvetten",
+    "Wassen met spons"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Locatie-Asten-2024.jpg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/bodegraven/",
+   "slug": "bodegraven",
+   "naam": "Bodegraven",
+   "lat": 52.0698105,
+   "lng": 4.7445157,
+   "tel": "0172619499",
+   "email": "bodegraven@truckwash1group.nl",
+   "straat": "Europaweg 1e",
+   "postcode": "2411 NE",
+   "plaats": "Bodegraven",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Bodegraven op het bedrijven terrein Broekvelden aan de Europaweg 1e in Bodegraven, naast Goedhart Motoren. Truckwash Bodegraven is het beste te bereiken vanaf de A12 afslag 12a of afslag 12 Reeuwijk of vanaf de N11 afslag Bodegraven. Truckwash Bodegraven beschikt over 3 moderne wasstraten waarvan 1 LZV straat.",
+   "extra": "Twee straten zijn voorzien van een onderwasser voor de onderkant van jouw wagen. Elke straat is voorzien van een warmwatercleaner zodat we in elke hal de trailer inwendig kunnen reinigen. Door de drie straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Banner-Bodegraven-nieuw.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/hazeldonk/",
+   "slug": "hazeldonk",
+   "naam": "Hazeldonk",
+   "lat": 51.4902708,
+   "lng": 4.7441562,
+   "tel": "076 596 3278",
+   "email": "breda@truckwash1group.nl",
+   "straat": "Hazeldonk 6005",
+   "postcode": "4836 LA",
+   "plaats": "Breda",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 12:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Truckwash 1 Hazeldonk is gevestigd in de voormalige Truckwash Hazeldonk locatie aan de Hazeldonk 6005, naast de Q8.\nDe Truckwash 1 locatie ligt strategisch gelegen aan de A16, bij de grens tussen België en Nederland.",
+   "extra": "De Truckwash wordt compleet gerenoveerd en krijgt een nieuwe machine, en word ingericht op de mogelijkheid om te kunnen voorwassen zodat het proces efficiënt verloopt.",
+   "diensten": [
+    "We zullen van Maandag t/m Zaterdag geopend zijn",
+    "We accepteren alle betaalmogelijkheden die u van ons gewend bent",
+    "We bieden speciale behandelingen aan zoals een alcoa behandeling",
+    "Chauffeurs kunnen sparen voor leuke truck accessoires",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging",
+    "HACCP reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-Hazeldonk-Vrachtwagenwassen-rondom-breda-google-bedrijf.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/doetinchem/",
+   "slug": "doetinchem",
+   "naam": "Doetinchem",
+   "lat": 51.9463034,
+   "lng": 6.2834481,
+   "tel": "088-0600 100",
+   "email": "doetinchem@truckwash1group.nl",
+   "straat": "Braamtseweg 10",
+   "postcode": "7007 CK",
+   "plaats": "Doetinchem",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "De nieuwe vestiging in Doetinchem ligt direct aan de A18 (afslag 3), een van de belangrijkste oost-westas voor het vrachtverkeer in de Achterhoek en het grensgebied met Duitsland. De locatie is daarmee ideaal bereikbaar voor transporteurs die rijden op de corridors richting het Ruhrgebied, Münster en verder.",
+   "extra": "Route plannen \n Openingstijden \n Vandaag geopend van 08.00 - 18.00",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-group-Doetinchem-vrachtwagen-wassen-A18-afslag-3.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/ede/",
+   "slug": "ede",
+   "naam": "Ede",
+   "lat": 52.0356369,
+   "lng": 5.6076683,
+   "tel": "0318452282",
+   "email": "ede@truckwash1group.nl",
+   "straat": "Francis Baconstraat 2",
+   "postcode": "6718 XA",
+   "plaats": "Ede",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Ede op het bedrijventerrein BT A12 op een A locatie op nog geen 5 minuten van de A12 (knooppunt Maanderbroek), en maar 2 minuten van de afslag 1 van de A30 (achter het Plantion).",
+   "extra": "Truckwash Ede beschikt over 2 moderne wasstraten en in 1 straat een onderwas voor de onderkant van jouw wagen. Door de twee straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Bodemreiniging",
+    "Vogelgriep reiniging en desinfectie",
+    "Haal en brengservice (informeer contactpersoon)"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/2023/07/Ede-scaled-1.jpg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/eindhoven/",
+   "slug": "eindhoven",
+   "naam": "Eindhoven",
+   "lat": 51.4659684,
+   "lng": 5.4186163,
+   "tel": "+31 (0) 40 262 02 22",
+   "email": "eindhoven@truckwash1group.nl",
+   "straat": "Het Schakelplein 30",
+   "postcode": "5651 GR",
+   "plaats": "Eindhoven",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 12:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [
+    "Shop / restaurant",
+    "Keuken",
+    "Wasstraat"
+   ],
+   "urenVol": [
+    {
+     "dag": "Maandag",
+     "tijden": [
+      "07:30 - 22:30",
+      "07:30 - 21:45",
+      "08:00 - 18:00"
+     ]
+    },
+    {
+     "dag": "Dinsdag – Donderdag",
+     "tijden": [
+      "06:30 - 22:30",
+      "06:30 - 21:45",
+      "08:00 - 18:00"
+     ]
+    },
+    {
+     "dag": "Vrijdag",
+     "tijden": [
+      "06:30 - 20:00",
+      "06:30 - 19:00",
+      "08:00 - 21:00"
+     ]
+    },
+    {
+     "dag": "Zaterdag",
+     "tijden": [
+      "08:00 - 12:00",
+      "Gesloten",
+      "08:00 - 12:00"
+     ]
+    },
+    {
+     "dag": "Zondag",
+     "tijden": [
+      "Gesloten",
+      "Gesloten",
+      "Gesloten"
+     ]
+    }
+   ],
+   "intro": "Je vindt Truckwash 1 Eindhoven vlak bij de A2 (afrit 29, Eindhoven Airport/acht) en Eindhoven Airport (volg de N2). Op het bedrijventerrein Eindhoven-acht.",
+   "extra": "Truckwash 1 Eindhoven beschikt over 3 moderne wasstraten, speciaal voor vrachtwagens en bestelwagens, die voldoen aan de hoogste eisen. Kan je bedrijfswagen weer een wasbeurt gebruiken? Rij dan door de modernste wasstraat van Eindhoven en terwijl je wagen wordt gewassen, kun je een gratis kopje koffie halen bij ons restaurant. Of je nu het chassis, de buitenzijde of de binnenkant van de oplegger wilt laten reinigen: bij ons is (bijna) alles mogelijk. Onze wasstraat is bijzonder milieuvriendelijk.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Alcoa reiniging",
+    "HACCP reiniging",
+    "Velgen reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/2023-08-01-Shell-Truckstop-Acht-2-scaled.jpg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/groenlo/",
+   "slug": "groenlo",
+   "naam": "Groenlo",
+   "lat": 52.0616814,
+   "lng": 6.6250053,
+   "tel": "0544745006",
+   "email": "groenlo@truckwash1group.nl",
+   "straat": "Noordgang 8",
+   "postcode": "7141JP",
+   "plaats": "Groenlo",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 14:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Truckwash 1 Groenlo is uitstekend bereikbaar via de N18 (Twenteroute) en vormt een logische stop voor chauffeurs in de Achterhoek en richting Duitsland. Dankzij de ligging vlak bij deze hoofdroute ben je snel van de weg af en eenvoudig weer onderweg.",
+   "extra": "Route plannen \n Openingstijden \n Vandaag geopend van 08.00 - 18.00",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-group-Groenlo-vrachtwagen-wassen.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/holten/",
+   "slug": "holten",
+   "naam": "Holten",
+   "lat": 52.2755805,
+   "lng": 6.4011927,
+   "tel": "0548855574",
+   "email": "holten@truckwash1group.nl",
+   "straat": "Handelsweg 34",
+   "postcode": "7451PJ",
+   "plaats": "Holten",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "07:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "07:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "07:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "07:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Welkom bij Truckwash 1 Holten, dé toonaangevende bestemming in Twente voor het grondig reinigen van vrachtwagens. Je vindt onze vrachtwagen wasstraat aan de Handelsweg 34, aan de N332.",
+   "extra": "Truckwash 1 Holten is uitgerust met maar liefst 5 banen. Drie moderne wasstraten voor het reinigen van alle soorten vrachtwagens en bestelwagens. Daarnaast hebben we nog twee plaatsen voor het uitspuiten van de binnenkant. Onze wasstraten voldoen aan strenge normen en maken gebruik van effectieve reinigingsprogramma’s, waardoor je voertuig weer in optimale staat wordt gebracht. Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je in onze wachtruimte genieten van een kop koffie.",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van je laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Locatie-Pagina-afbeelding-Kleine-Truckwash-1-Group-Holten.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/maasvlakte/",
+   "slug": "maasvlakte",
+   "naam": "Maasvlakte",
+   "lat": 51.9276713,
+   "lng": 4.023263,
+   "tel": "0181 44 25 60",
+   "email": "maasvlakte@truckwash1group.nl",
+   "straat": "Luzonstraat 10",
+   "postcode": "3199 KX",
+   "plaats": "Maasvlakte",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Op afspraak"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Maasvlakte op de Maasvlakte Plaza in Rotterdam aan de Luzonstraat 10. Truckwash Maasvlakte is de grootste Truckwash van Europa en is het beste te bereiken via de A15 naar de N15. Naast ons terrein zit de Maasvlakte Plaza, chauffeur restaurant genaamd Routiers, en de Maasvlakte Plaza Truckparking.",
+   "extra": "Truckwash 1 Maasvlakte beschikt over 6 wasstraten. Door de vier straten en het efficiënt reinigen van jouw voertuigen verlagen wij de wachttijden tot een minimum.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van je laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/2023/07/Maasvlakte-scaled-1.jpeg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/rilland/",
+   "slug": "rilland",
+   "naam": "Rilland",
+   "lat": 51.4222148,
+   "lng": 4.1914538,
+   "tel": "0113560028",
+   "email": "rilland@truckwash1group.nl",
+   "straat": "De Poort 24a",
+   "postcode": "4411PA",
+   "plaats": "Rilland",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 16:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Rilland op het bedrijventerrein De Poort, naast het tankstation De Meeuw. Onze locatie is het best te bereiken via de A58. We zijn gevestigd op De Poort 24a.",
+   "extra": "We beschikken over 2 moderne wasstraten en 1 hal in het midden die gebruikt kan worden voor het inwendig reinigen van trailers en/of zelfservice.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-Rilland-Vrachtwagen-wassen.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/roosendaal/",
+   "slug": "roosendaal",
+   "naam": "Roosendaal",
+   "lat": 51.5539283,
+   "lng": 4.4635791,
+   "tel": "0165529496",
+   "email": "roosendaal@truckwash1group.nl",
+   "straat": "Stepvelden 23",
+   "postcode": "4704RM",
+   "plaats": "Roosendaal",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 16:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Roosendaal op het bedrijventerrein de Borchwerf aan de Stepvelden 23, Roosendaal. Jouw locatie is het best te bereiken via de A17 afslag 20. We beschikken over 2 moderne wasstraten van 35 meter lang. Alle voertuigen die niet in een normale wasstraat passen kunnen bij ons terecht.",
+   "extra": "Ben je op zoek naar een truckwash in de buurt van Hazeldonk (Breda )? Dan is Truckwash 1 in Roosendaal het dichtste bij jou in de buurt.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van jouw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Stickerverwijdering in trailers",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-group-Roosendaal-Banner-bedankt-widget-1920x640-px.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/rotterdam/",
+   "slug": "rotterdam",
+   "naam": "Rotterdam",
+   "lat": 51.8734417,
+   "lng": 4.2631194,
+   "tel": "0102967764",
+   "email": "rotterdam@truckwash1group.nl",
+   "straat": "Tweedweg 20",
+   "postcode": "3197 LM",
+   "plaats": "Rotterdam-Botlek",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "07:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "07:00 - 16:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Truckwash 1 Rotterdam zit in de Botlek aan de Tweedweg 20. Bereikbaar via de A15 (afslag 15). Met 4 wasstraten is dit een van onze grootste locaties. Naast het terrein: een ADR truckparking (betaald), truckerrestaurant Routiers, een Q8 truck-tankstation en een gratis parkeerplaats. Kortom alles op één plek. Geen afspraak nodig.",
+   "extra": "Door de vier straten en het efficiënt reinigen van je voertuigen verlagen we de wachttijden tot een minimum. Elke hal beschikt over een warmwater cleaner zodat we op iedere baan ook de trailer inwendig kunnen reinigen. Moet je even wachten? Dan kun je gebruik maken van de stofzuiger om je cabine schoon te maken. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen. Lang onderweg geweest? Je kunt bij ons gebruik maken van de douches.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/TW1G-Google-bedrijfspagina-Cards-afbeelding-Rotterdam.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/steenwijk/",
+   "slug": "steenwijk",
+   "naam": "Steenwijk",
+   "lat": 52.7974282,
+   "lng": 6.1293435,
+   "tel": "0521745003",
+   "email": "Steenwijk@truckwash1group.nl",
+   "straat": "Oostermeentherand 8",
+   "postcode": "8332JZ",
+   "plaats": "Steenwijk",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Truckwash 1 Steenwijk ligt op korte afstand van de A32 (afslag Steenwijk) en is daarmee ideaal bereikbaar voor chauffeurs die rijden tussen Zwolle, Meppel en Leeuwarden. De aanrijroute is overzichtelijk en geschikt voor zwaar transport.",
+   "extra": "Door de combinatie van moderne apparatuur en een vlot werkend team kun je hier rekenen op een snelle doorloop zonder concessies te doen aan kwaliteit. Efficiënt wassen met een schoon en representatief resultaat.",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Steenwijk-Truckwash-1-group-Banner-1920x640-px.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/utrecht/",
+   "slug": "utrecht",
+   "naam": "Utrecht",
+   "lat": 52.10574,
+   "lng": 5.0633264,
+   "tel": "0307740744",
+   "email": "utrecht@truckwash1group.nl",
+   "straat": "Reactorweg 27",
+   "postcode": "3542 AD",
+   "plaats": "Utrecht",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": ""
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Je vindt Truckwash 1 Utrecht op het bedrijventerrein Lage Weide aan de Reactorweg 27. Lage Weide is het best te bereiken vanaf de A2 afslag 7. (In het pand van Van Leeuwen Trucks & vans). Truckwash Utrecht beschikt over 2 moderne wasstraten.",
+   "extra": "Door de twee straten en het efficiënt reinigen van je voertuigen verlagen we de wachttijden tot een minimum. Moet je even wachten? Dan kun je gebruik maken van de stofzuiger om je cabine schoon te maken. Je kunt ook een bezoek brengen aan onze shop of natuurlijk een kop koffie nuttigen.",
+   "diensten": [
+    "Alcoa / Dura Bright behandeling",
+    "Handwash met spons",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van je laadruimtes (HACCP & NAO):",
+    "Ontsmetten en/of desinfecteren",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-Utrecht.png"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/venlo/",
+   "slug": "venlo",
+   "naam": "Venlo",
+   "lat": 51.3958245,
+   "lng": 6.0898586,
+   "tel": "0773230405",
+   "email": "venlo@truckwash1group.nl",
+   "straat": "Columbusweg 47",
+   "postcode": "5928LA",
+   "plaats": "Venlo",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 19:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 13:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Welkom bij Truckwash 1 Venlo, dé toonaangevende bestemming in Venlo en omstreken voor het grondig reinigen van vrachtwagens. Je vindt onze wasstraat aan de Columbusweg 47 op bedrijventerrein Trade Port West. Vanaf de A67 neem je afslag 39 Sevenum.",
+   "extra": "Truckwash 1 Venlo is uitgerust met twee moderne wasstraten voor het reinigen van alle soorten vrachtwagens en bestelwagens. Onze wasstraten voldoen aan strenge normen en maken gebruik van de nieuwste reinigingsprogramma’s, waardoor uw voertuig weer in optimale staat wordt gebracht. Wassen gebeurt bovendien op een duurzame manier . Terwijl ons gespecialiseerde personeel aan de slag gaat, kun je in onze wachtruimte genieten van een kop koffie.",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van uw laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/Truckwash-1-Group-locatie-Venlo-scaled.jpeg"
+  },
+  {
+   "url": "https://truckwash1group.nl/locaties/wehl/",
+   "slug": "wehl",
+   "naam": "Wehl",
+   "lat": 51.9464915,
+   "lng": 6.2251281,
+   "tel": "088-0600100",
+   "email": "holten@truckwash1group.nl",
+   "straat": "Kryptonstraat 6A",
+   "postcode": "7031GG",
+   "plaats": "Wehl",
+   "uren": [
+    {
+     "dag": "Maandag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Dinsdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Woensdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Donderdag",
+     "tijd": "08:00 - 18:00"
+    },
+    {
+     "dag": "Vrijdag",
+     "tijd": "08:00 - 21:00"
+    },
+    {
+     "dag": "Zaterdag",
+     "tijd": "08:00 - 16:00"
+    },
+    {
+     "dag": "Zondag",
+     "tijd": "Gesloten"
+    }
+   ],
+   "urenKoppen": [],
+   "urenVol": [],
+   "intro": "Truckwash 1 Wehl is goed bereikbaar via de A18 (afslag Wehl/Doetinchem) en ligt centraal in de Achterhoek. De ligging maakt deze locatie een vaste stop voor transportbewegingen in Oost-Nederland en richting Duitsland.",
+   "extra": "De locatie is volledig ingericht op efficiënt werken, met aandacht voor kwaliteit en zorgvuldige reiniging. Zo vervolg je je route met een schone vrachtwagen en minimale tijd van de weg.",
+   "diensten": [
+    "Ontsmetten en/of desinfecteren",
+    "Handwash met spons",
+    "Alcoa / Dura Bright behandeling",
+    "Het reinigen van alle aluminium onderdelen",
+    "Het inwendig reinigen van laadruimtes (HACCP & NAO)",
+    "Haal en brengservice (informeer contactpersoon)",
+    "Wassen op afspraak (informeer contactpersoon)",
+    "Alcoa reiniging"
+   ],
+   "foto": "https://truckwash1group.nl/wp-content/uploads/TW1G-Google-bedrijfspagina-Cards-afbeelding-Wehl.png"
+  }
+ ],
+ "vacatures": [
+  {
+   "url": "https://truckwash1group.nl/werken-bij/washeld-worden/",
+   "slug": "washeld-worden",
+   "titel": "Werken bij Truckwash",
+   "solliciteer": "https://truckwash.trainstation.nl/solliciteer?vacancy=1",
+   "inhoud": [
+    {
+     "type": "kop",
+     "tekst": "Werken bij Truckwash - washeld worden?"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Wij zijn op zoek naar WASHELDEN . Heb jij interesse en ben je gemotiveerd om deel uit te maken van een superteam? Vul dan snel onderstaand formulier in voor het werken bij Truckwash1group"
+    }
+   ],
+   "intro": "Wij zijn op zoek naar WASHELDEN . Heb jij interesse en ben je gemotiveerd om deel uit te maken van een superteam? Vul dan snel onderstaand formulier in voor het werken bij Truckwash1group"
+  },
+  {
+   "url": "https://truckwash1group.nl/werken-bij/pendelchauffeur/",
+   "slug": "pendelchauffeur",
+   "titel": "Pendelchauffeur",
+   "solliciteer": "https://truckwash.trainstation.nl/solliciteer?vacancy=1",
+   "inhoud": [
+    {
+     "type": "kop",
+     "tekst": "Wat ga je doen?"
+    },
+    {
+     "type": "lijst",
+     "punten": [
+      "Je rijdt vrachtwagens van klanten naar de wasstraat en weer terug.",
+      "Je schakelt soepel tussen verschillende voertuigen en locaties.",
+      "Je bent het vriendelijke en representatieve aanspreekpunt voor onze klanten."
+     ]
+    },
+    {
+     "type": "kop",
+     "tekst": "Wat bieden we jou?"
+    },
+    {
+     "type": "lijst",
+     "punten": [
+      "3 tot 10 uur per week soms wat meer, soms wat minder.",
+      "Werk op vaste basis of als oproep-/invalchauffeur .",
+      "Werken vanuit één van onze vestigingen (locatie in overleg).",
+      "Salaris in overleg , afhankelijk van ervaring en inzet.",
+      "Een prettige, informele werksfeer in een enthousiast team.",
+      "Toegankelijk voor iedereen met rijbewijs C of CE ook als je al met pensioen bent!"
+     ]
+    },
+    {
+     "type": "kop",
+     "tekst": "Wie ben jij?"
+    },
+    {
+     "type": "lijst",
+     "punten": [
+      "Je hebt een geldig vrachtwagenrijbewijs (C of CE) .",
+      "Je bent klantvriendelijk, betrouwbaar en representatief.",
+      "Je bent flexibel inzetbaar en houdt ervan om onderweg te zijn.",
+      "Je werkt zelfstandig en denkt mee in oplossingen."
+     ]
+    },
+    {
+     "type": "kop",
+     "tekst": "Klaar om te rijden?"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Zie jij jezelf al rondrijden voor Truckwash 1 Group? Solliciteer vandaag nog! Laat je gegevens en een korte motivatie achter via onderstaand formulier of neem contact met ons op. Ook als er op dit moment geen ritten beschikbaar zijn, nemen we je graag op in ons chauffeursnetwerk"
+    }
+   ],
+   "intro": "Zie jij jezelf al rondrijden voor Truckwash 1 Group? Solliciteer vandaag nog! Laat je gegevens en een korte motivatie achter via onderstaand formulier of neem contact met ons op. Ook als er op dit moment geen ritten beschikbaar zijn, nemen we je graag op in ons chauffeursnetwerk"
+  },
+  {
+   "url": "https://truckwash1group.nl/werken-bij/horeca-medewerker-bediening/",
+   "slug": "horeca-medewerker-bediening",
+   "titel": "Horeca medewerker",
+   "solliciteer": "https://truckwash.trainstation.nl/solliciteer?vacancy=3",
+   "inhoud": [
+    {
+     "type": "kop",
+     "tekst": "Wie zoeken wij?"
+    },
+    {
+     "type": "lijst",
+     "punten": [
+      "Je weet op een enthousiaste en persoonlijke manier met de gasten om te gaan",
+      "Je bent een teamplayer",
+      "Je hebt een representatieve uitstraling",
+      "Je kan organiseren, motiveren en instrueren",
+      "Je bent flexibel inzetbaar",
+      "Uiteraard heb je horeca ervaring",
+      "Je hebt goede beheersing van de Nederlandse taal, Engels is een pre",
+      "Je houdt van een uitdaging"
+     ]
+    },
+    {
+     "type": "kop",
+     "tekst": "Wat ga je doen?"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Wanneer jij de persoon bent die bij ons komt werken, dan ga je in teamverband werken in de bediening en achter de bar. Je hebt een zelfstandige functie waarin je veel verantwoordelijkheid draagt. Je bent actief met het opnemen, wegbrengen en afrekenen van bestellingen en het klaarmaken van tafels voor onze volgende gasten. Dit alles doe je met gevoel voor goede service."
+    },
+    {
+     "type": "kop",
+     "tekst": "Wat bieden wij jou?"
+    },
+    {
+     "type": "lijst",
+     "punten": [
+      "Een gezellige werksfeer in een bedrijf met korte lijntjes",
+      "Uitstekende primaire en secundaire arbeidsvoorwaarden",
+      "Per direct een functie bij een dynamisch en solide bedrijf",
+      "Leuke teamuitjes"
+     ]
+    },
+    {
+     "type": "kop",
+     "tekst": "Wat wordt jouw bedrijf?"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Wil je meer weten over ons bedrijf Lees dan hier verder."
+    },
+    {
+     "type": "kop",
+     "tekst": "Zie jij jezelf in ons team?"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Je kunt je aanmelden via het formulier onderstaand. Wil je liever bellen of heb je vooraf vragen dan kun je ons bereiken op 06-51001528"
+    }
+   ],
+   "intro": "Wanneer jij de persoon bent die bij ons komt werken, dan ga je in teamverband werken in de bediening en achter de bar. Je hebt een zelfstandige functie waarin je veel verantwoordelijkheid draagt. Je bent actief met het opnemen, wegbrengen en afrekenen van bestellingen en het klaarmaken van tafels voor onze volgende gasten. Dit alles doe je met gevoel voor goede service."
+  },
+  {
+   "url": "https://truckwash1group.nl/werken-bij/open-sollicitatie/",
+   "slug": "open-sollicitatie",
+   "titel": "Open Sollicitatie",
+   "solliciteer": "https://truckwash.trainstation.nl/solliciteer",
+   "inhoud": [
+    {
+     "type": "kop",
+     "tekst": "Altijd Welkom: Open Sollicitatie"
+    },
+    {
+     "type": "tekst",
+     "tekst": "Op dit moment geen passend vacature voor jou? En wil je wel graag werken bij Truckwash 1 Group? Laat het ons weten via onderstaand formulier."
+    }
+   ],
+   "intro": "Op dit moment geen passend vacature voor jou? En wil je wel graag werken bij Truckwash 1 Group? Laat het ons weten via onderstaand formulier."
+  }
+ ],
+ "diensten": [
+  {
+   "slug": "diensten/interieur-reinigen",
+   "url": "https://truckwash1group.nl/diensten/interieur-reinigen/",
+   "titel": "Interieur reinigen",
+   "tekst": [
+    "Niets is fijner dan een schone cabine, toch? Maar hoe goed we ook ons best doen, soms ontkomen we er niet aan om iets te morsen of kunnen er na verloop van tijd onvermijdelijke vlekken ontstaan. Dit is natuurlijk heel begrijpelijk, vooral als je bedenkt hoeveel tijd je dagelijks in jouw vrachtwagencabine doorbrengt. Het is een ruimte waarin je leeft en werkt, en daarom is het van het grootste belang om ervoor te zorgen dat deze altijd schoon en netjes is, zowel voor jouw comfort als jouw welzijn, vooral tijdens die lange ritten.",
+    "Wij snappen dit gelukkig maar al te goed! Daarom kun je bij ons via Truckssupply het gehele interieur van jouw vrachtwagen grondig en professioneel laten reinigen. Wij staan te popelen om jouw cabine weer in topconditie te brengen, zodat je weer kunt genieten van een hygiënische, comfortabele en aangename omgeving tijdens het werk!",
+    "Truckssupply heeft een grote collectie producten om jouw vrachtwagen in topconditie te houden. Deze professionele producten zijn verkrijgbaar in onze webshop , maar ook in onze truck shops bij verschillende Truckwash 1 Group locaties ."
+   ],
+   "punten": [],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/wasboxen",
+   "url": "https://truckwash1group.nl/diensten/wasboxen/",
+   "titel": "Wasboxen",
+   "tekst": [
+    "Was je graag zelf je vrachtwagen? Ook dat is mogelijk bij Truckwash 1 Group. Op meerdere van onze locaties hebben wij wasboxen tot je beschikking. Hier kun je je vrachtwagen, bestelbus of camper / caravan zelf wassen. We hebben warm water en autoshampoo beschikbaar om je voertuig weer glanzend naar buiten te laten gaan. Na het wassen in de wasbox nog behoefte aan een speciale behandeling voor bijvoorbeeld je velgen? Dat kan! We reinigen alcoa velgen maar kunnen ook je trailer volgens de HACCP-hygiënecode schoonmaken. Bekijk al onze behandelingen.",
+    "Onze wasboxen zijn altijd beschikbaar in de volgende vestigingen: Eindhoven, Maasvlakte, Holten. In de vestigingen Amsterdam, Aalsmeer, Asten, Bodegraven, Ede, Rilland, Roosendaal, Rotterdam, Utrecht, Venlo kun je gebruik maken van de wasbox indien er 1 wasstraat niet in gebruik is. De prijzen voor het gebruik van onze wasboxen vind je op onze prijzenpagina .",
+    "Voor een veilige en effectieve wassing in onze wasboxen is het belangrijk dat je nooit zelfstandig chemicaliën , zoals zuurhoudende producten uit de wasstraat, gebruikt. Deze kunnen zonder de juiste toepassing schade veroorzaken aan de lak van jouw wagen. Gelukkig biedt Truckshop.nl een breed assortiment aan veilige reinigingsproducten speciaal voor vrachtwagens. Gebruik een microvezelwashandschoen voor een streeploze reiniging, onze Wheel Cleaner om hardnekkig vuil te verwijderen en sluit af met een Fast Wax voor een langdurige glans. Zo blijft je vrachtwagen schoon én beschermd!"
+   ],
+   "punten": [],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/truckparking",
+   "url": "https://truckwash1group.nl/diensten/truckparking/",
+   "titel": "Truckparking",
+   "tekst": [
+    "Op een gunstige locatie nabij Eindhoven Airport en de afrit 29 van de A2 bevindt zich Truckwash 1 Group in Eindhoven. Op deze locatie vind je niet alleen een vrachtwagenwasstraat, maar ook een truckparking waar je kunt overnachten. Er zijn hier verschillende faciliteiten beschikbaar voor zowel vrachtwagens als vrachtwagenchauffeurs.",
+    "Bent je niet in de buurt van Eindhoven? Neem dan een kijkje bij onze andere locaties en welke faciliteiten ze te bieden hebben. Bij Truckwash 1 Group draait alles om het creëren van een complete en gemakkelijke ervaring voor vrachtwagenchauffeurs, waar je ook bent.",
+    "Bij ons is er de mogelijkheid om kosteloos te parkeren op de truckparking wanneer je een bedrag van minimaal € 22,50 in het restaurant besteedt. Plaats de bonnetjes van het restaurant duidelijk zichtbaar achter het raam, zodat we kunnen verifiëren dat je daadwerkelijk van het restaurant gebruik hebt gemaakt. De maximale parkeertijd is elf uur. Onze truckparking, die 24/7 toegankelijk is, beschikt deels over cameratoezicht."
+   ],
+   "punten": [
+    "A2 wegrestaurant : Truckstop8",
+    "Douchegelegenheden",
+    "Voordelige en moderne truckwash",
+    "Een winkel met uitgebreid assortiment"
+   ],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/truck-shop",
+   "url": "https://truckwash1group.nl/diensten/truck-shop/",
+   "titel": "Truckshop",
+   "tekst": [
+    "Naast het laten wassen van je vrachtwagen bij de Truckwash 1 Group locaties, vind je bij Truckshop.nl alles wat je nodig hebt voor het onderhouden en reinigen van je vrachtwagen.",
+    "In onze webshop vind je een uitgebreid assortiment aan producten speciaal ontworpen voor vrachtwagens. Van reinigingsmiddelen tot accessoires, wij hebben alles wat je nodig hebt om je vrachtwagen in topconditie te houden. En het beste van alles? Je kunt makkelijk online bestellen en je producten worden snel bij je thuis bezorgd. Naast onze webshop hebben we ook fysieke truckshops op alle Truckwash 1 Group locaties. Hier kun je niet alleen terecht voor het kopen van onze producten, maar ook voor advies van onze medewerkers.",
+    "Wist je dat je bij ons punten kunt sparen elke keer dat je je vrachtwagen laat wassen en je klantenkaart laat scannen? Met ons spaarprogramma kun je punten verzamelen en deze inwisselen voor kortingen op toekomstige diensten of producten op een van onze locaties."
+   ],
+   "punten": [
+    "Poets- en polijstmiddelen",
+    "Exterieurreinigers",
+    "Interieurreinigers",
+    "Luchtverfrissers",
+    "Pads, doeken en accessoires",
+    "En nog veel meer!"
+   ],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/catering-op-locatie",
+   "url": "https://truckwash1group.nl/diensten/catering-op-locatie/",
+   "titel": "Catering en vergaderen op locatie",
+   "tekst": [
+    "Je kunt bij ons meer dan alleen je vrachtwagen laten wassen! Wist je dat je bij ons A2 wegrestaurant in Eindhoven ook evenementen kunt organiseren? Of dat je de ruimte kunt afhuren voor een verzorgde lunch? Zo zorgen we niet alleen voor een mooie ruimte, maar ook voor de lekkerste maaltijden! Lees snel verder en kom er achter waar we je mee van dienst kunnen zijn.",
+    "Onze locatie in Eindhoven is veel meer dan een truckwash. Het is een veelzijdige plek die overdag gebruikt kan worden voor diverse doeleinden en evenementen. Of je nu op zoek bent naar een plek om te lunchen, vergaderen of een speciaal evenement te organiseren, onze faciliteiten zijn perfect geschikt voor allerlei gelegenheden. En zelfs als je last-minute nog een locatie voor je evenement nodig hebt, ben je bij ons aan het juiste adres.",
+    "Het maakt niet uit wat voor een evenement je wilt organiseren. Of het nou gaat zakelijke vergaderingen, het organiseren van een beurs, een lunch met collega’s of het vieren van een overwinning van je sportclub, de locatie van Truckwash 1 Group in Eindhoven biedt de perfecte setting voor elk evenement. Vaak is het ook zo dat je een evenementenlocatie in Eindhoven ruim van te voren moet boeken, gelukkig is dat bij ons niet nodig! Wij hebben minstens 3 dagen van te voren nodig om alles in orde te maken, zodat jouw evenement of bijkomstigheid perfect is."
+   ],
+   "punten": [
+    "Voor het huren van de locatie op zaterdag of zondag dient de aanvraag minimaal 2 weken van tevoren gedaan te zijn.",
+    "Voor grote groepen of buiten eerder genoemde tijden huren? Neem contact op en we kijken naar de mogelijkheden.",
+    "Locatie: Truckstop 8, Het Schakelplein 30, 5651 GR Eindhoven",
+    "Voor wie: Grotere groepen",
+    "Cateringopties: Bekijk de menukaart"
+   ],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/haal-en-brengservice",
+   "url": "https://truckwash1group.nl/diensten/haal-en-brengservice/",
+   "titel": "Haal- en brengservice bij Truckwash 1 Group",
+   "tekst": [
+    "Bij Truckwash 1 Group bieden we een handige haal- en brengservice aan als onderdeel van onze diensten. Met deze service halen we jouw vrachtwagens op, wassen ze grondig en brengen ze vervolgens weer netjes bij jou terug.",
+    "Wij begrijpen hoe kostbaar de tijd is in de transport en logistieke sector. Daarom zorgen wij ervoor dat het wassen van jouw wagenpark gemakkelijk en efficiënt in jouw planning past. Onze haal- en brengservice zorgt ervoor dat:",
+    "Dit geldt zowel voor de buitenkant van de wagens, als voor de binnenkant wanneer je aan bepaalde regelgeving/richtlijnen moet voldoen. Waardoor jij je kunt concentreren op wat écht belangrijk is."
+   ],
+   "punten": [
+    "Je niet meer zelf hoeft te plannen wanneer er eventueel ruimte is.",
+    "Je geen zorgen hoeft te maken of het wagenpark er schoon bij staat."
+   ],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/vrachtwagen-polijsten",
+   "url": "https://truckwash1group.nl/diensten/vrachtwagen-polijsten/",
+   "titel": "Vrachtwagen polijsten",
+   "tekst": [
+    "Het leven op de weg kan zijn tol eisen van je vrachtwagen. Stof, vuil, insecten, en weersinvloeden kunnen na verloop van tijd het exterieur van je voertuig dof en vlekkerig maken. Dit niet alleen doet afbreuk aan de uitstraling van je vrachtwagen, maar kan ook de lak beschadigen. Door de professionele polijstservice van Truckssupply te kiezen, krijgt je vrachtwagen niet alleen zijn glans terug, maar wordt ook beschermd tegen toekomstige schade. Ook maakt een gladdere lak het gemakkelijker om vuil en insecten te verwijderen, waardoor je vrachtwagen langer schoon blijft.",
+    "Is jouw vrachtwagen toe aan een opfrisbeurt? Je kunt bij ons via Truckssupply je vrachtwagen laten polijsten, zodat deze weer straalt als nooit tevoren! Of je nu weer fris de weg op wilt of je truck klaar wilt maken voor een show, wij gaan met alle liefde aan de slag.",
+    "Bij Truckssupply kun je niet alleen je vrachtwagen of velgen laten polijsten of alleen maar producten kopen zoals velgenreiniger en een bandenzwart . Hier kun je ook terecht om het interieur van jouw cabine grondig te reinigen of jouw vrachtwagen klaar te maken voor de showroom, een evenement of beurs. Ook heeft Truckssupply een eigen lijn met schoonmaakspullen voor jouw vrachtwagen : van bandenzwart tot aan metalpolish. Zo kun je zelf ook aan de slag!"
+   ],
+   "punten": [],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/camper-wasstraat",
+   "url": "https://truckwash1group.nl/diensten/camper-wasstraat/",
+   "titel": "Camper wasstraat",
+   "tekst": [
+    "Zie je het zelf wassen van je camper niet zitten of is dit om een andere reden niet mogelijk? Dan kun je ook door de wasstraat voor campers op 1 van onze locaties. Met 18 locaties verspreid door het land, is de kans groot dat je snel bij ons terecht kunt. Onze wasstraten zijn voorzien van moderne apparatuur waarmee we jouw camper of caravan op een duurzame manier wassen.",
+    "Wil je voordat je op vakantie gaat of bij terugkomst je camper of caravan een grondige reinigingsbeurt geven? Dan kun je bij een van onze Truckwash 1 Group locaties terecht! Voor €61,98 ex. wassen wij uw camper of caravan grondig zodat je weer schoon de weg op kunt!",
+    "– Velgenreiniging: €3,45 per velg\n– Brightening Wax: €7,49\n– Extreme vervuiling: €19,99"
+   ],
+   "punten": [],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/vogelgriep",
+   "url": "https://truckwash1group.nl/diensten/vogelgriep/",
+   "titel": "Vogelgriep",
+   "tekst": [
+    "Tijdens een uitbraak van vogelgriep is het essentieel om je vrachtwagen professioneel te laten reinigen en ontsmetten volgens de geldende hygiënevoorschriften. Bij Truckwash 1 Group staan wij klaar om je voertuig grondig en volgens de officiële richtlijnen schoon te maken. Onze locaties zijn geregistreerd als erkende wasplaatsen bij de Federatie Nederlandse Diervoederketen (FND) en voldoen aan alle wettelijke eisen.",
+    "Het ontsmettingsproces bij Truckwash 1 Group verloopt volgens de volgende stappen:",
+    "Herhaalde ontsmetting: Wanneer een voertuig meerdere keren per dag ontsmet moet worden, is vooraf wassen niet vereist. In dat geval wordt de truck grondig afgespoeld voordat ontsmetting plaatsvindt."
+   ],
+   "punten": [
+    "Grondige reiniging: \n Exterieur volledig reinigen, inclusief kritische delen zoals banden, wielkasten en treeplanken.",
+    "Cabinematten en pedalen worden zorgvuldig gereinigd.",
+    "Desinfectie: \n Na reiniging wordt de volledige truck ingespoten met SP-Sanodes binnenkantshampoo.",
+    "Het ontsmettingsmiddel laten intrekken en daarna volledig afspoelen.",
+    "Extra aandacht voor wielkasten, aangezien dit kritische besmettingspunten zijn.",
+    "FND-geregistreerde wasplaatsen: Onze locaties voldoen aan alle wettelijke eisen voor diervoedertransporten."
+   ],
+   "groep": "dienst"
+  },
+  {
+   "slug": "diensten/wegrestaurant-a2",
+   "url": "https://truckwash1group.nl/diensten/wegrestaurant-a2/",
+   "titel": "Wegrestaurant A2",
+   "tekst": [
+    "Wil je naast het wassen van je vrachtwagen ook een hapje eten? Dat kan gemakkelijk bij het Truckstop 8 restaurant aan de A2. Het is niet alleen een gezellige locatie om een kopje koffie te drinken, maar ook voor een uitgebreid diner ben je hier meer dan welkom.",
+    "Verblijf je ook op de truckparking? Als je een eetvoucher aanschaft, kun je gratis overnachten. Je kunt ook de bon van het restaurant als bewijs gebruiken, hier lees je meer over overnachten op de truckparking .",
+    "Naast dat het wegrestaurant aan de A2 heerlijke gerechten aanbiedt, is er natuurlijk ook gratis wifi beschikbaar. Ook kun je hier ook gebruik maken van de douches en overnachten op de truckparking . Er is ook een winkel met een uitgebreid assortiment, een tankstation en natuurlijk onze moderne truckwash Eindhoven !"
+   ],
+   "punten": [],
+   "groep": "dienst"
+  },
+  {
+   "slug": "behandelingen/alcoa-velgen-reinigen",
+   "url": "https://truckwash1group.nl/behandelingen/alcoa-velgen-reinigen/",
+   "titel": "Alcoa velgen reinigen",
+   "tekst": [
+    "Je ziet deze wielen steeds vaker bij zowel trekkers als opleggers. Deze wielen vallen erg in de smaak vanwege hun kwaliteit. Ze zijn sterk, licht en hebben een mooie uitstraling. Er kan gekozen worden voor 3 soorten finish: Level one, Dura Bright One & Brushed.",
+    "We bieden je de optie tot speciale behandeling van Alcoa of Dura Bright velgen. (alle soorten) De shampoo die we hiervoor gebruiken is speciaal ontworpen om garantie te bieden op schone wielen met een veilige oplossing. Daarnaast bieden onze behandelingen vele voordelen. Zo helpt het bij het voorkomen van ophoping van hars, remstof of stof en loop je geen risico op beschadiging van het wiel door schurende of zurende chemicaliën. Aangetaste remstof, zwarte strepen of zwarte plekken krijgen we er 99% slagingskans schoon uit!",
+    "Voor het opknappen van Alcoa velgen kun je langskomen bij alle locaties. De kosten hiervoor zijn slechts 3,80 euro per velg. Het is mogelijk om alleen de velgen bij ons te laten reinigen, maar dit kan ook extra gedaan worden bij bijvoorbeeld de reiniging van een vrachtwagen of ieder ander voertuig."
+   ],
+   "punten": [],
+   "groep": "behandeling"
+  },
+  {
+   "slug": "behandelingen/haccp-certificaat-en-behandeling",
+   "url": "https://truckwash1group.nl/behandelingen/haccp-certificaat-en-behandeling/",
+   "titel": "HACCP certificaat en behandeling",
+   "tekst": [
+    "Bij transport van levensmiddelen is hygiëne van groot belang en daarom is de trailer reinigen van essentieel belang. Bij Truckwash 1 Group gebruiken we speciale reinigingsmiddelen die voldoen aan de HACCP richtlijnen. HACCP staat voor Hazard Analysis and Critical Control Points. Naar het Nederlands vertaald: een analyse van kritische punten waarop extra goed gelet moet worden. Dit is een risico-inventarisatie voor voedingsmiddelen. HACCP is sinds 1995 verplicht gesteld in het kader van Europese wetgeving voor elk bedrijf dat zich op één of andere manier bezighoudt met voeding.",
+    "Hygiëne is het allerbelangrijkste bij de HACCP eisen en daarom gebruiken wij speciale reinigingsmiddelen die compleet reinigen en desinfecteren, ook wel het schoonmaken genoemd. Onze reinigingsmiddelen zorgen ervoor dat dat bacteriën geen kans krijgen om te groeien. We behandelen elke trailer met de grootste zorg en hanteren strenge regels, zodat je verzekerd bent van een compleet gereinigde trailer na onze behandeling. Na deze behandeling krijgt de chauffeur een HACCP certificaat mee.",
+    "Wil je meer informatie over de diverse mogelijkheden bij Truckwash 1 Group? Aarzel dan niet om vrijblijvend contact met ons op te nemen. Ons team staat klaar om al jouw vragen te beantwoorden, of het nu gaat over prijzen, samenwerkingen, vestigingen of andere onderwerpen. We helpen je graag verder!"
+   ],
+   "punten": [],
+   "groep": "behandeling"
+  },
+  {
+   "slug": "behandelingen/nao-wasplaats",
+   "url": "https://truckwash1group.nl/behandelingen/nao-wasplaats/",
+   "titel": "NAO-wasplaats",
+   "tekst": [
+    "De NAO-wasplaats is een wasplaats voor transportmiddelen van pootgoed. Naar aanleiding van een aantal grote uitbraken van Ringrot in voorgaande jaren hebben LTO en de NAO via het samenwerkingsverband Pootaardappelen Contact Commissie (PCC) het Hygiëneprotocol Ringrot opgezet. Dit om de risico’s op verspreiding van dit quarantaine organisme in de pootaardappelketen zoveel mogelijk te beperken.",
+    "Truckwash 1 Group is NAO-gecertificeerd voor: \n • Ontsmettingsbedrijf/wasplaats",
+    "Wij zijn NAO gecertificeerd als wasplaats voor transportmiddelen van pootaardappelen. Dit betekent automatisch dat de middelen die gebruikt worden om het transportmiddel te reinigen, NAO-goedgekeurd zijn."
+   ],
+   "punten": [],
+   "groep": "behandeling"
+  },
+  {
+   "slug": "bus-wasstraat",
+   "url": "https://truckwash1group.nl/bus-wasstraat/",
+   "titel": "Bus wasstraat",
+   "tekst": [
+    "Truckwash 1 Group is dé toonaangevende wasstraat voor vrachtwagens. Ook met uw bus kunt u bij ons terecht. Met 18 locaties verspreid door het land, is de kans groot dat u snel bij ons terecht kunt. Onze wasstraten zijn voorzien van moderne apparatuur waarmee we voertuigen op een duurzame manier wassen.",
+    "In onze truckwash wassen wij dagelijks veel vrachtwagens. U zult dan ook begrijpen dat bussen ook geen probleem zijn. Elk type bus pas moeiteloos door onze wasstraat. Of u nu uw werkbus na een flinke klus wilt laten wassen of de touring car die half Europa is doorgereden, wij maken elke bus weer brandschoon. Ook die hoge bestelbus die niet door een gewone wasstraat kan, kan bij ons terecht.",
+    "Zelfs bussen met een imperiaal kunnen probleemloos door onze wasstraat. Of uw bus nu is uitgerust met zwaailichten, extra verlichting of een koelunit op het dak, onze ervaren medewerkers zorgen voor een grondige reiniging. Bij Truckwash 1 Group verwelkomen we alle soorten bussen, inclusief die met speciale voorzieningen, voor een vlekkeloos resultaat. Heeft u hier nog vragen? Neem dan gerust contact met ons op."
+   ],
+   "punten": [],
+   "groep": "dienst"
+  }
+ ],
+ "prijstabellen": [
+  [
+   [
+    "Type voertuig",
+    "Prijzen"
+   ],
+   [
+    "Aanhanger (combi)",
+    "€ 51,00"
+   ],
+   [
+    "Aanhangwagen (klein)",
+    "€ 26,01"
+   ],
+   [
+    "Afzet Container",
+    "€ 35,00"
+   ],
+   [
+    "Bestelbus",
+    "€ 29,50"
+   ],
+   [
+    "Bestelbus groot",
+    "€ 41,65"
+   ],
+   [
+    "Bulk Oplegger",
+    "€ 92,20"
+   ],
+   [
+    "Camper / Caravan",
+    "€ 61,98"
+   ],
+   [
+    "Camperbus klein",
+    "€ 41,32"
+   ],
+   [
+    "Combinatie alleen de bakken",
+    "€ 49,50"
+   ],
+   [
+    "Combinatie Bulk",
+    "€ 139,95"
+   ],
+   [
+    "Combinatie Tank",
+    "€ 119,95"
+   ],
+   [
+    "Graafmachine",
+    "€ 58,04"
+   ],
+   [
+    "Kipper Combi",
+    "€ 109,50"
+   ],
+   [
+    "Kipper Motorwagen",
+    "€ 74,95"
+   ],
+   [
+    "Kipper Oplegger",
+    "€ 57,69"
+   ],
+   [
+    "Kipper Trekker + Oplegger",
+    "€ 98,93"
+   ],
+   [
+    "Kraan (groot)",
+    "€ 140,74"
+   ],
+   [
+    "Kraan (klein, t/m 5 assen)",
+    "€ 110,92"
+   ],
+   [
+    "Lang Zwaar Voertuig",
+    "€ 112,00"
+   ],
+   [
+    "Lang Zwaar Voertuig Chassis",
+    "€ 120,00"
+   ],
+   [
+    "LZV - Alleen opleg. Chassis",
+    "€ 83,58"
+   ],
+   [
+    "LZV - alleen opleggers",
+    "€ 78,68"
+   ],
+   [
+    "Motorwagen",
+    "€ 61,00"
+   ],
+   [
+    "Motorwagen chassis",
+    "€ 64,35"
+   ],
+   [
+    "Motorwagen + Aanhangwagen",
+    "€ 91,07"
+   ],
+   [
+    "Motorwagen + Aanhangwagen + Container",
+    "€ 116,31"
+   ],
+   [
+    "Motorwagen + Aanhangwagen chassis",
+    "€ 97,75"
+   ],
+   [
+    "Motorwagen + Afzetcontainer",
+    "€ 84,55"
+   ],
+   [
+    "Motorwagen Betonpomp / Kolkzuiger",
+    "€ 96,37"
+   ],
+   [
+    "Motorwagen bulk",
+    "€ 103,05"
+   ],
+   [
+    "Motorwagen tank",
+    "€ 82,50"
+   ],
+   [
+    "Oplegger",
+    "€ 52,10"
+   ],
+   [
+    "Oplegger - Container Chassis",
+    "€ 55,00"
+   ],
+   [
+    "Paardentrailer",
+    "€ 37,19"
+   ],
+   [
+    "Personen auto",
+    "€ 28,93"
+   ],
+   [
+    "Personenauto + Caravan",
+    "€ 74,38"
+   ],
+   [
+    "Pick-up / SUV",
+    "€ 39,90"
+   ],
+   [
+    "Tank Aanhangwagen",
+    "€ 56,50"
+   ],
+   [
+    "Tank Oplegger",
+    "€ 68,98"
+   ],
+   [
+    "Touring Car",
+    "€ 50,00"
+   ],
+   [
+    "Trekker",
+    "€ 55,50"
+   ],
+   [
+    "Trekker + Beton / Mixer Oplegger",
+    "€ 120,64"
+   ],
+   [
+    "Trekker + Bulkoplegger",
+    "€ 126,87"
+   ],
+   [
+    "Trekker + Bulkoplegger (Cement/Veevoeder)",
+    "€ 146,27"
+   ],
+   [
+    "Trekker + Chassisoplegger",
+    "€ 89,95"
+   ],
+   [
+    "Trekker + Dieplader",
+    "€ 84,50"
+   ],
+   [
+    "Trekker + Onderlosser opl",
+    "€ 92,72"
+   ],
+   [
+    "Trekker + Oplegger",
+    "€ 80,65"
+   ],
+   [
+    "Trekker + Chassisoplegger (budget)",
+    "€ 75,15"
+   ],
+   [
+    "Trekker + Oplegger (klein) BE",
+    "€ 60,71"
+   ],
+   [
+    "Trekker + Tankoplegger",
+    "€ 110,00"
+   ],
+   [
+    "Veewagen combi",
+    "€ 106,33"
+   ],
+   [
+    "Veewagen motorwagen",
+    "€ 70,97"
+   ],
+   [
+    "Veewagen trekker + oplegger",
+    "€ 94,09"
+   ],
+   [
+    "Vuilniswagen (motorwagen)",
+    "€ 71,05"
+   ]
+  ],
+  [
+   [
+    "Inwendig reinigen",
+    "Tarief"
+   ],
+   [
+    "Inwendig reinigen - Bestelbusvloer",
+    "€ 15,60"
+   ],
+   [
+    "Inwendig reinigen - Aanhanger combi",
+    "€ 45,22"
+   ],
+   [
+    "Inwendig reinigen - bestelbus / aanhanger klein",
+    "€ 20,81"
+   ],
+   [
+    "Inwendig reinigen - combi vloer",
+    "€ 53,81"
+   ],
+   [
+    "Inwendig reinigen - Combinatie",
+    "€ 72,65"
+   ],
+   [
+    "Inwendig reinigen - LZV",
+    "€ 93,14"
+   ],
+   [
+    "Inwendig reinigen - LZV (alleen vloer)",
+    "€ 68,13"
+   ],
+   [
+    "Inwendig reinigen - Motorwagen",
+    "€ 42,49"
+   ],
+   [
+    "Inwendig reinigen - motorwagen vloer",
+    "€ 28,93"
+   ],
+   [
+    "Inwendig reinigen - Oplegger",
+    "€ 54,64"
+   ],
+   [
+    "Inwendig reinigen - Oplegger klein (BE)",
+    "€ 46,86"
+   ],
+   [
+    "Inwendig reinigen - Oplegger onderlosser",
+    "€ 69,32"
+   ],
+   [
+    "Inwendig reinigen - oplegger vloer",
+    "€ 44,91"
+   ],
+   [
+    "Inwendig reinigen - Oplegger dubbele vloer",
+    "€ 80,49"
+   ],
+   [
+    "Inwendig reinigen - Paardentrailer",
+    "€ 41,32"
+   ],
+   [
+    "HACCP + CERTIFICAAT",
+    ""
+   ],
+   [
+    "Inwendig reinigen - Oplegger (HACCP)",
+    "€ 60,71"
+   ],
+   [
+    "Inwendig reinigen - Motorwagen (HACCP)",
+    "€ 48,57"
+   ],
+   [
+    "Inwendig reinigen - Combi (HACCP)",
+    "€ 78,67"
+   ],
+   [
+    "Inwendig reinigen - LZV (HACCP)",
+    "€ 99,18"
+   ],
+   [
+    "inwendig reinigen - Bestelbus (HACCP)",
+    "€ 26,89"
+   ],
+   [
+    "Inwendig - Onderlosser + desinfectie (NAO)",
+    "€ 107,30"
+   ],
+   [
+    "Inwendig reinigen - Aanhanger combi (HACCP)",
+    "€ 45,22"
+   ],
+   [
+    "Inwendig reinigen - Oplegger klein (BE) (HACCP)",
+    "€ 52,03"
+   ],
+   [
+    "Inwendig reinigen - Oplegger onderlosser (HACCP)",
+    "€ 79,37"
+   ],
+   [
+    "Inwendig reinigen - Oplegger dubbele vloer (HACCP)",
+    "€ 86,51"
+   ]
+  ],
+  [
+   [
+    "Toeslagen",
+    "Tarief"
+   ],
+   [
+    "Toeslag - Alcoa speciale behandeling (p/s)",
+    "€ 3,95"
+   ],
+   [
+    "Toeslag - Velgen zuren (p/s)",
+    "€ 3,45"
+   ],
+   [
+    "Toeslag - Velgenreiniger behandeling (p/s)",
+    "€ 3,45"
+   ],
+   [
+    "Toeslag - Tank of traanplaat behandeling",
+    "€ 7,45"
+   ],
+   [
+    "Toeslag - Laadklep zuren",
+    "€ 14,99"
+   ],
+   [
+    "Toeslag - Fietsenvanger zuren",
+    "€ 7,49"
+   ],
+   [
+    "Toeslag - Cabine met spons",
+    "€ 22,99"
+   ],
+   [
+    "Toeslag - Cabine met spons *EXTRA*",
+    "€ 32,99"
+   ],
+   [
+    "Toeslag - Brightening Wax Trekker",
+    "€ 7,49"
+   ],
+   [
+    "Toeslag - Brightening Wax trailer",
+    "€ 14,99"
+   ],
+   [
+    "Toeslag - Brightening Wax motorwagen",
+    "€ 14,99"
+   ],
+   [
+    "Toeslag - Ontsmetten/Desinfecteren (vogelgriep) Bac-cid 100",
+    "€ 44,99"
+   ],
+   [
+    "Toeslag - Ontsmetten/desinfecteren (NAO) Halamid-D",
+    "€ 29,99"
+   ],
+   [
+    "Toeslag - Kooiaap, Autolaad Kraan",
+    "€ 14,99"
+   ],
+   [
+    "Toeslag - 10 minuten ontvetwerkzaamheden",
+    "€ 18,99"
+   ],
+   [
+    "Toeslag - Extra veel zand/vervuiling",
+    "€ 19,99"
+   ]
+  ],
+  [
+   [
+    "Prijzen wasbox",
+    "Tarief"
+   ],
+   [
+    "Self service wasbox",
+    "€ 0,95 p/m"
+   ],
+   [
+    "Shampoo",
+    "€ 3,01"
+   ],
+   [
+    "Warm water",
+    "€ 1,45 p/m"
+   ]
+  ]
+ ],
+ "faq": [
+  {
+   "v": "Kan ik mijn vrachtwagen laten wassen?",
+   "a": "Ja, u kunt altijd op een van onze 18 locaties terecht. Bekijk al onze locaties op deze pagina."
+  },
+  {
+   "v": "Op welke manieren kan ik allemaal betalen?",
+   "a": "Op rekening, pin, contant, Travis, Cargo Card, DKV, Mastercard, Hoyer Card, Travelcard, Shell Card, Visa, Multitankcard, Uta"
+  },
+  {
+   "v": "Hoe kan ik op rekening wassen?",
+   "a": "Via deze link kunt u zich aanmelden om klant bij ons te worden en te wassen op al onze locaties."
+  },
+  {
+   "v": "Kan ik mijn camper of caravan bij jullie laten wassen?",
+   "a": "Ja, wij wassen ook campers en caravans dit gaat handmatig en er komt geen machine aan te pas. Meer weten kijk hier de camper caravan pagina"
+  },
+  {
+   "v": "Zetten jullie mijn voertuig in de wax?",
+   "a": "Ja, alle voertuigen worden machinaal in de wax gezet. Wilt u extra wax over uw voertuig? Vraag het een medewerker"
+  },
+  {
+   "v": "Poetsen jullie ook voertuigen op locatie?",
+   "a": "We hebben hiervoor wel een partner waar we mee samenwerken, kijk voor meer informatie op deze website"
+  },
+  {
+   "v": "Reinigen jullie ook het interieur van cabines?",
+   "a": "We hebben hiervoor wel een partner waar we mee samenwerken, kijk voor meer informatie op deze website"
+  },
+  {
+   "v": "Moet ik een afspraak maken om te wassen?",
+   "a": "Nee, het is niet nodig om een afspraak te maken. U kunt bij ons terecht wanneer het u schikt en wij open zijn."
+  },
+  {
+   "v": "Kan ik met mijn account ook op de andere locaties wassen?",
+   "a": "Ja, u kunt met uw account op alle locaties wassen van Truckwash 1 Group. U ontvangt een verzamelfactuur."
+  },
+  {
+   "v": "Zijn jullie op zondag open?",
+   "a": "Nee, onze locaties zijn op zondag gesloten."
+  },
+  {
+   "v": "Kan ik mijn oplegger HACCP reinigen?",
+   "a": "Bij de Truckwash 1 Group kunt u op elke locatie een HACCP reiniging uit laten voeren. Meer informatie vindt u hier"
+  },
+  {
+   "v": "Verkopen jullie ook producten voor mijn vrachtwagen?",
+   "a": "Ja, elke locatie beschikt over een shop met de bekende merken. Ook hebben wij een webshop: truckshop.nl ."
+  },
+  {
+   "v": "Zoeken jullie nog medewerkers?",
+   "a": "Wij zijn regelmatig opzoek naar versterking voor ons team! U kunt naar de locatie bellen waar het om gaat. U kunt ook op werken bij drukken op onze website en een sollicitatie achter laten."
+  },
+  {
+   "v": "Zoeken jullie Franchise ondernemers?",
+   "a": "Momenteel zijn we niet op zoek naar nieuwe franchise ondernemers , tenzij u al beschikt over 1 of meerdere vrachtwagen wasstraten."
+  },
+  {
+   "v": "Ik heb een vraag over een factuur.",
+   "a": "Vragen over een factuur kunt u mailen naar administratie@truckwash1group.nl"
+  },
+  {
+   "v": "Waar kan ik een was account open?",
+   "a": "U kunt een account openen als u op deze link drukt: https://www.truckwash1group.nl/registreren/"
+  }
+ ],
+ "over-ons": {
+  "titel": "Over ons",
+  "tekst": [
+   "Truckwash 1 Group is de grootste truckwashketen van Nederland. 18 locaties, van Steenwijk tot Hazeldonk, allemaal langs belangrijke snelwegen en knooppunten. Geen afspraak nodig, je rijdt naar binnen en wij doen de rest. We wassen eigenlijk alles wat niet in een normale wasstraat past. Van een kwalitatieve wasbeurt tot HACCP-reiniging met certificaat. Met één account was je op al onze locaties, alles verzameld op 1 factuur.",
+   "Truckwash 1 Group is opgericht door Johannes Snoek. Wat begon met één wasstraat in Roosendaal groeide in een paar jaar uit tot het grootste truckwashnetwerk van Nederland.",
+   "Door een combinatie van overnames, nieuwe locaties en een team dat niet bang is om aan te pakken, staan we nu op 18 locaties – en we zijn nog niet klaar. \nAan het roer staat Johannes als CEO, samen met operationeel directeur Milos Boekhorst en een team van operationeel managers die de dagelijkse gang van zaken op de locaties runnen. Kort gezegd: korte lijnen, snel schakelen, een strak resultaat!",
+   "Het succes van een truckwash zit niet in complexiteit. Het zit in een goede wasbeurt, snel geholpen worden, en een prettige ervaring.",
+   "“De basis moet kloppen. Als je die goed neerzet en je mensen daarin meeneemt, volgt de rest vanzelf.” – Johannes Snoek",
+   "Bij ons ben je welkom voor een schone wagen, maar net zo goed voor een bakje koffie, even gebruikmaken van de wc/douche, of gewoon een praatje. We zijn blij met chauffeurs dat ze de moeite nemen om bij ons langs te komen. Met goeie service, een loyaliteitsprogramma, en een welkom dat aanvoelt als welkom staan wij dan ook dagelijks voor jullie klaar."
+  ]
+ },
+ "hoe-het-begon": {
+  "titel": "Hoe het begon",
+  "tekst": [
+   "Op 23 april 2002 begon het avontuur dat vandaag bekendstaat als de Truckwash 1 Group.",
+   "Na jaren gewerkt te hebben als internationaal chauffeur en planner, kreeg ik ooit de opdracht om te onderzoeken of een eigen Truckwash rendabel zou zijn. Hoewel het plan uiteindelijk niet werd doorgezet, gebeurde er iets onverwachts: mijn eigen enthousiasme groeide. Ik zag kansen, hoorde de vraag uit de markt en besloot mijn droom te volgen.",
+   "Met een wasplaats in de buitenlucht, een caravan als kantine en een zeecontainer als machinekamer begon ik in Bodegraven. Geen luxe, wel doorzettingsvermogen. In weer en wind werd er gewassen, letterlijk. Van bevroren schuim in de winter tot opdrogende shampoo in de zomer. Maar juist daar heb ik het vak geleerd, een klantenbestand opgebouwd en de basis gelegd voor wat zou komen.",
+   "Na een jaar volgde de verhuizing naar de huidige locatie in Bodegraven. Het begin was spannend — zelfs zo spannend dat de bank voorstelde om te stoppen. Maar wij zagen groei. En die groei zette door.",
+   "Na het sluiten van Roelofarendsveen ontstond er een nieuw hoofdstuk. Samen met Johannes werd een samenwerking gestart die later uitgroeide tot iets groters. Met nieuwe locaties in onder andere Roosendaal en Rilland werd de basis gelegd voor verdere groei.",
+   "In 2020 bundelden we onze krachten officieel. Een belangrijke stap die ons in staat stelde om door te groeien. Sindsdien zijn er maar liefst 11 nieuwe locaties bijgekomen."
+  ]
+ },
+ "toekomst-en-visie": {
+  "titel": "Toekomst en Visie",
+  "tekst": [
+   "De Truckwash 1 Group is gebouwd op twee ondernemersverhalen die elkaar versterken.",
+   "Waar Klaus Broersma in 2002 begon met een eenvoudige wasplaats in de buitenlucht en deze stap voor stap uitbouwde tot meerdere locaties, begon Johannes jaren later op de werkvloer in een Truckwash. Wat startte als een bijbaan groeide uit tot ondernemerschap, met de overname en ontwikkeling van eigen vestigingen. In 2020 kwamen deze twee werelden samen en ontstond de Truckwash 1 Group zoals die vandaag de dag bestaat.\nVanuit deze gezamenlijke basis is een duidelijke visie ontstaan.",
+   "Die visie is niet van de ene op de andere dag ontstaan. Zij is gevormd door jarenlange praktijkervaring, ondernemerschap en de overtuiging dat duurzame groei alleen mogelijk is wanneer kwaliteit, mensen en continu verbeteren hand in hand gaan. Juist die combinatie vormt vandaag de dag het fundament onder iedere beslissing die binnen de Truckwash 1 Group wordt genomen.",
+   "Wat ooit klein begon, is uitgegroeid tot een organisatie met landelijke dekking en internationale ambitie. Met vestigingen verspreid door Nederland groeit de Truckwash 1 Group stap voor stap toe naar een landelijk dekkend netwerk. Zo profiteren klanten van één vertrouwde partner, een uniforme werkwijze en een constante kwaliteit, ongeacht welke vestiging zij bezoeken.",
+   "Die groei is nooit gebaseerd geweest op complexiteit, maar juist op het consequent goed uitvoeren van de basis: vrachtwagens efficiënt, grondig en met aandacht reinigen.",
+   "De visie is helder: het bouwen van een toonaangevende Truckwashorganisatie in Europa, waarbij iedere locatie staat voor kwaliteit, betrouwbaarheid en beleving."
+  ]
+ },
+ "over-ons_duurzaamheid": {
+  "titel": "Duurzaam wassen bij Truckwash 1 Group?",
+  "tekst": [
+   "Bij Truckwash 1 Group maken we het niet mooier dan het is, maar werken we wel serieus aan duurzaamheid. We geloven niet in loze beloftes, maar in praktische oplossingen die écht iets opleveren. Waterrecycling doen we bijvoorbeeld bewust nu nog niet, omdat het nog niet voldoet aan onze strenge eisen voor de praktijk, circulariteit en milieuvriendelijkheid. In plaats daarvan kiezen we voor andere praktische maatregelen die wél haalbaar en effectief zijn.",
+   "Onze reinigingsmiddelen zijn voor ruim 70% bewust gekozen op basis van hun minimale milieu-impact. Natuurlijk hebben we ook middelen die sterker zijn qua chemische samenstelling, simpelweg omdat zware vervuiling op trucks dat soms vereist. We gebruiken deze chemie zo verantwoord mogelijk, waarbij alles zorgvuldig wordt opgevangen en afgevoerd via speciale opvangputten. Zo beperken we de belasting op het milieu maximaal.",
+   "Zonnepanelen: Onze daken liggen op meerdere locaties vol met zonnepanelen. Goed voor het milieu én voor je portemonnee, en dan bedoelen we niet het terugleveren, maar het gebruik van de opbrengst voor andere doeleinde zodat we minder of niks af hoeven te nemen hiervoor van het net, waardoor we onze kosten en dus jouw prijzen laag houden.",
+   "Warmtepompen: Met warmtepompen op energie, wat een mooi voorbeeld is, houden we onze locaties comfortabel zonder verspilling.",
+   "LED-verlichting & sensoren: Waarom licht aan laten als het niet nodig is? Met LED en automatische sensoren voorkomen we onnodig energieverbruik.",
+   "Energiebesparende apparatuur: Onze was-portalen zijn efficiënt en effectief, wat betekent dat je truck schoon wordt met minder energie en water."
+  ]
+ },
+ "franchise": {
+  "titel": "Truckwash Franchise",
+  "tekst": [
+   "Bij Truckwash 1 group zijn we constant bezig met groeien. Onze ambities zijn torenhoog. De komende tijd willen wij Truckwash 1 group als franchise flink uitbreiden. Dat betekent dat wij op zoek zijn naar enthousiaste ondernemers die geïnteresseerd zijn in het starten van hun eigen Truckwash vestiging.",
+   "Ons bedrijf is ontstaan uit de samenwerking tussen Truckwash group en Truckwash 1. Wij begrijpen hierdoor de meerwaarde van het bundelen van krachten. Dus zoeken wij naar meer gedreven en enthousiaste franchise-ondernemers in heel Nederland om mee samen te werken.\nTruckwash 1 group is een inmiddels uitgegroeid tot een gevestigde naam binnen Nederland met 12 vestigingen. Veel truckers en transportbedrijven zijn bekend met onze wasstraten. Truckwash 1 group staat voor kwaliteit, gastvrijheid, professionaliteit, sfeer en efficiëntie en dit zijn onze klanten ook van ons gewend. Herken jij jezelf als startende ondernemers ook in deze waarden? Dan ben jij misschien wel een geschikte franchise partner voor ons bedrijf.",
+   "Wij hebben de afgelopen jaren een unieke succesformule opgebouwd gebaseerd op onze kernwaarden. Je kunt altijd rekenen op ons advies gebaseerd op jaren van ervaring binnen de sector. Je hoeft het wiel niet meer uit te vinden, dat hebben wij al voor je gedaan. Je hoeft ze alleen nog maar schoon te maken.",
+   "Hopelijk kunnen wij jou straks verwelkomen bij de Truckwash 1 group familie!",
+   "Let op! Nieuwe aanvragen kunnen we momenteel op korte termijn niet in behandeling nemen tenzij u al beschikt over een wasstraat. We nemen contact met u op wanneer er ruimte is voor nieuwe aanvragen."
+  ]
+ },
+ "klantenkaart": {
+  "titel": "Klantenkaart",
+  "tekst": [
+   "Omdat we onwijs blij zijn met onze klanten, willen we daar ook graag iets voor terug doen. Wij begrijpen dat uw voertuig niet zomaar een stuk metaal is. Wij staan klaar om niet alleen uw voertuig te laten shinen, maar ook om een glimlach op uw gezicht te bezorgen. Daarom hebben we een exclusief beloningsprogramma opgezet! Met ons spaarsysteem willen we uw ervaring bij ons nog waardevoller maken, en tegelijkertijd kunt u genieten van geweldige voordelen, zoals gratis producten en speciale aanbiedingen!",
+   "Sparen is supermakkelijk: Bij elke wasbeurt voor je vrachtwagen verdient u 5 punten, die automatisch worden bijgeschreven op uw persoonlijke spaarkaart. Zodra er genoeg punten verzameld zijn, kunt u deze inwisselen voor mooie gratis producten en leuke aanbiedingen. Wij laten uw voertuig stralen terwijl u geniet van alle gave bonussen die ons spaarprogramma te bieden heeft. Zo wordt het laten wassen van uw vrachtwagen, caravan of camper wel heel leuk!",
+   "Bij aanmelding ontvangt u een persoonlijke pas op jouw eigen naam mét een klein welkomstcadeautje om te starten met sparen. Zo heeft u binnen no-time uw spaardoel bij elkaar verzameld. Binnenkort is het mogelijk om ook online een account aan te maken.",
+   "Het aanbod van producten en aanbiedingen wisselt regelmatig. Naast allerlei tijdelijke en seizoensmatige deals, aanbiedingen en producten kunt u ook sparen voor gratis artikelen! Voorbeelden hiervan zijn:",
+   "Voor ieder wat wils dus! Heeft u een tegoedbon bij elkaar gespaard? Dan kunt u los gaan in onze webshop! Zo zijn bijvoorbeeld onze vrachtwagen luchtverfrissers erg populair, maar ook de cockpitsprays zijn erg handig om altijd bij de hand te hebben. Mocht u nog niet genoeg punten hebben verzameld, maar alsnog los willen gaan in onze webshop… Dan kan dat ook natuurlijk! Heeft u onze voordeelpakketten al gezien?",
+   "Wil je meer informatie over de diverse mogelijkheden bij Truckwash 1 Group? Aarzel dan niet om vrijblijvend contact met ons op te nemen. Ons team staat klaar om al jouw vragen te beantwoorden, of het nu gaat over prijzen, samenwerkingen, vestigingen of andere onderwerpen. We helpen je graag verder!"
+  ]
+ },
+ "werken-bij": {
+  "titel": "Werken bij Truckwash 1 Group",
+  "tekst": [
+   "Werken bij Truckwash 1 Group betekent werken in een bedrijf dat weet van aanpakken. Waar eerlijkheid, fatsoen en vriendelijkheid centraal staan.",
+   "Wij hechten veel waarde aan dat iedereen met plezier naar zijn werk gaat. Daarom werken wij volgens de volgende normen: We dragen waarden actief uit naar onze medewerkers en klanten. Je zal daarom werken in een professionele omgeving en onderdeel uitmaken van een gemotiveerd team.",
+   "Bij Truckwash 1 Group bieden wij iedereen de kans om te (leren) werken. Of het nu gaat om een begeleid werken programma of een stage . Als er ruimte is binnen onze organisatie dan ben je bij ons welkom.",
+   "Het enige waar wij naar opzoek zijn is iemand met een goede wil en de motivatie om door te willen groeien en nieuwe dingen te willen leren. Geen diploma’s of certificaten maar gewoon de wil om te leren en te groeien, ben jij dus iemand die wil leren? Solliciteer dan meteen!",
+   "Wij zijn op zoek naar WASHELDEN. Heb jij interesse en ben je gemotiveerd om deel uit te maken van een superteam?",
+   "Voel jij je thuis in de horeca? Dan zoeken wij jou! Ben of ken jij iemand die ons bedieningsteam kan komen versterken? Klik op onderstaande link."
+  ]
+ }
+}

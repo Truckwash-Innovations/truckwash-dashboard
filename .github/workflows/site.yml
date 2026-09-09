@@ -1,0 +1,123 @@
+name: Site herbouwen
+
+# Bouwt de merksite opnieuw uit de database en zet het resultaat in site/.
+# Cloudflare rolt daarna vanzelf uit.
+#
+# Casper: "als ik een vestiging maak via de app, dat je die direct live hebt op
+# de website, kan je de website niet die locaties uit de database laten halen?"
+#
+# Wat er al live was en wat niet
+# ------------------------------
+#
+# assets/live.js haalt bij elk bezoek de actuele gegevens op en werkt de
+# lijsten, de tellingen en de openingstijden bij. Maar elke vestiging heeft
+# ook een EIGEN pagina, en die bestaat als bestand:
+#
+#   nieuwe vestiging      /locaties/<slug>/ geeft 404
+#   weggehaalde vestiging /locaties/<slug>/ geeft nog steeds 200
+#   sitemap.xml           noemt de oude reeks
+#   voettekst             op alle 49 pagina's de oude reeks
+#
+# Een pagina die er niet is, kan zichzelf niet invullen. Dus moet de site
+# opnieuw gebouwd worden, en dat is wat hier gebeurt.
+#
+# Drie manieren waarop dit gaat
+# -----------------------------
+#
+#   repository_dispatch  de app geeft een seintje zodra er een vestiging of
+#                        vacature verandert. Van klik tot live: ~2 minuten.
+#   schedule             elke nacht, als vangnet. Ook als het seintje niet
+#                        aankomt (token verlopen, functie eruit) loopt de site
+#                        hoogstens een dag achter in plaats van een halfjaar.
+#   workflow_dispatch    met de hand, om te kijken of het werkt.
+#
+# Er wordt alleen gecommit als er echt iets veranderd is. Een lege commit per
+# nacht maakt de geschiedenis onleesbaar, en dan zie je de echte wijziging niet
+# meer staan tussen de ruis.
+
+on:
+  repository_dispatch:
+    types: [site-herbouwen]
+  schedule:
+    # 03:20 UTC. Een schuin tijdstip met opzet: op het hele uur staat GitHub
+    # het drukst en lopen geplande taken het vaakst uit.
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+
+# Twee herbouwen tegelijk zouden allebei site/ vervangen en over elkaar heen
+# pushen. Er hoeft er maar één te lopen; wie later komt wacht.
+concurrency:
+  group: site-herbouwen
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  bouwen:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Geen npm install. site-bouwen.cjs en alles in sitebouw/ gebruiken
+      # uitsluitend wat Node zelf meebrengt -- geen enkel pakket. Dat is niet
+      # toevallig zo gebleven: het scheelt hier twee minuten en het betekent
+      # dat een kapotte lockfile de site niet kan tegenhouden.
+
+      - name: Kijken of de sleutels er zijn
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Zet de secrets VITE_SUPABASE_URL en VITE_SUPABASE_ANON_KEY in de repo-instellingen."
+            exit 1
+          fi
+
+      - name: De site herbouwen uit de database
+        env:
+          # vestigingen.cjs kijkt eerst naar deze twee en pas daarna naar het
+          # .env-bestand van het dashboard. Dat bestand staat niet in de repo,
+          # dus hier is de omgeving de enige weg.
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: node scripts/site-bouwen.cjs
+
+      - name: Wat is er veranderd
+        id: verschil
+        run: |
+          if git diff --quiet -- site; then
+            echo "veranderd=nee" >> "$GITHUB_OUTPUT"
+            echo "Er is niets veranderd aan de site."
+          else
+            echo "veranderd=ja" >> "$GITHUB_OUTPUT"
+            echo "### Gewijzigd" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            git diff --stat -- site | tail -40 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Vastleggen en uitrollen
+        if: steps.verschil.outputs.veranderd == 'ja'
+        run: |
+          git config user.name  "Site-herbouwer"
+          git config user.email "actions@github.com"
+          git add site
+          # Alleen site/. Een herbouw hoort niets anders aan te raken, en als
+          # dat wel gebeurt is dat een fout die je wilt zien in plaats van
+          # meegecommit.
+          git commit -m "De site opnieuw gebouwd uit de database
+
+          Aanleiding: ${{ github.event_name }}.
+          Zie .github/workflows/site.yml -- dit is een automatische herbouw,
+          geen wijziging van iemand."
+          # Iemand kan in de tussentijd gepusht hebben. Opnieuw proberen
+          # bovenop wat er dan staat; die twee raken elkaar niet, want deze
+          # commit zit alleen aan site/.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

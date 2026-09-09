@@ -1,7 +1,7 @@
 {
   "name": "truckwash-dashboard",
   "productName": "Truckwash1 Dashboard",
-  "version": "1.81.0",
+  "version": "1.82.0",
   "description": "Truckwash1 Group - offline-first dashboard voor werknemers, klanten en management",
   "author": {
     "name": "Truckwash1 Group",
@@ -20,7 +20,7 @@
     "sql:bouw": "node scripts/build-setup-sql.cjs && node scripts/build-bijwerken-sql.cjs",
     "functions": "npm run functions:open && npm run functions:dicht",
     "functions:open": "supabase functions deploy stuur-mail ontvang-mail kassa-koppelen website-gegevens trucky trucksupply exact lezer solliciteren takenmail wachtwoord-vergeten --no-verify-jwt --project-ref yxsbmhavnttswxczeovt",
-    "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie medewerker route kassa-apparaat factuur-lezen --project-ref yxsbmhavnttswxczeovt",
+    "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie medewerker route kassa-apparaat factuur-lezen site-herbouwen --project-ref yxsbmhavnttswxczeovt",
     "secrets": "supabase secrets list --project-ref yxsbmhavnttswxczeovt",
     "xmltest": "python scripts/xml-nakijken.py",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development node scripts/start-electron.cjs\"",
@@ -33,7 +33,8 @@
     "cap:ios": "npm run cap:sync && cap open ios",
     "assets:icons": "capacitor-assets generate --iconBackgroundColor '#0b1220' --iconBackgroundColorDark '#0b1220' --splashBackgroundColor '#0b1220' --splashBackgroundColorDark '#0b1220'",
     "postinstall": "node scripts/postinstall.cjs",
-    "site:ophalen": "node scripts/site-ophalen.cjs"
+    "site:ophalen": "node scripts/site-ophalen.cjs",
+    "site:bouwen": "node scripts/site-bouwen.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",

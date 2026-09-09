@@ -16,15 +16,42 @@
  *
  * Draaien:  npm run site:ophalen
  *
- * Wat er NIET meegaat
- * -------------------
+ * Wat er NIET meegaat naar site/
+ * ------------------------------
  *
- *   bouw/       de generator. Bevat template.html (de hele site nog een keer),
- *               site.json en beeld.json (3,4 MB aan foto's als base64). Samen
- *               3,7 MB die een bezoeker nooit opvraagt -- en Cloudflare
- *               serveert alles wat in de uitrolmap staat, ook dit. Dat is
- *               dezelfde site twee keer online, met de bron erbij.
+ *   bouw/       de generator. Die hoort niet in de uitrolmap: Cloudflare
+ *               serveert alles wat daarin staat, en dat zou dezelfde site
+ *               nog een keer online zetten met de bron erbij.
  *   README.md   ontwikkeldocumentatie.
+ *
+ * Maar de generator gaat WEL mee, naar sitebouw/
+ * ---------------------------------------------
+ *
+ * Sinds Casper vroeg of een nieuwe vestiging meteen live kan staan. Dat kan
+ * alleen door de site opnieuw te bouwen -- een pagina die niet bestaat kan
+ * zichzelf niet invullen -- en dat kon tot nu toe op één laptop, want
+ * truckwash-website is geen git-repo.
+ *
+ * Nu staat de bouwer in sitebouw/ en kan GitHub het ook. Zie
+ * scripts/site-bouwen.cjs en .github/workflows/site.yml.
+ *
+ * Het gaat met OPZET in dezelfde stap als het ophalen van de site. Twee
+ * losse commando's zouden betekenen dat de gebouwde site en de bouwer die
+ * hem maakte uit elkaar kunnen lopen, en dan bouwt GitHub straks iets anders
+ * dan wat hier staat -- zonder dat iets dat meldt.
+ *
+ * Wat er van de generator NIET meegaat:
+ *
+ *   template.html   200 kB, de voorbeeldpagina. webbouw.cjs raakt hem niet
+ *                   aan -- nagekeken: hij leest alleen site.json, beeld.json,
+ *                   releases.json, vestigingen.json, brok.js en live.js.
+ *   beeld.json      3,4 MB aan foto's als base64. Gaat AFGESLANKT mee: de
+ *                   bouw vervangt de src door /assets/img/<rol>.webp en
+ *                   gebruikt alleen nog w en h. Dat is 717 bytes in plaats
+ *                   van 3,4 MB, en de .webp-bestanden staan al in de site.
+ *   de rest         kaart.cjs, lettertypen.cjs, threejs.cjs, fotos.py: die
+ *                   maken assets die niet veranderen als er een vestiging
+ *                   bijkomt. Die staan al in site/assets/.
  *
  * De robots.txt van de site gaat WEL mee. Dat is met opzet: die staat op
  * "Allow: /", en de app wordt afgeschermd met de kopregel X-Robots-Tag op
@@ -41,6 +68,26 @@ const bron = process.env.SITE_BRON
   ? path.resolve(process.env.SITE_BRON)
   : path.resolve(root, '..', 'truckwash-website')
 const doel = path.join(root, 'site')
+const bouwdoel = path.join(root, 'sitebouw')
+
+/*
+ * De generator, en niets meer dan dit.
+ *
+ * Nageteld tegen wat webbouw.cjs werkelijk inleest; een bestand meer is een
+ * bestand dat in twee repo's uit elkaar kan lopen. vestigingen.json staat er
+ * met opzet NIET bij: dat is een momentopname die bij elke bouw opnieuw
+ * wordt opgehaald, en een oude kopie in de repo is precies waar
+ * site-bouwen.cjs een rem op zet.
+ */
+const BOUWBESTANDEN = [
+  'webbouw.cjs',      // de bouwer zelf
+  'brok.js',          // alle paginatekenaars
+  'site.json',        // de vaste teksten, prijzen en diensten
+  'omzet.cjs',        // database-vorm -> site-vorm
+  'live.js',          // wordt als assets/live.js weggeschreven
+  'releases.json',    // de downloadknoppen op /medewerkers/
+  'vestigingen.cjs',  // haalt de vestigingen op bij website-gegevens
+]
 
 /* Wat nooit meegaat. Namen in de wortel van de site. */
 const OVERSLAAN = new Set(['bouw', 'README.md', '.git', 'node_modules'])
@@ -80,6 +127,51 @@ function kopieer(van, naar) {
 
 kopieer(bron, doel)
 
+/* ------------------------------------------------------------------ *
+ *  En de generator naar sitebouw/
+ * ------------------------------------------------------------------ */
+
+const bouwbron = path.join(bron, 'bouw')
+
+if (!fs.existsSync(path.join(bouwbron, 'webbouw.cjs'))) {
+  console.error(`Geen generator gevonden in ${bouwbron}.`)
+  console.error('Zonder sitebouw/ kan GitHub de site niet herbouwen.')
+  process.exit(1)
+}
+
+fs.rmSync(bouwdoel, { recursive: true, force: true })
+fs.mkdirSync(bouwdoel, { recursive: true })
+
+let bouwbytes = 0
+for (const naam of BOUWBESTANDEN) {
+  const van = path.join(bouwbron, naam)
+  if (!fs.existsSync(van)) {
+    console.error(`bouw/${naam} ontbreekt in ${bouwbron}.`)
+    console.error('De lijst BOUWBESTANDEN hierboven klopt dan niet meer met de generator.')
+    process.exit(1)
+  }
+  const naartoe = path.join(bouwdoel, naam)
+  fs.copyFileSync(van, naartoe)
+  bouwbytes += fs.statSync(naartoe).size
+}
+
+/*
+ * beeld.json, maar dan zonder de foto's.
+ *
+ * webbouw.cjs vervangt in brok.js de regel src="${b.uri}" door
+ * src="/assets/img/<rol>.webp" voordat hij hem draait. Van het hele bestand
+ * blijven daarmee alleen w en h in gebruik -- 717 bytes in plaats van 3,4 MB.
+ *
+ * Bewezen en niet aangenomen: een volledige herbouw met deze afgeslankte
+ * versie gaf 50 pagina's die byte voor byte gelijk waren aan de site zoals
+ * hij live stond. Zelftest 57 houdt dat vast.
+ */
+const beeld = JSON.parse(fs.readFileSync(path.join(bouwbron, 'beeld.json'), 'utf8'))
+const mager = {}
+for (const [rol, b] of Object.entries(beeld)) mager[rol] = { w: b.w, h: b.h }
+fs.writeFileSync(path.join(bouwdoel, 'beeld.json'), JSON.stringify(mager), 'utf8')
+bouwbytes += fs.statSync(path.join(bouwdoel, 'beeld.json')).size
+
 /*
  * De 404 is geen luxe maar een voorwaarde.
  *
@@ -102,3 +194,6 @@ const pagina = (d) => fs.readdirSync(d, { withFileTypes: true })
 console.log(
   `site: ${bestanden} bestanden (${(bytes / 1024 / 1024).toFixed(1)} MB), ` +
   `${pagina(doel)} pagina's uit ${path.basename(bron)}`)
+console.log(
+  `sitebouw: ${BOUWBESTANDEN.length + 1} bestanden ` +
+  `(${Math.round(bouwbytes / 1024)} kB) -- hiermee kan GitHub de site herbouwen`)

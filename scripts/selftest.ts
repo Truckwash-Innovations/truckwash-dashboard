@@ -7147,5 +7147,173 @@ console.log('\n56. Wachtwoord vergeten')
   check('met een reden erbij', typeof uit.reden === 'string' && uit.reden.length > 10)
 }
 
+/* ====================================================================
+ *  57. De website haalt zijn vestigingen uit de database
+ *
+ *  Casper: "als ik een vestiging maak via de app, dat je die direct live hebt
+ *  op de website, kan je de website niet die locaties uit de database laten
+ *  halen?"
+ *
+ *  Half deed hij dat al. live.js haalt bij elk bezoek de lijsten en de
+ *  tellingen op. Maar elke vestiging heeft ook een EIGEN pagina, en die
+ *  bestaat als bestand -- gemeten: /locaties/roosendaaltest/ gaf nog 200
+ *  nadat die vestiging van de site was gehaald, en een nieuwe zou 404 geven.
+ *  Sitemap en voettekst liepen mee achter.
+ *
+ *  Een pagina die er niet is, kan zichzelf niet invullen. Dus wordt de site
+ *  opnieuw gebouwd, en dat kon tot nu toe op één laptop: truckwash-website is
+ *  geen git-repo. Nu staat de bouwer in sitebouw/.
+ * ==================================================================== */
+
+console.log('\n57. De website haalt zijn vestigingen uit de database')
+
+{
+  const { readFileSync, existsSync, statSync } = await import('node:fs')
+
+  /* ---- de bouwer staat in de repo ---- */
+
+  const NODIG = ['webbouw.cjs', 'brok.js', 'site.json', 'omzet.cjs',
+                 'live.js', 'releases.json', 'vestigingen.cjs', 'beeld.json']
+  const mist = NODIG.filter((n) => !existsSync('sitebouw/' + n))
+  check('de bouwer staat in sitebouw/', mist.length === 0, 'mist: ' + mist.join(', '))
+
+  /*
+   * En hij is klein gebleven.
+   *
+   * beeld.json is in het bronproject 3,4 MB: alle foto's als base64. De bouw
+   * vervangt de src door /assets/img/<rol>.webp en gebruikt daarna alleen nog
+   * w en h -- dus gaat hij afgeslankt mee. Zou iemand ooit het volle bestand
+   * kopieren, dan staat er 3,4 MB in de repo die niemand opvraagt.
+   */
+  const beeldBytes = statSync('sitebouw/beeld.json').size
+  check('beeld.json is afgeslankt', beeldBytes < 5000, beeldBytes + ' bytes')
+
+  const beeld = JSON.parse(readFileSync('sitebouw/beeld.json', 'utf8'))
+  const rollen = Object.keys(beeld)
+  check('maar wel compleet', rollen.length >= 20, rollen.length + ' rollen')
+  check('en met de afmetingen die de bouw nodig heeft',
+    rollen.every((r) => Number(beeld[r].w) > 0 && Number(beeld[r].h) > 0))
+  /* De foto's zelf horen er NIET in te staan; die staan als .webp in de site. */
+  check('en zonder de foto\'s erin',
+    rollen.every((r) => beeld[r].uri === undefined))
+
+  /* ---- de rem op de stille fout ---- */
+
+  const bouwer = readFileSync('scripts/site-bouwen.cjs', 'utf8')
+
+  /*
+   * Dit is de gevaarlijkste regel van het hele stuk.
+   *
+   * webbouw.cjs faalt met opzet zacht: geen vestigingen.json, dan bouwt hij
+   * door met de achttien uit site.json. Op een laptop zonder bereik is dat
+   * juist. In GitHub zou het betekenen dat een mislukt ophaalmoment de site
+   * stilletjes terugdraait naar een halfjaar oude stand -- met een groene
+   * bouw en zonder één melding.
+   */
+  check('een mislukt ophalen vervangt de site niet',
+    bouwer.includes('VERS_GENOEG_MS') && /opgehaald/.test(bouwer))
+  check('en nul vestigingen ook niet',
+    /aantal === 0/.test(bouwer))
+  check('de bouw gaat naar een lege map en niet over site/ heen',
+    bouwer.includes('.site-bouw') && /fs\.renameSync\(werk, site\)/.test(bouwer))
+  check('en er wordt nagekeken voordat er iets vervangen wordt',
+    bouwer.includes("'index.html', '404.html', 'sitemap.xml', 'robots.txt'"))
+
+  /* ---- de wekker ---- */
+
+  const stroom = readFileSync('.github/workflows/site.yml', 'utf8')
+  check('de app kan een herbouw starten',
+    /types:\s*\[site-herbouwen\]/.test(stroom))
+  check('en er is een nachtelijk vangnet', /schedule:/.test(stroom))
+  /*
+   * Zonder vangnet hangt de hele site aan een token dat een keer verloopt.
+   * Dan werkt alles nog, hij wordt alleen niet meer bijgewerkt -- en dat is
+   * precies wat niemand ziet.
+   */
+  check('twee herbouwen tegelijk kunnen niet',
+    /concurrency:/.test(stroom) && stroom.includes('cancel-in-progress: false'))
+  check('en er wordt alleen vastgelegd als er iets veranderd is',
+    stroom.includes('git diff --quiet -- site'))
+
+  /* ---- het seintje uit de app ---- */
+
+  const { merkOp, seintjeKlaar, vergeetSeintje } = await import('../src/lib/siteherbouw.ts')
+
+  vergeetSeintje()
+  merkOp(['expenses', 'timeEntries'])
+  check('een kostenpost laat de website met rust', !seintjeKlaar())
+
+  merkOp(['locations'])
+  check('een vestiging niet', seintjeKlaar())
+
+  vergeetSeintje()
+  merkOp(['vacatures'])
+  check('een vacature ook niet', seintjeKlaar())
+
+  vergeetSeintje()
+  merkOp(['locationPhotos'])
+  check('en een foto van een vestiging evenmin', seintjeKlaar())
+
+  /*
+   * instellingen raakt de site niet. Zou het er wel bij staan, dan start elke
+   * gewijzigde boekhoudinstelling een herbouw van de website.
+   */
+  vergeetSeintje()
+  merkOp(['instellingen'])
+  check('maar een instelling wel', !seintjeKlaar())
+
+  /* ---- en het hangt op de goede plek in de synchronisatie ---- */
+
+  const sync = readFileSync('src/lib/sync.ts', 'utf8')
+
+  /*
+   * Dit was mijn eerste ingeving en hij was fout: het seintje bij het
+   * OPSLAAN. Deze app schrijft eerst plaatselijk en duwt daarna pas. GitHub
+   * zou dan bouwen met een database waar de wijziging nog niet in staat --
+   * een herbouw die niets oplevert, en de echte wijziging pas de nacht erna.
+   */
+  const naDuw = sync.indexOf('await api.push(changes)')
+  const onthoudt = sync.indexOf('merkOp(gesorteerd')
+  check('er wordt pas onthouden nadat het op de server staat',
+    naDuw > 0 && onthoudt > naDuw)
+  check('ook als de wachtrij per stuk moest', sync.includes('merkOp([r.entity])'))
+  check('en het seintje gaat aan het eind van de ronde',
+    sync.includes('void geefSeintjeAlsNodig()'))
+
+  /* ---- de serverfunctie ---- */
+
+  const functie = readFileSync('supabase/functions/site-herbouwen/index.ts', 'utf8')
+
+  check('het token staat op de server en niet in de app',
+    functie.includes("Deno.env.get('GITHUB_SITE_TOKEN')")
+      && !readFileSync('src/lib/siteherbouw.ts', 'utf8').includes('GITHUB'))
+  check('en niet iedereen mag de site laten herbouwen',
+    functie.includes('magHerbouwen'))
+  check('een reeks bewerkingen levert één herbouw op', functie.includes('RUST_MS'))
+  /*
+   * Een verlopen token is stil: de site werkt, hij wordt alleen niet meer
+   * bijgewerkt. Daarom een melding aan het management, en hoogstens één per
+   * dag -- tien meldingen over hetzelfde token is een postvak dat je
+   * dichtklikt.
+   */
+  check('een verlopen token meldt zichzelf',
+    functie.includes('meldStoring') && /401, 403, 404/.test(functie))
+  /* Als JSON lezen en niet als tekst: een patroon met [^"]* loopt vast op het
+     aanhalingsteken tussen de sleutel en de waarde. Dat ging hier al een keer
+     mis bij functions:open. */
+  const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts ?? {}
+  check('en de functie wordt met inlogcontrole uitgerold',
+    String(scripts['functions:dicht'] ?? '').includes(' site-herbouwen'),
+    String(scripts['functions:dicht'] ?? ''))
+  /* Niet in de open lijst: zonder inlogcontrole kan iedereen op internet de
+     herbouw aan de gang houden. */
+  check('en niet zonder', !String(scripts['functions:open'] ?? '').includes('site-herbouwen'))
+
+  /* Zonder token is er niets stuk -- dan doet de nacht het. Dat hoort geen
+     rode melding te geven. */
+  check('zonder token is het geen fout maar "vannacht"',
+    /gepland: 'vannacht'/.test(functie) && functie.includes('!TOKEN'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

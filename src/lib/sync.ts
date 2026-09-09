@@ -22,6 +22,8 @@ import type { EntityName, OutboxRecord, SyncOp, SyncState } from './types'
 
 export const LAST_SYNC = 'lastSyncAt'
 const MAX_TRIES = 8
+import { merkOp, geefSeintjeAlsNodig } from './siteherbouw'
+
 const BATCH = 50
 /** Zoveel logregels mogen er hoogstens tegelijk op verzending wachten. */
 const MAX_LOG_IN_WACHTRIJ = 50
@@ -134,6 +136,16 @@ export const useSync = create<SyncStore>((set, get) => ({
        * wachtrij alsnog aankomt -- de mail hoort dat ook te doen.
        */
       const gemaild = await verstuurWachtendePost()
+
+      /*
+       * En de website, als er iets langskwam dat daarop staat.
+       *
+       * Helemaal aan het eind en niet halverwege: pas nu staat alles wat deze
+       * ronde te versturen had op de server, en bouwt GitHub met wat er echt
+       * is. Zonder await -- een trage GitHub hoort een geslaagde ronde niet op
+       * te houden, en de functie gooit toch nooit.
+       */
+      void geefSeintjeAlsNodig()
 
       logLive('sync', `Ronde klaar — ${geduwd} verstuurd, ${opgehaald} opgehaald` +
         (gemaild ? `, ${gemaild} mail${gemaild === 1 ? '' : 's'} alsnog verstuurd` : ''), {
@@ -359,6 +371,9 @@ async function pushOutbox(): Promise<number> {
       await api.push(changes)
       await db.outbox.bulkDelete(batch.map((r) => r.id!))
       totaal += batch.length
+      /* Pas nu staat het op de server. Zie siteherbouw.ts voor waarom het
+         seintje hier hangt en niet bij het opslaan. */
+      merkOp(gesorteerd.map((r) => r.entity))
     } catch (e) {
       /*
        * Eén record dat de server weigert mag niet de hele wachtrij
@@ -387,6 +402,11 @@ async function pushPerStuk(batch: OutboxRecord[]): Promise<Error | null> {
         entity: r.entity, op: r.op, recordId: r.recordId, payload: r.payload,
       }])
       await db.outbox.delete(r.id!)
+      /* Ook hier, en niet alleen in de batch hierboven: als er één record in
+         de batch werd geweigerd komt de rest langs deze weg, en een
+         vestiging die zo alsnog doorkomt hoort de site net zo goed bij te
+         werken. */
+      merkOp([r.entity])
     } catch (e) {
       /*
        * Welk record het was, erbij.

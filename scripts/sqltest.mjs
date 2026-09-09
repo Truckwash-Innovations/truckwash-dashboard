@@ -6794,6 +6794,97 @@ console.log('\n55. De herstelcodes liggen niet open')
   check('de rij staat er dus nog', over.length === 1)
 }
 
+/* ==================================================================== *
+ *  56. Twee functies die hetzelfde naar buiten geven
+ *
+ *  Er zijn twee functies die vestigingen aan de website doorgeven:
+ *  website_vestigingen() voor de lijst en de pagina's, en website_vacatures()
+ *  voor de keuzelijst onder een vacature. Ze horen dezelfde vestigingen te
+ *  noemen.
+ *
+ *  Dat deden ze niet. 0033 filtert op drie dingen -- op_website, active en
+ *  een slug -- en 0068 schreef die voorwaarde over met op_website eraf. Uit
+ *  de vestigingenlijst verdween een vestiging die van de site was gehaald dus
+ *  netjes; uit de keuzelijst van het sollicitatieformulier niet.
+ *
+ *  Gemeten op de echte database: 18 tegen 19.
+ *
+ *  Dit hoofdstuk legt ze naast elkaar in plaats van elk apart na te lopen.
+ *  Een controle per functie zou dit niet gevonden hebben -- allebei deden
+ *  precies wat er stond.
+ * ==================================================================== */
+
+console.log('\n56. Twee functies die hetzelfde naar buiten geven')
+
+{
+  await asServer(db)
+
+  /* Een vestiging die er wel is, maar met opzet niet op de website. Dat is
+     de stand van een pand dat nog niet open is, van het hoofdkantoor, en van
+     een proefinvoer. */
+  await db.exec(`
+    insert into public.locations
+      (id, code, name, city, website_slug, kind, active, op_website)
+    values ('loc_verborgen', 'TW-VRB', 'Nog niet open', 'Zwolle',
+            'nog-niet-open', 'vestiging', true, false)
+    on conflict (id) do update set op_website = false, active = true;
+  `)
+
+  const uitLijst = (await db.query('select slug from public.website_vestigingen()'))
+    .rows.map((r) => r.slug)
+
+  check('de vestigingenlijst laat hem weg',
+    !uitLijst.includes('nog-niet-open'), uitLijst.join(', '))
+
+  /*
+   * En dan dezelfde vraag aan de andere kant.
+   *
+   * De slugs zitten diep in het antwoord: per vacature een lijst locaties.
+   * Alles bij elkaar rapen en ontdubbelen, want het gaat om de vraag welke
+   * vestigingen er ergens genoemd worden -- niet bij welke vacature.
+   */
+  const rauw = (await db.query('select public.website_vacatures() as v')).rows[0]?.v
+  const vacatures = typeof rauw === 'string' ? JSON.parse(rauw) : (rauw ?? [])
+
+  check('er staan vacatures op de site', Array.isArray(vacatures) && vacatures.length > 0,
+    String(vacatures?.length))
+
+  const uitVacatures = [...new Set(
+    vacatures.flatMap((v) => (v.locaties ?? []).map((l) => l.slug)))]
+
+  check('en de keuzelijst onder een vacature laat hem ook weg',
+    !uitVacatures.includes('nog-niet-open'), uitVacatures.join(', '))
+
+  /*
+   * Het echte punt: ze moeten hetzelfde zeggen.
+   *
+   * Hierboven staan twee losse controles omdat die de reden benoemen. Deze
+   * ene vangt ook de volgende keer dat er een voorwaarde bijkomt bij de een
+   * en niet bij de ander -- welke dat dan ook is.
+   */
+  const alleen = (a, b) => a.filter((x) => !b.includes(x))
+  check('de twee lijsten noemen dezelfde vestigingen',
+    alleen(uitLijst, uitVacatures).length === 0
+      && alleen(uitVacatures, uitLijst).length === 0,
+    `alleen in de lijst: [${alleen(uitLijst, uitVacatures)}] / ` +
+    `alleen bij de vacatures: [${alleen(uitVacatures, uitLijst)}]`)
+
+  /* En hij komt wel mee zodra hij op de website mag. Zonder deze controle
+     zou "geef altijd niets terug" ook groen staan. */
+  await db.exec("update public.locations set op_website = true where id = 'loc_verborgen';")
+
+  const nuLijst = (await db.query('select slug from public.website_vestigingen()'))
+    .rows.map((r) => r.slug)
+  const nuRauw = (await db.query('select public.website_vacatures() as v')).rows[0]?.v
+  const nuVac = typeof nuRauw === 'string' ? JSON.parse(nuRauw) : (nuRauw ?? [])
+  const nuSlugs = [...new Set(nuVac.flatMap((v) => (v.locaties ?? []).map((l) => l.slug)))]
+
+  check('aangezet komt hij in de lijst', nuLijst.includes('nog-niet-open'))
+  check('en ook bij de vacatures', nuSlugs.includes('nog-niet-open'))
+
+  await db.exec("delete from public.locations where id = 'loc_verborgen';")
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
