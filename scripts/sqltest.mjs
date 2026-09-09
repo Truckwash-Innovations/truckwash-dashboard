@@ -5000,8 +5000,23 @@ const dosPrive = (await db.query(`
  * geen enkele leidinggevende binnen -- en dat is precies de fout die deze
  * migratie moest oplossen.
  */
+/*
+ * Sinds 0074 staat is_supervisor niet meer letterlijk in prive_write: die
+ * roept mag_dossiers_beheren() aan, omdat dezelfde vraag ook in de trigger
+ * eigen_rij_alleen_adres() wordt gesteld en die twee niet uit elkaar mogen
+ * lopen. De bedoeling van deze check is niet de letterlijke tekst maar het
+ * bovenstaande: er wordt naar de ROL gekeken. Dus kijken we ook in die
+ * functie.
+ */
+const dosBeheer = (await db.query(`
+  select coalesce(prosrc, '') as bron from pg_proc
+   where proname = 'mag_dossiers_beheren'`)).rows.map((r) => r.bron).join('')
+
+const dosViaRol = (q) => /is_supervisor/.test(q)
+  || (/mag_dossiers_beheren/.test(q) && /is_supervisor/.test(dosBeheer))
+
 check('de identiteitskant is open voor de leidinggevende',
-  dosPrive.length === 2 && dosPrive.every((r) => /is_supervisor/.test(r.qual)),
+  dosPrive.length === 2 && dosPrive.every((r) => dosViaRol(r.qual)),
   JSON.stringify(dosPrive.map((r) => `${r.cmd}:${r.qual}`)))
 
 check('en je eigen regel blijft van jezelf',
@@ -6373,6 +6388,170 @@ console.log('\n52. Een nagekomen wasbeurt blokkeert niet de hele ronde')
   check('en er staan nog steeds twee facturen voor A',
     (await db.query(`select count(*)::int as n from public.verkoopfactuur
                       where company_id = 'co_na_a' and periode = '2026-05'`)).rows[0].n === 2)
+}
+
+/* ==================================================================== *
+ *  53. Je eigen woonadres, en verder niets
+ *
+ *  Casper kon nergens een woonadres invullen -- niet als kantoor en niet als
+ *  medewerker. Het veld bestond wel; het scherm niet.
+ *
+ *  Het openzetten is niet zomaar een policy verruimen. RLS werkt per RIJ, en
+ *  op diezelfde rij staan het BSN, het documentnummer en de vervaldatum. Wie
+ *  zijn eigen rij mag schrijven mag dus in principe zijn eigen BSN wijzigen.
+ *  Dat is precies waarom 0056 die tabel heeft gesplitst.
+ *
+ *  Dus: de policy gaat open en een trigger zet alles terug wat je niet mocht
+ *  wijzigen -- zelfde aanpak als lezing_blijft_lezing. Dit hoofdstuk toetst
+ *  die trigger, want een policy die te ruim is en een trigger die hem
+ *  terugbrengt zien er van buiten hetzelfde uit tot de trigger stuk is.
+ * ==================================================================== */
+
+console.log('\n53. Je eigen woonadres, en verder niets')
+
+{
+  const WASSER = 'aaa11111-0000-4000-8000-000000000001'
+  const LEIDING = 'bbb22222-0000-4000-8000-000000000002'
+
+  await asServer(db)
+  await db.exec(`
+    insert into auth.users (id, email) values
+      ('${WASSER}', 'wasser-53@truckwash1group.nl'),
+      ('${LEIDING}', 'leiding-53@truckwash1group.nl')
+    on conflict (id) do nothing;
+
+    update public.profiles
+       set roles = array['employee']::text[], active = true, grants = '{}'::text[]
+     where email = 'wasser-53@truckwash1group.nl';
+
+    update public.profiles
+       set roles = array['supervisor']::text[], active = true, grants = '{}'::text[]
+     where email = 'leiding-53@truckwash1group.nl';
+  `)
+
+  const idVan = async (mail) => (await db.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const wasserId = await idVan('wasser-53@truckwash1group.nl')
+
+  /* Het kantoor legt het dossier aan, met het BSN erin. */
+  await db.exec(`
+    insert into public.personnel_private (id, user_id, bsn, birth_place)
+    values ('${wasserId}', '${wasserId}', '123456782', 'Rotterdam')
+    on conflict (id) do nothing;
+  `)
+
+  const als = async (uid, sql) => {
+    await asUser(db, uid)
+    await db.exec('set role authenticated;')
+    try {
+      return { rijen: (await db.query(sql)).rows }
+    } catch (e) {
+      return { fout: e.message }
+    } finally {
+      await db.exec('reset role;')
+      await asServer(db)
+    }
+  }
+
+  /* --- de wasser vult zijn adres in --- */
+
+  const gezet = await als(WASSER, `
+    update public.personnel_private
+       set address = 'Handelsweg 14', postcode = '3542 AB', city = 'Utrecht'
+     where id = '${wasserId}'
+    returning address, postcode, city`)
+
+  check('een medewerker mag zijn eigen adres invullen',
+    !gezet.fout && gezet.rijen.length === 1
+      && gezet.rijen[0].address === 'Handelsweg 14',
+    gezet.fout ?? JSON.stringify(gezet.rijen))
+
+  /* --- maar niet zijn BSN --- */
+
+  /*
+   * Dit is de kern. De update SLAAGT -- er komt geen foutmelding, want de
+   * policy laat de rij toe. De trigger zet de waarde alleen terug. Een
+   * foutmelding zou hier netter lijken en is het niet: de app schrijft eerst
+   * lokaal en duwt het daarna via de wachtrij, en een weigering blijft daar
+   * dan eeuwig in hangen.
+   */
+  const bsn = await als(WASSER, `
+    update public.personnel_private
+       set bsn = '000000000', birth_place = 'Elders'
+     where id = '${wasserId}'
+    returning bsn, birth_place`)
+
+  check('maar zijn BSN blijft staan',
+    !bsn.fout && bsn.rijen[0].bsn === '123456782', JSON.stringify(bsn))
+  check('en zijn geboorteplaats ook',
+    !bsn.fout && bsn.rijen[0].birth_place === 'Rotterdam', JSON.stringify(bsn))
+
+  /* En hij kan de twee niet in één keer combineren. */
+  const samen = await als(WASSER, `
+    update public.personnel_private
+       set address = 'Nieuwstraat 1', bsn = '111111111'
+     where id = '${wasserId}'
+    returning address, bsn`)
+  check('adres en BSN in één opdracht: alleen het adres gaat door',
+    !samen.fout && samen.rijen[0].address === 'Nieuwstraat 1'
+      && samen.rijen[0].bsn === '123456782', JSON.stringify(samen))
+
+  /* --- en niet dat van een ander --- */
+
+  const leidingId = await idVan('leiding-53@truckwash1group.nl')
+  await db.exec(`
+    insert into public.personnel_private (id, user_id, bsn)
+    values ('${leidingId}', '${leidingId}', '987654321')
+    on conflict (id) do nothing;
+  `)
+
+  const ander = await als(WASSER, `
+    update public.personnel_private
+       set address = 'Inbraakstraat 1'
+     where id = '${leidingId}'
+    returning address`)
+  check('het dossier van een ander blijft dicht',
+    !ander.fout && ander.rijen.length === 0, JSON.stringify(ander))
+
+  /* --- het kantoor mag nog steeds alles --- */
+
+  const kantoor = await als(LEIDING, `
+    update public.personnel_private
+       set bsn = '192837465', address = 'Kantoorweg 2'
+     where id = '${wasserId}'
+    returning bsn, address`)
+  check('een leidinggevende mag het BSN wel zetten',
+    !kantoor.fout && kantoor.rijen[0].bsn === '192837465', JSON.stringify(kantoor))
+
+  /* --- een nieuwe rij door de medewerker zelf --- */
+
+  /*
+   * Wie nog geen dossierrij heeft en zijn adres invult, maakt er een aan. Dan
+   * mag daar niets anders in staan -- anders is het invullen van je adres een
+   * manier om je eigen BSN te verzinnen.
+   */
+  const NIEUW = 'ccc33333-0000-4000-8000-000000000003'
+  await db.exec(`
+    insert into auth.users (id, email) values ('${NIEUW}', 'nieuw-53@truckwash1group.nl')
+    on conflict (id) do nothing;
+    update public.profiles
+       set roles = array['employee']::text[], active = true, grants = '{}'::text[]
+     where email = 'nieuw-53@truckwash1group.nl';
+    delete from public.personnel_private where user_id =
+      (select id from public.profiles where email = 'nieuw-53@truckwash1group.nl');
+  `)
+  const nieuwId = await idVan('nieuw-53@truckwash1group.nl')
+
+  const eerste = await als(NIEUW, `
+    insert into public.personnel_private (id, user_id, address, postcode, city, bsn)
+    values ('${nieuwId}', '${nieuwId}', 'Eerste 1', '1000 AA', 'Amsterdam', '000000000')
+    returning address, bsn`)
+
+  check('een medewerker kan zijn eigen dossierrij aanmaken met alleen een adres',
+    !eerste.fout && eerste.rijen[0].address === 'Eerste 1', JSON.stringify(eerste))
+  check('en er komt geen zelfverzonnen BSN in',
+    !eerste.fout && eerste.rijen[0].bsn === null, JSON.stringify(eerste))
 }
 
 await db.close()

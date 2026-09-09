@@ -5,7 +5,7 @@ import {
   Receipt, Send, Timer, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
-import { documenten } from '../../lib/dossier'
+import { documenten, dossier as dossierRepo } from '../../lib/dossier'
 import {
   adresVan, KM_TARIEF, mijnRitten, ritten as ritRepo, SOORT_LABEL, totaalKm,
   urenverzoeken, vergoeding, zoekAfstand,
@@ -621,15 +621,18 @@ function RitDialoog({ open, onClose }: { open: boolean; onClose: () => void }) {
       onClose={onClose}
       width={560}
     >
-      {!thuisAdres && (
-        <div className="waarschuwing zacht mb">
-          <MapPin size={17} />
-          <span>
-            Je woonadres staat nog niet in je dossier, dus woon-werkverkeer
-            kan de app niet uitrekenen. Vraag het kantoor om het toe te voegen.
-          </span>
-        </div>
-      )}
+      {/*
+        Hier stond: "Vraag het kantoor om het toe te voegen." Het kantoor had
+        dat scherm niet, en jij ook niet -- dus was dit een doodlopende weg
+        met een beleefde zin erbij. Casper: "kan ik niet vinden waar ik iemand
+        zijn adres moet invullen voor kilometer vergoeding, of waar ze dit
+        zelf kunnen doen."
+
+        Nu staat het invulveld waar de melding stond. Sinds 0074 mag je je
+        eigen adres zetten -- en alleen je adres; de rest van je dossier zet
+        een trigger terug.
+      */}
+      {!thuisAdres && <EigenAdres userId={me.id} />}
 
       <div className="grid cols-2">
         <Field label="Welke dag">
@@ -737,5 +740,103 @@ function RitDialoog({ open, onClose }: { open: boolean; onClose: () => void }) {
         </button>
       </div>
     </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Je eigen woonadres
+ *
+ *  Alleen deze drie velden. De rest van het dossier -- BSN, documentnummer,
+ *  geboortedatum -- blijft van personeelszaken; de database zet die terug als
+ *  je ze toch meestuurt (0074, eigen_rij_alleen_adres).
+ *
+ *  Waarom dit geen goedkeuring nodig heeft: een rit legt zijn kilometers vast
+ *  op het moment dat hij wordt aangemaakt, dus een adreswijziging rekent oude
+ *  ritten niet opnieuw uit. Er valt met terugwerkende kracht niets te
+ *  verdienen, en wie een verkeerd adres invult benadeelt vooral zichzelf.
+ * ------------------------------------------------------------------ */
+
+function EigenAdres({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false)
+  const [straat, setStraat] = useState('')
+  const [postcode, setPostcode] = useState('')
+  const [plaats, setPlaats] = useState('')
+  const [bezig, setBezig] = useState(false)
+
+  async function bewaar() {
+    if (!straat.trim() || !plaats.trim()) {
+      return toast.error('Vul in elk geval de straat en de plaats in')
+    }
+    setBezig(true)
+    try {
+      await dossierRepo.save(userId, {
+        address: straat.trim(),
+        postcode: postcode.trim().toUpperCase() || undefined,
+        city: plaats.trim(),
+      })
+      toast.ok('Je woonadres staat erin')
+      setOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Opslaan lukte niet')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="waarschuwing zacht mb">
+        <MapPin size={17} />
+        <span>
+          Je woonadres staat nog niet in je dossier, dus woon-werkverkeer kan
+          de app niet uitrekenen.{' '}
+          <button
+            type="button"
+            className="tekstknop"
+            onClick={() => setOpen(true)}
+          >
+            Vul het hier in
+          </button>
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="waarschuwing zacht mb" style={{ display: 'block' }}>
+      <p style={{ margin: '0 0 10px', fontSize: '.87rem' }}>
+        Alleen je adres. De rest van je dossier blijft van kantoor.
+      </p>
+      <div className="grid cols-3">
+        <Field label="Straat en huisnummer">
+          <input
+            className="input" value={straat} autoFocus
+            placeholder="Handelsweg 14"
+            onChange={(e) => setStraat(e.target.value)}
+          />
+        </Field>
+        <Field label="Postcode">
+          <input
+            className="input" value={postcode} maxLength={7}
+            placeholder="3542 AB"
+            onChange={(e) => setPostcode(e.target.value.toUpperCase())}
+          />
+        </Field>
+        <Field label="Woonplaats">
+          <input
+            className="input" value={plaats}
+            placeholder="Utrecht"
+            onChange={(e) => setPlaats(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div className="row end" style={{ marginTop: 4 }}>
+        <button className="btn ghost sm" onClick={() => setOpen(false)}>Annuleren</button>
+        <button className="btn primary sm" disabled={bezig} onClick={() => void bewaar()}>
+          {bezig ? <Loader2 size={14} className="spin" /> : <MapPin size={14} />}
+          Opslaan
+        </button>
+      </div>
+    </div>
   )
 }

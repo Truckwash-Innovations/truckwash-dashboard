@@ -437,6 +437,9 @@ function GegevensDialoog({
     birthDate: prive?.birthDate ? dateInputValue(prive.birthDate) : '',
     birthPlace: prive?.birthPlace ?? '',
     nationality: prive?.nationality ?? '',
+    address: prive?.address ?? '',
+    postcode: prive?.postcode ?? '',
+    city: prive?.city ?? '',
     documentType: prive?.documentType ?? '',
     documentNumber: prive?.documentNumber ?? '',
     documentExpires: prive?.documentExpires ? dateInputValue(prive.documentExpires) : '',
@@ -493,6 +496,9 @@ function GegevensDialoog({
       birthDate: form.birthDate ? dayFromDateInput(form.birthDate) : undefined,
       birthPlace: form.birthPlace.trim() || undefined,
       nationality: form.nationality.trim().toUpperCase() || undefined,
+      address: form.address.trim() || undefined,
+      postcode: form.postcode.trim().toUpperCase() || undefined,
+      city: form.city.trim() || undefined,
       documentType: (form.documentType || undefined) as PersonnelPrivate['documentType'],
       documentNumber: form.documentNumber.trim().toUpperCase() || undefined,
       documentExpires: form.documentExpires ? dayFromDateInput(form.documentExpires) : undefined,
@@ -557,6 +563,41 @@ function GegevensDialoog({
             <input
               className="input" value={form.nationality} maxLength={3}
               onChange={(e) => set({ nationality: e.target.value.toUpperCase() })}
+            />
+          </Field>
+        </div>
+
+        {/*
+          Het woonadres. Dit stond nergens in te vullen -- niet hier en niet
+          bij de medewerker zelf -- terwijl het ritformulier er wel om vraagt:
+          "Je woonadres staat nog niet in je dossier ... Vraag het kantoor om
+          het toe te voegen." Het kantoor had dat scherm niet.
+
+          Hier en niet op het profiel, om dezelfde reden als de rest van dit
+          venster: het adres van een collega gaat niemand anders aan.
+        */}
+        <div className="grid cols-3">
+          <Field
+            label="Woonadres"
+            help="Voor de kilometervergoeding: hiervandaan wordt de afstand gerekend."
+          >
+            <input
+              className="input" value={form.address}
+              placeholder="Straat en huisnummer"
+              onChange={(e) => set({ address: e.target.value })}
+            />
+          </Field>
+          <Field label="Postcode">
+            <input
+              className="input" value={form.postcode} maxLength={7}
+              placeholder="1234 AB"
+              onChange={(e) => set({ postcode: e.target.value.toUpperCase() })}
+            />
+          </Field>
+          <Field label="Woonplaats">
+            <input
+              className="input" value={form.city}
+              onChange={(e) => set({ city: e.target.value })}
             />
           </Field>
         </div>
@@ -881,7 +922,14 @@ function UploadDialoog({
     } else if (overnemen.has('maandloon') && gelezen.maandloon && gelezen.urenPerWeek) {
       uurloon = afgeleidUurloon(gelezen.maandloon.waarde, gelezen.urenPerWeek.waarde)
     }
-    if (uurloon !== undefined) await dossierRepo.save(person.id, { hourlyRate: uurloon })
+    /*
+     * saveLoon en niet save. Het uurloon staat sinds 0056 in personnel_loon;
+     * de kolom hourly_rate is uit personnel_private weggehaald. Hier stond
+     * save(), en dan weigert PostgREST de hele rij -- zonder dat het scherm
+     * er iets van laat zien, want lokaal in Dexie gaat het wel goed. Precies
+     * dezelfde fout stond in de aanmaakwizard (1.75.0).
+     */
+    if (uurloon !== undefined) await dossierRepo.saveLoon(person.id, { hourlyRate: uurloon })
   }
 
   async function verstuur() {
