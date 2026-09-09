@@ -107,7 +107,10 @@ export default function AdministratieDashboard() {
   }, [])
 
   const wacht = useMemo(() => ({
-    kosten: bonnen.filter((e) => e.status === 'open').length,
+    /* Beide standen wachten op een mens: 'open' op de eerste handtekening,
+       'eerste_akkoord' op de tweede. Alleen de eerste tellen liet de badge op
+       nul staan terwijl er werk lag. */
+    kosten: bonnen.filter((e) => e.status === 'open' || e.status === 'eerste_akkoord').length,
     // Een bon zonder bedrag is erger dan een bon die op akkoord wacht: daar
     // kun je niets over beslissen tot iemand hem aanvult.
     kaal: bonnen.filter((e) => e.status === 'open' && e.amountExcl === 0).length,

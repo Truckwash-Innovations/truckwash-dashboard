@@ -6818,5 +6818,134 @@ console.log('\n54. De sfeerbeelden op het inlogscherm')
     /\.auth-card {[\s\S]{0,400}?z-index: 1/.test(css))
 }
 
+/* ====================================================================
+ *  55. De tweede handtekening moet gezet kunnen worden
+ *
+ *  Casper: "een tweede persoon zou de dingen moeten goedkeuren (dus altijd
+ *  iemand die het ziet nadat AI het ziet) maar een tweede persoon heeft geen
+ *  knop?"
+ *
+ *  Hij had gelijk, en het was erger dan een ontbrekende knop: er was geen
+ *  enkele weg. De knoppen in de rij stonden achter `status === 'open'`, dus
+ *  een bon op "wacht op tweede" kreeg alleen Heropenen. Het detailvenster
+ *  heeft helemaal geen goedkeurknop. En de selectievakjes stonden alleen op
+ *  het tabblad 'open', dus ook niet met een stapel tegelijk.
+ *
+ *  De onderkant deugde wel: repo.decide zet netjes de eerste of de tweede en
+ *  weigert dezelfde persoon twee keer. Dat wordt hier eerst nagespeeld, zodat
+ *  vaststaat dat de knop op iets aansluit dat werkt.
+ * ==================================================================== */
+
+console.log('\n55. De tweede handtekening')
+
+{
+  const { expenses: expRepo } = await import('../src/lib/repo')
+
+  const A = { id: 'u_anna', name: 'Anna' }
+  const Bee = { id: 'u_bram', name: 'Bram' }
+
+  const maak = async (id: string) => {
+    await db.expenses.put({
+      id, locationId: 'loc_a', date: Date.now(), category: 'materiaal',
+      supplier: 'Chemtrans', description: 'proef', amountExcl: 250, vatPct: 21,
+      status: 'open', submittedBy: 'u_wim', submittedByName: 'Wim',
+      updatedAt: Date.now(),
+    } as never)
+  }
+  const standVan = async (id: string) => (await db.expenses.get(id))?.status
+
+  /* ---- de keten zelf ---- */
+
+  await maak('exp_55a')
+  await expRepo.decide('exp_55a', 'goedgekeurd', A)
+  check('de eerste handtekening zet hem op wacht-op-tweede',
+    (await standVan('exp_55a')) === 'eerste_akkoord',
+    String(await standVan('exp_55a')))
+
+  const eerste = await db.expenses.get('exp_55a')
+  check('en legt vast wie het was', eerste?.eersteDoor === 'u_anna')
+
+  /*
+   * Dezelfde persoon nog een keer: dat is het hele punt van vier ogen. Een
+   * nette melding hier is prettiger dan een databasefout die pas bij het
+   * synchroniseren opvalt.
+   */
+  let nogEens = 'gelukt'
+  try {
+    await expRepo.decide('exp_55a', 'goedgekeurd', A)
+  } catch (e) {
+    nogEens = e instanceof Error ? e.message : 'fout'
+  }
+  check('dezelfde persoon mag niet twee keer', nogEens !== 'gelukt', nogEens)
+  check('en de melding zegt waarom',
+    nogEens.includes('iemand anders'), nogEens)
+  check('de stand blijft staan', (await standVan('exp_55a')) === 'eerste_akkoord')
+
+  await expRepo.decide('exp_55a', 'goedgekeurd', Bee)
+  check('iemand anders tekent hem wel af',
+    (await standVan('exp_55a')) === 'goedgekeurd')
+  const klaar = await db.expenses.get('exp_55a')
+  check('en beide namen staan erbij',
+    klaar?.eersteDoorNaam === 'Anna' && klaar?.approvedByName === 'Bram',
+    `${klaar?.eersteDoorNaam} / ${klaar?.approvedByName}`)
+
+  /* ---- en dan de knop die daarop aansluit ---- */
+
+  const { readFileSync } = await import('node:fs')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+
+  /*
+   * Dit was de fout: `e.status === 'open' ? (...knoppen...) : (...heropenen)`.
+   * Een bon die op de tweede handtekening wachtte viel in de else-tak.
+   */
+  check('de knoppenrij geldt ook voor wacht-op-tweede',
+    scherm.includes("{(e.status === 'open' || e.status === 'eerste_akkoord') ? ("),
+    'de knoppen staan nog achter alleen open')
+
+  /*
+   * Uitgeschakeld en niet verborgen als je zelf de eerste was. Verbergen zou
+   * betekenen dat het lijkt alsof er niets te doen valt, terwijl er op een
+   * collega wordt gewacht.
+   */
+  check('en is uit als je zelf de eerste was',
+    /disabled={e\.status === 'eerste_akkoord' && e\.eersteDoor === user\.id}/.test(scherm))
+  check('met de reden in de tooltip',
+    scherm.includes('de tweede handtekening moet van iemand anders komen'))
+
+  /* De selectievakjes stonden ook alleen op het tabblad open. */
+  check('en je kunt er een stapel tegelijk kiezen',
+    scherm.includes("const teKiezenTab = tab === 'open' || tab === 'eerste_akkoord'")
+      && !/{tab === 'open' && \(\s*<th/.test(scherm))
+
+  /*
+   * En de tellers. Die stonden op alleen 'open', dus ze zeiden "0 te
+   * valideren" terwijl er een stapel op een tweede handtekening lag --
+   * precies de stilte waardoor niemand doorhad dat de knop ontbrak.
+   */
+  check('de teller telt beide standen mee',
+    /const teValideren = alle\.filter\(\(e\) => e\.status === 'open' \|\| e\.status === 'eerste_akkoord'\)/
+      .test(scherm))
+
+  const dash = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
+  check('en de badge in het menu ook',
+    /kosten: bonnen\.filter\(\(e\) => e\.status === 'open' \|\| e\.status === 'eerste_akkoord'\)/
+      .test(dash))
+
+  /* ---- altijd iemand ná de AI ---- */
+
+  /*
+   * Casper: "dus altijd iemand die het ziet nadat AI het ziet". Dat werkt via
+   * de automatische goedkeuring: die zet hem met vier ogen aan op
+   * eerste_akkoord en laat de tweede aan een mens. Zou hij daar meteen
+   * 'goedgekeurd' zetten, dan gaat er geld weg zonder dat er iemand keek.
+   */
+  const verwerking = readFileSync('supabase/functions/_gedeeld/verwerking.ts', 'utf8')
+  check('automatisch goedkeuren laat de tweede aan een mens',
+    /status: await vierOgenAan\(admin, bedrag\) \? 'eerste_akkoord' : 'goedgekeurd'/
+      .test(verwerking))
+
+  await db.expenses.delete('exp_55a')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

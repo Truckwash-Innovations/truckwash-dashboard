@@ -103,7 +103,14 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
     [alle, tab, zoek],
   )
 
-  const teValideren = alle.filter((e) => e.status === 'open')
+  /*
+   * Beide standen wachten op een mens.
+   *
+   * Hier stond alleen 'open', en dan zegt de teller "0 te valideren" terwijl
+   * er twaalf op een tweede handtekening liggen. Precies de stilte waardoor
+   * niemand doorhad dat die knop ontbrak.
+   */
+  const teValideren = alle.filter((e) => e.status === 'open' || e.status === 'eerste_akkoord')
   const openBedrag = teValideren.reduce((a, e) => a + e.amountExcl, 0)
   const zonderBedrag = teValideren.filter((e) => e.amountExcl === 0).length
   const gekozen = alle.find((e) => e.id === open) ?? null
@@ -181,6 +188,8 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
   }
 
   const gekozenRijen = rijen.filter((r) => selected.has(r.id))
+  /* Op welke tabbladen valt er iets goed te keuren. */
+  const teKiezenTab = tab === 'open' || tab === 'eerste_akkoord'
 
   return (
     <>
@@ -253,7 +262,11 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
             <table className="data">
               <thead>
                 <tr>
-                  {tab === 'open' && (
+                  {/* Ook op 'wacht op tweede': daar staat vaak een stapel van
+                      dezelfde ochtend, en die hoort in één keer te kunnen.
+                      keurGoed() slaat over wat je zelf hebt nagekeken en zegt
+                      dat erbij. */}
+                  {teKiezenTab && (
                     <th style={{ width: 34 }}>
                       <input
                         type="checkbox"
@@ -280,7 +293,7 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
                   const btw = (e.amountExcl * e.vatPct) / 100
                   return (
                     <tr key={e.id}>
-                      {tab === 'open' && (
+                      {teKiezenTab && (
                         <td>
                           <input
                             type="checkbox"
@@ -335,14 +348,37 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
                         )}
                       </td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {e.status === 'open' ? (
+                        {/*
+                          Ook bij 'eerste_akkoord'.
+
+                          Hier stond alleen `e.status === 'open'`, en daarmee
+                          was de tweede handtekening onbereikbaar: een bon die
+                          op "wacht op tweede" stond kreeg alleen een
+                          Heropenen-knop. Het tabblad ervoor bestond wel, de
+                          serverkant kon het (repo.decide zet netjes de eerste
+                          of de tweede), en het detailvenster heeft helemaal
+                          geen goedkeurknop -- dus er was geen enkele weg.
+                          Casper: "een tweede persoon heeft geen knop?"
+
+                          Wie zijn eigen eerste handtekening al zette, ziet de
+                          knop uitgeschakeld met de reden erbij. Dat is
+                          eerlijker dan hem verbergen: dan lijkt het alsof er
+                          niets te doen valt, terwijl er op een collega wordt
+                          gewacht.
+                        */}
+                        {(e.status === 'open' || e.status === 'eerste_akkoord') ? (
                           <>
                             <button
                               className="btn ok sm"
+                              disabled={e.status === 'eerste_akkoord' && e.eersteDoor === user.id}
                               onClick={() => void keurGoed([e.id])}
-                              title="Goedkeuren"
+                              title={e.status === 'open'
+                                ? 'Goedkeuren'
+                                : e.eersteDoor === user.id
+                                  ? 'Je hebt deze factuur zelf nagekeken; de tweede handtekening moet van iemand anders komen'
+                                  : `Tweede handtekening zetten${e.eersteDoorNaam ? ` (${e.eersteDoorNaam} ging voor)` : ''}`}
                             >
-                              <Check size={14} />
+                              {e.status === 'eerste_akkoord' ? <CheckCheck size={14} /> : <Check size={14} />}
                             </button>{' '}
                             <button
                               className="btn danger sm"
