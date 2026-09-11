@@ -52,3 +52,7 @@ graphify-out/
 # de repo: een oude kopie is precies waar de versheidscontrole in
 # scripts/site-bouwen.cjs een rem op zet.
 sitebouw/vestigingen.json
+
+# Testfacturen. Uitvoer van scripts/testfacturen.mjs, en er staan nummers van
+# Truckwash zelf op zodra die in dat script worden ingevuld.
+testfacturen/
