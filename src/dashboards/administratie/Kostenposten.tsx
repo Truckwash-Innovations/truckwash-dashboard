@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   AlertTriangle, ArrowLeft, Check, CheckCheck, Clock, Euro, Loader2, Mail, Paperclip,
   History, MessageSquarePlus, Plus, Receipt, RotateCcw, ScanText, Sparkles,
-  Split, Wallet, X,
+  Split, Store, Wallet, X,
 } from 'lucide-react'
 import { db, uid } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
@@ -2231,6 +2231,28 @@ function Signalen({ bon }: { bon: Expense }) {
             : 'Voorgelezen'}
         >
           <ScanText size={14} />
+        </span>
+      )}
+
+      {/*
+        * Een factuur die van onszelf lijkt te zijn.
+        *
+        * De lezer zegt dan "verkoop", maar de post haalt de kostenpost pas
+        * weg als het stuk óók een eigen nummer draagt -- KvK, btw of IBAN
+        * (0047). Staan die drie leeg in de instellingen, dan gebeurt dat
+        * nooit en blijft elke doorgestuurde verkoopfactuur gewoon tussen de
+        * inkoop staan.
+        *
+        * Dat is de veilige kant, en het is stil: het verdween in de teller
+        * "n punten van twijfel" tussen een onscherpe scan en een ontbrekend
+        * bedrag. Hier krijgt het een eigen merk, want het is iets anders --
+        * niet "dit klopt misschien niet" maar "dit hoort hier niet".
+        */}
+      {bon.gelezen?.richting === 'verkoop' && (
+        <span className="mis" title={
+          'De lezer denkt dat dit een factuur van onszelf is, geen inkoopfactuur. '
+          + 'Klopt dat, keur hem dan af -- dan verdwijnt hij uit deze lijst.'}>
+          <Store size={14} />
         </span>
       )}
 
