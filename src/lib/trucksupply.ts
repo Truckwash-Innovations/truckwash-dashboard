@@ -1167,6 +1167,31 @@ export interface ExactAdministratie {
   eigenBic: string
 }
 
+/**
+ * Een administratie zoals het scherm hem nodig heeft.
+ *
+ * De drie rekeningvelden komen pas mee sinds de serverfunctie opnieuw is
+ * uitgerold. Is dat nog niet gebeurd, dan stuurt hij ze niet, en dan zou
+ * React een invoerveld zonder waarde krijgen -- dat wordt een ongecontroleerd
+ * veld dat zich vreemd gedraagt zodra je erin typt, en dat is een lastiger
+ * verhaal dan "er staat niets".
+ *
+ * Dus altijd een lege tekst. Wat er dan gebeurt is eerlijk: je typt een
+ * rekeningnummer, de oude serverfunctie kent het veld niet, en het staat er na
+ * het opslaan niet. Vervelend, maar zichtbaar.
+ */
+function alsAdministratie(r: Partial<ExactAdministratie>): ExactAdministratie {
+  return {
+    code: String(r.code ?? ''),
+    naam: r.naam ?? '',
+    actief: r.actief === true,
+    hoofd: r.hoofd === true,
+    eigenIban: r.eigenIban ?? '',
+    eigenNaam: r.eigenNaam ?? '',
+    eigenBic: r.eigenBic ?? '',
+  }
+}
+
 export interface FacturenStand {
   administraties: ExactAdministratie[]
   aan: boolean
@@ -1184,7 +1209,7 @@ export interface FacturenStand {
 
 function alsFacturen(uit: Partial<FacturenStand>): FacturenStand {
   return {
-    administraties: uit.administraties ?? [],
+    administraties: (uit.administraties ?? []).map(alsAdministratie),
     aan: uit.aan === true,
     dagboek: uit.dagboek ?? '',
     btw: uit.btw ?? {},
@@ -1288,7 +1313,7 @@ export async function exactSyncAdministraties(): Promise<AdministratieRonde> {
   const uit = await roepFunctie<Partial<AdministratieRonde>>(
     'exact', { actie: 'sync-administraties' })
   return {
-    administraties: uit.administraties ?? [],
+    administraties: (uit.administraties ?? []).map(alsAdministratie),
     hersteld: uit.hersteld ?? null,
     uitgezet: uit.uitgezet ?? [],
   }
@@ -1306,7 +1331,7 @@ export async function exactZetAdministratie(
 ): Promise<ExactAdministratie[]> {
   const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
     'exact', { actie: 'zet-administratie', code, ...velden })
-  return uit.administraties ?? []
+  return (uit.administraties ?? []).map(alsAdministratie)
 }
 
 
