@@ -664,7 +664,18 @@ export default function Kostenposten({ openBon, naarPostbus }: {
         * en een stap aanklikken zet ze op "alles", anders sluiten de twee
         * elkaar uit.
         */}
-      <Stroombalk stroom={stroomStand} gekozen={stap} kies={kiesStap} />
+      <Stroombalk
+        vakjes={stroomStand.map((s) => ({
+          sleutel: s.stap.sleutel,
+          label: s.stap.label,
+          uitleg: s.stap.uitleg,
+          aantal: s.aantal,
+          stuk: s.stuk,
+          telaat: s.telaat,
+        }))}
+        gekozen={stap}
+        kies={(k) => kiesStap(k as StapSleutel | null)}
+      />
 
       <Tabbladen
         actief={tab}

@@ -1204,9 +1204,18 @@ async function zetBetaald(body: Record<string, unknown>, beller: Beller): Promis
  * ------------------------------------------------------------------ */
 
 async function verkoopStand() {
-  const [facturen, dagboek, sync] = await Promise.all([
+  const [facturen, dagboek, aan, sync] = await Promise.all([
     admin.from('verkoopfactuur').select('*').order('datum', { ascending: false }).limit(200),
     admin.from('instellingen').select('waarde').eq('sleutel', 'exact_verkoopdagboek').maybeSingle(),
+    /*
+     * Of het boeken naar Exact überhaupt aanstaat (0058).
+     *
+     * Het scherm heeft dit nodig om een stapel bij "Boeken" te kunnen
+     * verklaren. Staat de schakelaar uit, dan groeit dat vakje elke maand en
+     * is er niets mis -- maar zonder die zin ziet het eruit als een
+     * achterstand waar iemand naar moet kijken.
+     */
+    admin.from('instellingen').select('waarde').eq('sleutel', 'exact_facturen').maybeSingle(),
     admin.from('exact_sync').select('*').eq('soort', 'verkoopfacturen').maybeSingle(),
   ])
 
@@ -1221,6 +1230,12 @@ async function verkoopStand() {
     administratie: (f.administratie as string) ?? null,
     periode: (f.periode as string) ?? null,
     datum: Number(f.datum) || 0,
+    /* Wanneer hij betaald moet zijn, en of dat gebeurd is. Nodig om te kunnen
+       zien wat er te laat is -- zonder die twee is "openstaand" een stapel
+       zonder urgentie. */
+    vervaldatum: Number(f.vervaldatum) || null,
+    verstuurdAt: Number(f.verstuurd_at) || null,
+    betaaldAt: Number(f.betaald_at) || null,
     bedragExcl: Number(f.bedrag_excl) || 0,
     bedragIncl: Number(f.bedrag_incl) || 0,
     status: String(f.status),
@@ -1234,6 +1249,7 @@ async function verkoopStand() {
   return {
     facturen: rijen,
     verkoopdagboek: String(dagboek.data?.waarde ?? '').trim(),
+    boekenAan: String(aan.data?.waarde ?? '').trim().toLowerCase() === 'aan',
     concepten: rijen.filter((r) => r.status === 'concept').length,
     verstuurd: rijen.filter((r) => r.status === 'verstuurd').length,
     naarExact: rijen.filter((r) => r.status === 'verstuurd' && !r.exactId && r.heeftRelatie).length,

@@ -1352,6 +1352,11 @@ export interface VerkoopFactuurRegel {
   administratie: string | null
   periode: string | null
   datum: number
+  /** Wanneer hij betaald moet zijn, epoch ms. */
+  vervaldatum: number | null
+  verstuurdAt: number | null
+  /** Gevuld = binnen. Leeg en over de vervaldatum = te laat. */
+  betaaldAt: number | null
   bedragExcl: number
   bedragIncl: number
   status: 'concept' | 'verstuurd' | 'betaald' | 'vervallen'
@@ -1364,6 +1369,19 @@ export interface VerkoopFactuurRegel {
 export interface VerkoopStand {
   facturen: VerkoopFactuurRegel[]
   verkoopdagboek: string
+  /**
+   * Staat het boeken naar Exact aan (0058)?
+   *
+   * Het scherm heeft dit nodig om een stapel bij "Boeken" te kunnen verklaren.
+   * Staat de schakelaar uit, dan groeit dat vakje elke maand en is er niets
+   * mis -- maar zonder die zin ziet het eruit als een achterstand.
+   *
+   * null betekent: de serverfunctie is nog niet uitgerold en zegt er niets
+   * over. Dat is met opzet iets anders dan false. Zou het op false vallen,
+   * dan beweert het scherm dat boeken uit staat terwijl het aan kan zijn --
+   * en dan gaat iemand een schakelaar omzetten die al goed stond.
+   */
+  boekenAan: boolean | null
   concepten: number
   verstuurd: number
   naarExact: number
@@ -1375,6 +1393,9 @@ function alsVerkoop(uit: Partial<VerkoopStand>): VerkoopStand {
   return {
     facturen: uit.facturen ?? [],
     verkoopdagboek: uit.verkoopdagboek ?? '',
+    /* Niet `=== true`: dan wordt onbekend stilletjes false, en dat is
+       precies het verschil dat dit veld moet maken. */
+    boekenAan: typeof uit.boekenAan === 'boolean' ? uit.boekenAan : null,
     concepten: uit.concepten ?? 0,
     verstuurd: uit.verstuurd ?? 0,
     naarExact: uit.naarExact ?? 0,

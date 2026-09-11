@@ -7772,5 +7772,147 @@ console.log('\n60. De stroom van een factuur')
   }
 }
 
+
+/* ==================================================================== *
+ *  61. De stroom aan de verkoopkant
+ *
+ *  Casper vroeg of Verkoop dezelfde behandeling kon krijgen als Inkoop: een
+ *  rij vakjes die teller en filter tegelijk is.
+ *
+ *  Wat hier wordt nagerekend is de indeling, want daar gaat het stil fout.
+ *  Een factuur die in twee vakjes valt wordt door twee mensen opgepakt of
+ *  door geen van beiden; een factuur die in geen enkel vakje valt verdwijnt
+ *  uit de balk zonder dat er iets misgaat.
+ *
+ *  En het bedrag dat buiten staat, want dat loopt dwars door de vakjes heen
+ *  -- 'boeken' en 'openstaand' zijn allebei geld dat nog moet komen.
+ * ==================================================================== */
+
+console.log('\n61. De stroom aan de verkoopkant')
+
+{
+  const {
+    VERKOOPSTAPPEN, buitenStaand, verkoopKlem, verkoopstapVan, verkoopstroom,
+    verkoopTeLaat,
+  } = await import('../src/lib/verkoopstroom.ts')
+
+  const NU = 1_800_000_000_000
+  const DAG = 86_400_000
+
+  const f = (extra: Record<string, unknown> = {}) => ({
+    id: 'vf' + Math.random().toString(36).slice(2, 8),
+    nummer: null, klant: 'Van Dijk Transport', companyId: 'co1',
+    administratie: '001', periode: '2026-05', datum: NU - 10 * DAG,
+    vervaldatum: NU + 20 * DAG, verstuurdAt: null, betaaldAt: null,
+    bedragExcl: 100, bedragIncl: 121, status: 'concept',
+    exactId: null, fout: null, heeftRelatie: true,
+    ...extra,
+  }) as never
+
+  /* ---- elke stand valt in precies één vakje ---- */
+
+  check('een concept staat bij Concept',
+    verkoopstapVan(f()) === 'concept')
+  check('verstuurd en nog niet geboekt staat bij Boeken',
+    verkoopstapVan(f({ status: 'verstuurd' })) === 'boeken')
+  check('verstuurd en geboekt staat bij Openstaand',
+    verkoopstapVan(f({ status: 'verstuurd', exactId: 'X1' })) === 'openstaand')
+
+  /*
+   * Wat afgehandeld is valt in geen enkel vakje. Een lijst waarin het
+   * afgeronde werk blijft staan wordt elke maand langer en elke maand minder
+   * gelezen.
+   */
+  check('betaald telt nergens mee',
+    verkoopstapVan(f({ status: 'betaald', exactId: 'X1', betaaldAt: NU })) === null)
+  check('vervallen ook niet',
+    verkoopstapVan(f({ status: 'vervallen' })) === null)
+
+  /*
+   * De keuze die niet vanzelf spreekt. Een verstuurde factuur die nog niet
+   * geboekt is, is tegelijk "moet geboekt" en "staat open". Hij valt onder
+   * Boeken -- dat is de eerstvolgende handeling van ONS; openstaan is wachten
+   * op de klant.
+   */
+  const dubbel = f({ status: 'verstuurd', exactId: null })
+  check('een verstuurde ongeboekte factuur valt maar in één vakje',
+    VERKOOPSTAPPEN.filter((s) => verkoopstapVan(dubbel) === s.sleutel).length === 1)
+
+  /* ---- de balk ---- */
+
+  const vak = (uit: ReturnType<typeof verkoopstroom>, sleutel: string) =>
+    uit.find((s) => s.stap.sleutel === sleutel)!
+
+  const uit = verkoopstroom([
+    f(),
+    f(),
+    f({ status: 'verstuurd' }),
+    f({ status: 'verstuurd', exactId: 'X1' }),
+    f({ status: 'betaald', betaaldAt: NU }),
+    f({ status: 'vervallen' }),
+  ], NU)
+
+  check('twee concepten', vak(uit, 'concept').aantal === 2)
+  check('één te boeken', vak(uit, 'boeken').aantal === 1)
+  check('één openstaand', vak(uit, 'openstaand').aantal === 1)
+  check('het bedrag is inclusief btw -- dat is wat de klant overmaakt',
+    vak(uit, 'concept').bedrag === 242)
+
+  check('alle stappen komen terug, ook de lege',
+    verkoopstroom([], NU).length === VERKOOPSTAPPEN.length)
+
+  /* ---- wat vastzit ---- */
+
+  /*
+   * Zonder gekoppelde relatie kan een factuur niet naar Exact: een boeking
+   * wijst naar een relatie en niet naar een naam. Dat is met de hand op te
+   * lossen, dus het hoort op het scherm en niet in een logregel.
+   */
+  const losseKlant = f({ status: 'verstuurd', heeftRelatie: false })
+  check('zonder relatie in Exact zit hij vast',
+    (verkoopKlem(losseKlant) ?? '').includes('relatie'))
+  check('en dat telt als vastgelopen in de balk',
+    vak(verkoopstroom([losseKlant], NU), 'boeken').klem === 1)
+
+  check('een geboekte factuur zit nergens op vast',
+    verkoopKlem(f({ status: 'verstuurd', exactId: 'X1', heeftRelatie: false })) === null)
+  check('en een concept ook niet',
+    verkoopKlem(f({ heeftRelatie: false })) === null)
+
+  /* ---- te laat ---- */
+
+  check('over de vervaldatum en niet betaald is te laat',
+    verkoopTeLaat(f({ status: 'verstuurd', vervaldatum: NU - DAG }), NU) === true)
+  check('maar betaald niet meer',
+    verkoopTeLaat(f({ vervaldatum: NU - DAG, betaaldAt: NU }), NU) === false)
+  check('en een vervaldatum in de toekomst ook niet',
+    verkoopTeLaat(f({ vervaldatum: NU + DAG }), NU) === false)
+
+  /* ---- wat er buiten staat ---- */
+
+  /*
+   * Dit getal loopt dwars door de vakjes heen: 'boeken' en 'openstaand' zijn
+   * allebei geld dat nog moet komen. Zou het over twee vakjes verdeeld
+   * blijven, dan is er nergens meer één bedrag om naar te kijken.
+   */
+  const buiten = buitenStaand([
+    f({ status: 'verstuurd', bedragIncl: 100 }),
+    f({ status: 'verstuurd', exactId: 'X1', bedragIncl: 200 }),
+    f({ status: 'concept', bedragIncl: 999 }),
+    f({ status: 'betaald', betaaldAt: NU, bedragIncl: 500 }),
+  ])
+  check('buiten staat alleen wat verstuurd en onbetaald is',
+    buiten.aantal === 2 && buiten.bedrag === 300)
+  check('een concept telt daar niet in mee -- dat is nog niet de deur uit',
+    buiten.bedrag === 300)
+
+  /* ---- de uitleg moet ergens over gaan ---- */
+
+  for (const stap of VERKOOPSTAPPEN) {
+    check(`de stap "${stap.sleutel}" legt zichzelf uit`,
+      stap.uitleg.length > 15 && stap.uitleg.endsWith('.'))
+  }
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

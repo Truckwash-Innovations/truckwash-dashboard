@@ -69,10 +69,20 @@ import {
   type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
   type BetaalStand, type FacturenStand, type RelatiesStand, type VerkoopStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
-  type PersoneelRegel, type PersoneelStand,
+  type PersoneelRegel, type PersoneelStand, type VerkoopFactuurRegel,
 } from '../../lib/trucksupply'
 import { dateShort, dateTime, money, relative } from '../../lib/format'
-import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
+import {
+  Badge, Card, Empty, Field, Filterbalk, Filterchips, Knop, LeegStaat,
+  Modal, Paginakop, Stand, Tabel, Zoekveld,
+} from '../../components/ui'
+/* Als type en niet als waarde -- zie de kanttekening bij GrootboekRij
+   hierboven; 1.74.0 viel om op precies dit soort botsing. */
+import type { Kolom } from '../../components/ui'
+import Stroombalk from '../../components/Stroombalk'
+import {
+  buitenStaand, verkoopKlem, verkoopstapVan, verkoopstroom, verkoopTeLaat,
+} from '../../lib/verkoopstroom'
 import { toast } from '../../store/useToasts'
 
 /** Leeg = de standaard van de server. Alleen om het typen te besparen. */
@@ -2339,10 +2349,44 @@ export function Betalen() {
  *    naar Exact als verkoopboeking, met de klant als relatie
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  Verkoopfacturen
+ *
+ *  Casper: "maar nu staan zowel binnenkomende als uitgaande facturen op
+ *  dezelfde plek?" -- en daarna, op de vraag of Verkoop dezelfde behandeling
+ *  moest krijgen als Inkoop: ja.
+ *
+ *  Dus dezelfde vorm: een rij vakjes bovenaan die teller en filter tegelijk
+ *  is, een filterrij eronder, en een tabel met de kolommen waarop je
+ *  sorteert. Wat er anders is dan bij inkoop staat in src/lib/verkoopstroom.ts
+ *  -- kort gezegd: een verkoopfactuur heeft vier standen die gewoon in een
+ *  kolom staan, en er komt geen lezer en geen tweede handtekening aan te pas.
+ *
+ *  Waarom dit scherm niet uit de plaatselijke opslag leest
+ *  ------------------------------------------------------
+ *
+ *  De rest van de app werkt offline-eerst: schrijf lokaal, duw het daarna
+ *  naar de server. Verkoopfacturen niet -- die tabel synchroniseert niet mee
+ *  en dit scherm haalt zijn gegevens bij de serverfunctie op.
+ *
+ *  Dat is een keuze en geen vergetelheid. Een inkoopbon ontstaat overal: op
+ *  een vestiging, in een mailbox, op een telefoon bij een tankstation. Een
+ *  verkoopfactuur ontstaat op één plek -- achter het bureau van de
+ *  administratie -- en de handelingen eromheen (opmaken, versturen, boeken)
+ *  gaan allemaal via serverfuncties, want ze delen nummers uit en praten met
+ *  Exact. Een plaatselijke kopie zou daar niets aan toevoegen behalve een
+ *  tweede waarheid.
+ *
+ *  De prijs staat er wel: zonder verbinding is dit scherm leeg, en na een
+ *  handeling wordt de hele stand opnieuw opgehaald in plaats van één rij
+ *  bijgewerkt.
+ * ------------------------------------------------------------------ */
+
 export function Verkoop({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<VerkoopStand | null>(null)
   const [bezig, setBezig] = useState<string | null>(null)
   const [fout, setFout] = useState<string | null>(null)
+
   /* Standaard de vorige maand: die is af, en de huidige loopt nog. */
   const [periode, setPeriode] = useState(() => {
     const d = new Date()
@@ -2350,6 +2394,14 @@ export function Verkoop({ verbonden }: { verbonden: boolean }) {
     d.setMonth(d.getMonth() - 1)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
+
+  /* De filters. Dezelfde vier vragen als bij inkoop, met "klant" waar daar
+     "leverancier" staat -- het is dezelfde vraag vanaf de andere kant. */
+  const [zoek, setZoek] = useState('')
+  const [klant, setKlant] = useState('')
+  const [maand, setMaand] = useState('')
+  const [bedrijf, setBedrijf] = useState('')
+  const [stap, setStap] = useState<string | null>(null)
 
   async function laad() {
     try {
@@ -2373,155 +2425,436 @@ export function Verkoop({ verbonden }: { verbonden: boolean }) {
     }
   }
 
-  const facturen = stand?.facturen ?? []
-  const concepten = facturen.filter((f) => f.status === 'concept')
+  const facturen = useMemo(() => stand?.facturen ?? [], [stand])
+  const balk = useMemo(() => verkoopstroom(facturen), [facturen])
+  const buiten = useMemo(() => buitenStaand(facturen), [facturen])
+
+  /* Wat er te kiezen valt, uit de facturen zelf -- een klant zonder factuur
+     hoort niet in de keuzelijst, en een nieuwe hoort er meteen in te staan. */
+  const klanten = useMemo(
+    () => [...new Set(facturen.map((f) => f.klant).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'nl')),
+    [facturen])
+
+  const maanden = useMemo(
+    () => [...new Set(facturen.map((f) => f.periode).filter((p): p is string => !!p))]
+      .sort().reverse(),
+    [facturen])
+
+  const bedrijven = useMemo(
+    () => [...new Set(facturen.map((f) => f.administratie).filter((a): a is string => !!a))]
+      .sort(),
+    [facturen])
+
+  const rijen = useMemo(() => {
+    const z = zoek.trim().toLowerCase()
+    return facturen
+      .filter((f) => !z
+        || (f.nummer ?? '').toLowerCase().includes(z)
+        || f.klant.toLowerCase().includes(z)
+        || String(f.bedragIncl).includes(z))
+      .filter((f) => !klant || f.klant === klant)
+      .filter((f) => !maand || f.periode === maand)
+      .filter((f) => !bedrijf || (f.administratie ?? '') === bedrijf)
+      .filter((f) => !stap || verkoopstapVan(f) === stap)
+  }, [facturen, zoek, klant, maand, bedrijf, stap])
+
+  const chips = [
+    ...(stap
+      ? [{
+          label: 'Stap',
+          waarde: balk.find((b) => b.stap.sleutel === stap)?.stap.label ?? stap,
+          weg: () => setStap(null),
+        }]
+      : []),
+    ...(klant ? [{ label: 'Klant', waarde: klant, weg: () => setKlant('') }] : []),
+    ...(maand ? [{ label: 'Periode', waarde: maand, weg: () => setMaand('') }] : []),
+    ...(bedrijf ? [{ label: 'Onderneming', waarde: bedrijf, weg: () => setBedrijf('') }] : []),
+    ...(zoek.trim() ? [{ label: 'Zoeken', waarde: zoek.trim(), weg: () => setZoek('') }] : []),
+  ]
+
+  function wisFilters() {
+    setStap(null); setKlant(''); setMaand(''); setBedrijf(''); setZoek('')
+  }
+
+  const kolommen: Kolom<VerkoopFactuurRegel>[] = [
+    {
+      sleutel: 'nummer',
+      kop: 'Nummer',
+      breedte: 108,
+      sorteer: (a, b) => (a.nummer ?? '').localeCompare(b.nummer ?? '', 'nl'),
+      /* Een concept heeft er geen. Dat is geen ontbrekend gegeven maar een
+         eigenschap van een concept -- zie de uitleg onderaan. */
+      toon: (f) => (f.nummer
+        ? <span className="mono sterk">{f.nummer}</span>
+        : <span className="zacht">concept</span>),
+    },
+    {
+      sleutel: 'klant',
+      kop: 'Klant',
+      sorteer: (a, b) => a.klant.localeCompare(b.klant, 'nl'),
+      toon: (f) => <span className="sterk krimp">{f.klant}</span>,
+    },
+    {
+      sleutel: 'periode',
+      kop: 'Periode',
+      breedte: 96,
+      zacht: true,
+      wegOnder: 1200,
+      sorteer: (a, b) => (a.periode ?? '').localeCompare(b.periode ?? ''),
+      toon: (f) => <span className="mono">{f.periode ?? '—'}</span>,
+    },
+    {
+      sleutel: 'datum',
+      kop: 'Datum',
+      breedte: 108,
+      sorteer: (a, b) => a.datum - b.datum,
+      toon: (f) => dateShort(f.datum),
+    },
+    {
+      sleutel: 'vervalt',
+      kop: 'Vervalt',
+      breedte: 110,
+      zacht: true,
+      wegOnder: 1360,
+      sorteer: (a, b) => (a.vervaldatum ?? 0) - (b.vervaldatum ?? 0),
+      /* Te laat springt eruit. Bij Casper in Blue10 staan 559 facturen onder
+         de omschrijving "Verstreken vervaldatum"; dan hoort het geen grijze
+         datum tussen de andere te zijn. */
+      toon: (f) => (f.vervaldatum
+        ? (
+          <span className={verkoopTeLaat(f) ? 'tekst-laat' : undefined}>
+            {dateShort(f.vervaldatum)}
+          </span>
+          )
+        : '—'),
+    },
+    {
+      sleutel: 'bv',
+      kop: 'Onderneming',
+      breedte: 130,
+      zacht: true,
+      wegOnder: 1500,
+      sorteer: (a, b) => (a.administratie ?? '').localeCompare(b.administratie ?? ''),
+      toon: (f) => <span className="mono">{f.administratie ?? '—'}</span>,
+    },
+    {
+      sleutel: 'excl',
+      kop: 'Excl.',
+      breedte: 104,
+      getal: true,
+      zacht: true,
+      wegOnder: 1100,
+      sorteer: (a, b) => a.bedragExcl - b.bedragExcl,
+      toon: (f) => money(f.bedragExcl),
+    },
+    {
+      sleutel: 'incl',
+      kop: 'Incl.',
+      breedte: 110,
+      getal: true,
+      sorteer: (a, b) => a.bedragIncl - b.bedragIncl,
+      toon: (f) => money(f.bedragIncl),
+    },
+    {
+      sleutel: 'signalen',
+      kop: '',
+      breedte: 64,
+      toon: (f) => {
+        const klem = verkoopKlem(f)
+        return (
+          <span className="signalen">
+            {klem && (
+              <span className="mis" title={klem}>
+                <TriangleAlert size={14} />
+              </span>
+            )}
+            {!klem && verkoopTeLaat(f) && (
+              <span className="let" title="Over de vervaldatum en nog niet betaald">
+                <TriangleAlert size={14} />
+              </span>
+            )}
+            {f.exactId && (
+              <span className="goed" title={`Geboekt in Exact (${f.exactId})`}>
+                <Check size={14} />
+              </span>
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      sleutel: 'stand',
+      kop: 'Staat',
+      breedte: 126,
+      sorteer: (a, b) => a.status.localeCompare(b.status),
+      toon: (f) => <VerkoopStaat factuur={f} />,
+    },
+    {
+      sleutel: 'acties',
+      kop: '',
+      breedte: 110,
+      toon: (f) => (f.status === 'concept'
+        ? (
+          <Knop
+            klein
+            disabled={bezig !== null || f.bedragExcl <= 0}
+            title={f.bedragExcl <= 0
+              ? 'Een factuur van nul euro versturen heeft geen zin'
+              : 'Geeft hem een nummer en zet de regels vast'}
+            onClick={(e) => {
+              e.stopPropagation()
+              void doe('versturen', async () => {
+                const uit = await exactVerkoopVersturen(f.id)
+                setStand(uit)
+                toast.ok(`Factuur ${uit.nummer} verstuurd.`)
+              })
+            }}
+          >
+            Versturen
+          </Knop>
+          )
+        : null),
+    },
+  ]
 
   return (
-    <Card
-      title="Verkoopfacturen"
-      hint="De andere kant: wat wij aan klanten sturen"
-      action={
-        <button className="btn ghost sm" onClick={() => void laad()} title="Opnieuw ophalen">
-          <RefreshCw size={14} />
-        </button>
-      }
-    >
-      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
-
-      <div className="row mb">
-        {stand && (
-          <span className="ts-sub">
-            {stand.concepten} concept · {stand.verstuurd} verstuurd · {stand.naarExact} klaar voor Exact
-          </span>
-        )}
-      </div>
-
-      {stand && !stand.verkoopdagboek && (
-        <div className="waarschuwing zacht mb">
-          <TriangleAlert size={14} />
-          <span>
-            Er staat geen verkoopdagboek ingesteld. Zonder dat weigert Exact een verkoopboeking.
-          </span>
-        </div>
-      )}
-
-      <div className="grid cols-2 mb">
-        <Field label="Maand opmaken" help="Alle gereedgemelde wasbeurten van die maand die nog niet op een factuur staan.">
-          <div className="row">
-            <input
-              className="input mono" style={{ flex: 1 }}
-              value={periode}
-              onChange={(e) => setPeriode(e.target.value)}
-              placeholder="2026-03"
+    <>
+      <Paginakop
+        titel="Verkoopfacturen"
+        uitleg="Wat wij aan klanten sturen"
+        acties={(
+          <>
+            <Knop
+              klein
+              ikoon={<RefreshCw size={14} />}
+              title="Opnieuw ophalen"
+              onClick={() => void laad()}
             />
-            <button
-              className="btn sm"
-              disabled={bezig !== null}
-              onClick={() => void doe('opmaken', async () => {
-                const uit = await exactVerkoopOpmaken(periode)
+            <Knop
+              soort="hoofd"
+              klein
+              ikoon={<Send size={15} />}
+              bezig={bezig === 'exact'}
+              disabled={bezig !== null || !verbonden || (stand?.naarExact ?? 0) === 0}
+              onClick={() => void doe('exact', async () => {
+                const uit = await exactStuurVerkoop()
                 setStand(uit)
-                toast.ok(uit.gemaakt > 0
-                  ? `${uit.gemaakt} conceptfactuur${uit.gemaakt === 1 ? '' : 'en'} opgemaakt.`
-                  : 'Er was niets nieuws te factureren over die maand.')
+                toast.ok(uit.mislukt2.length > 0
+                  ? `${uit.gelukt} geboekt, ${uit.mislukt2.length} mislukt.`
+                  : `${uit.gelukt} factuur${uit.gelukt === 1 ? '' : 'en'} geboekt in Exact.`)
               })}
             >
-              {bezig === 'opmaken' ? <Loader2 size={14} className="spin" /> : <Plus size={14} />}
-              Opmaken
-            </button>
-          </div>
-        </Field>
+              Naar Exact ({stand?.naarExact ?? 0})
+            </Knop>
+          </>
+        )}
+      />
 
-        <Field label="Verkoopdagboek" help="Het dagboek in Exact waarin een verkoopboeking komt.">
+      {fout && <p className="waarschuwing"><TriangleAlert size={14} /> {fout}</p>}
+
+      {/*
+        * Wat er buiten staat, als één getal.
+        *
+        * Los van de vakjes met opzet: "boeken" en "openstaand" zijn allebei
+        * geld dat nog moet komen, en dat totaal zou verdwijnen als het over
+        * twee vakjes verdeeld bleef. Dit is het getal waar je 's ochtends
+        * naar kijkt.
+        */}
+      <div className="kerncijfers">
+        <span className={buiten.aantal ? 'let' : undefined}>
+          <b>{buiten.aantal}</b> openstaand
+        </span>
+        <span className="scheiding" aria-hidden="true">·</span>
+        <span><b>{money(buiten.bedrag)}</b> buiten</span>
+        {buiten.telaat > 0 && (
+          <>
+            <span className="scheiding" aria-hidden="true">·</span>
+            <span className="let">
+              <b>{buiten.telaat}</b> te laat ({money(buiten.telaatBedrag)})
+            </span>
+          </>
+        )}
+        <span className="scheiding" aria-hidden="true">·</span>
+        <span><b>{stand?.concepten ?? 0}</b> concept</span>
+      </div>
+
+      {/*
+        * Het verkoopdagboek.
+        *
+        * Dit veld stond in de vorige versie van dit scherm en is de ENIGE
+        * plek in de hele app waar exact_verkoopdagboek te zetten is -- het
+        * staat niet in SLEUTELS en nergens in een instellingenscherm. Bij het
+        * herbouwen was hij bijna weggevallen; dan had Exact elke
+        * verkoopboeking geweigerd zonder dat er nog iets was om het mee recht
+        * te zetten.
+        *
+        * Klein en op één regel, want je zet hem één keer. De waarschuwing
+        * hierboven zegt wel hardop wanneer hij ontbreekt.
+        */}
+      <p className="help" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s2)' }}>
+        <label htmlFor="verkoopdagboek">Verkoopdagboek in Exact</label>
+        <input
+          id="verkoopdagboek"
+          className="input mono"
+          style={{ width: 88 }}
+          defaultValue={stand?.verkoopdagboek ?? ''}
+          list="exact-dagboeken"
+          placeholder="50"
+          onBlur={(e) => void zetInstelling(
+            'exact_verkoopdagboek', e.currentTarget.value.trim()).then(laad)}
+        />
+      </p>
+
+      {/*
+        * Waarom een stapel bij "Boeken" er niet altijd een is.
+        *
+        * Zonder deze twee regels ziet een groeiend vakje eruit als een
+        * achterstand waar iemand naar moet kijken, terwijl de schakelaar
+        * gewoon uit staat of het dagboek niet is ingevuld. Dat is precies het
+        * soort stilte waar je een middag aan kwijt bent.
+        */}
+      {stand?.boekenAan === false && (
+        <p className="waarschuwing zacht">
+          <TriangleAlert size={14} />{' '}
+          Boeken naar Exact staat uit. Wat hier bij "Boeken" staat is dus geen
+          achterstand -- het wacht tot je die schakelaar omzet bij Boekhouding.
+        </p>
+      )}
+      {stand?.boekenAan !== false && stand && !stand.verkoopdagboek && (
+        <p className="waarschuwing zacht">
+          <TriangleAlert size={14} />{' '}
+          Er staat geen verkoopdagboek ingesteld. Zonder dat weigert Exact een
+          verkoopboeking.
+        </p>
+      )}
+
+      <Stroombalk
+        vakjes={balk.map((b) => ({
+          sleutel: b.stap.sleutel,
+          label: b.stap.label,
+          uitleg: b.stap.uitleg,
+          aantal: b.aantal,
+          stuk: b.klem,
+          telaat: b.telaat,
+        }))}
+        gekozen={stap}
+        kies={setStap}
+      />
+
+      <Filterbalk>
+        <Zoekveld
+          waarde={zoek}
+          zet={setZoek}
+          hint="Zoek op nummer, klant, bedrag…"
+          sneltoets
+        />
+
+        <select
+          value={klant}
+          onChange={(e) => setKlant(e.target.value)}
+          data-aan={klant ? 'ja' : undefined}
+          aria-label="Filter op klant"
+        >
+          <option value="">Alle klanten</option>
+          {klanten.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+
+        <select
+          value={maand}
+          onChange={(e) => setMaand(e.target.value)}
+          data-aan={maand ? 'ja' : undefined}
+          aria-label="Filter op periode"
+        >
+          <option value="">Alle perioden</option>
+          {maanden.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        {bedrijven.length > 1 && (
+          <select
+            value={bedrijf}
+            onChange={(e) => setBedrijf(e.target.value)}
+            data-aan={bedrijf ? 'ja' : undefined}
+            aria-label="Filter op onderneming"
+          >
+            <option value="">Alle ondernemingen</option>
+            {bedrijven.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        )}
+
+        {/* Opmaken hoort bij de filterrij en niet bij de hoofdacties: het is
+            geen knop die je elke dag indrukt, en hij heeft een maand nodig. */}
+        <span className="row" style={{ gap: 'var(--s2)', marginLeft: 'auto' }}>
           <input
             className="input mono"
-            defaultValue={stand?.verkoopdagboek ?? ''}
-            list="exact-dagboeken"
-            placeholder="50"
-            onBlur={(e) => void zetInstelling('exact_verkoopdagboek', e.currentTarget.value.trim()).then(laad)}
+            style={{ width: 96 }}
+            value={periode}
+            onChange={(e) => setPeriode(e.target.value)}
+            placeholder="2026-03"
+            aria-label="Welke maand opmaken"
           />
-        </Field>
-      </div>
+          <Knop
+            klein
+            ikoon={<Plus size={14} />}
+            bezig={bezig === 'opmaken'}
+            disabled={bezig !== null}
+            title="Alle gereedgemelde wasbeurten van die maand die nog niet op een factuur staan"
+            onClick={() => void doe('opmaken', async () => {
+              const uit = await exactVerkoopOpmaken(periode)
+              setStand(uit)
+              toast.ok(uit.gemaakt > 0
+                ? `${uit.gemaakt} conceptfactuur${uit.gemaakt === 1 ? '' : 'en'} opgemaakt.`
+                : 'Er was niets nieuws te factureren over die maand.')
+            })}
+          >
+            Opmaken
+          </Knop>
+        </span>
+      </Filterbalk>
 
-      <div className="row mb">
-        <button
-          className="btn primary sm"
-          disabled={bezig !== null || !verbonden || (stand?.naarExact ?? 0) === 0}
-          onClick={() => void doe('exact', async () => {
-            const uit = await exactStuurVerkoop()
-            setStand(uit)
-            toast.ok(uit.mislukt2.length > 0
-              ? `${uit.gelukt} geboekt, ${uit.mislukt2.length} mislukt.`
-              : `${uit.gelukt} factuur${uit.gelukt === 1 ? '' : 'en'} geboekt in Exact.`)
-          })}
-        >
-          {bezig === 'exact' ? <Loader2 size={14} className="spin" /> : <Send size={14} />}
-          Naar Exact ({stand?.naarExact ?? 0})
-        </button>
-      </div>
+      <Filterchips chips={chips} wisAlles={wisFilters} />
 
-      {facturen.length === 0 && (
-        <Empty text="Nog geen verkoopfacturen. Maak een maand op om te beginnen." />
-      )}
-
-      {facturen.length > 0 && (
-        <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Nummer</th>
-                <th>Klant</th>
-                <th>Periode</th>
-                <th className="num">Excl. btw</th>
-                <th>Staat</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {facturen.map((f) => (
-                <tr key={f.id}>
-                  <td className="mono">{f.nummer ?? <span className="ts-sub">concept</span>}</td>
-                  <td className="afgekapt">{f.klant}</td>
-                  <td className="mono">{f.periode ?? '—'}</td>
-                  <td className="num">{money(f.bedragExcl)}</td>
-                  <td>
-                    {f.status === 'concept' && <Badge>concept</Badge>}
-                    {f.status === 'verstuurd' && <Badge tone="warn" dot>verstuurd</Badge>}
-                    {f.status === 'betaald' && <Badge tone="ok" dot>betaald</Badge>}
-                    {f.exactId && <Badge tone="ok">in Exact</Badge>}
-                    {f.status === 'verstuurd' && !f.exactId && !f.heeftRelatie && (
-                      <Badge tone="danger">geen relatie</Badge>
-                    )}
-                    {f.fout && <span className="ts-sub"> · {f.fout}</span>}
-                  </td>
-                  <td>
-                    {f.status === 'concept' && (
-                      <button
-                        className="btn sm"
-                        disabled={bezig !== null || f.bedragExcl <= 0}
-                        onClick={() => void doe('versturen', async () => {
-                          const uit = await exactVerkoopVersturen(f.id)
-                          setStand(uit)
-                          toast.ok(`Factuur ${uit.nummer} verstuurd.`)
-                        })}
-                      >
-                        Versturen
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Tabel
+        rijen={rijen}
+        kolommen={kolommen}
+        sleutelVan={(f) => f.id}
+        sorteerOp="datum"
+        omgekeerd
+        laden={stand === null && fout === null}
+        leeg={(
+          <LeegStaat
+            gefilterd={chips.length > 0}
+            titel={chips.length > 0
+              ? 'Geen facturen die hieraan voldoen'
+              : 'Nog geen verkoopfacturen'}
+            uitleg={chips.length > 0
+              ? 'Haal een filter weg om meer te zien.'
+              : 'Maak een maand op om te beginnen: dan wordt elke gereedgemelde '
+                + 'wasbeurt van die maand een regel op een conceptfactuur.'}
+          />
+        )}
+      />
 
       <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
         Een concept heeft nog geen nummer — dat zou een gat in de reeks achterlaten als je hem
         weggooit. Bij versturen krijgt hij er een en liggen de regels vast; wat daarna nog kan is
         een creditnota, en dat is een nieuwe factuur.
       </p>
-    </Card>
+    </>
   )
+}
+
+/** De staat van een verkoopfactuur: een stip én een woord. */
+function VerkoopStaat({ factuur }: { factuur: VerkoopFactuurRegel }) {
+  if (factuur.status === 'concept') return <Stand stemming="nieuw">Concept</Stand>
+  if (factuur.status === 'betaald') return <Stand stemming="betaald">Betaald</Stand>
+  if (factuur.status === 'vervallen') return <Stand stemming="afgekeurd">Vervallen</Stand>
+  /* Verstuurd. Of dat "wacht op de klant" of "wacht op ons" betekent, hangt
+     ervan af of hij al geboekt is -- en dat verschil is wat de stroombalk
+     erboven ook maakt. */
+  return factuur.exactId
+    ? <Stand stemming="wacht">Openstaand</Stand>
+    : <Stand stemming="bezig">Te boeken</Stand>
 }
 
 /* ------------------------------------------------------------------ */

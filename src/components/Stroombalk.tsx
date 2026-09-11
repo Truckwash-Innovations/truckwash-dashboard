@@ -1,8 +1,7 @@
 import { AlertTriangle, ChevronRight, X } from 'lucide-react'
-import { STAPPEN, type Stapstand, type StapSleutel } from '../lib/stroom'
 
 /* ------------------------------------------------------------------ *
- *  De rij vakjes boven de factuurlijst
+ *  De rij vakjes boven een factuurlijst
  *
  *  Casper stuurde foto's van Blue10 mee: "je moet echt blue10 een beetje
  *  namaken met dat stuk". Dit is dat stuk.
@@ -12,6 +11,19 @@ import { STAPPEN, type Stapstand, type StapSleutel } from '../lib/stroom'
  *  om hem te openen. Tot nu toe stonden diezelfde standen als losse vakken
  *  onder elkaar in 'Te verwerken' -- je moest scrollen om te weten hoeveel
  *  werk er was, en filteren deed je ergens anders.
+ *
+ *  Waarom deze component niets van facturen weet
+ *  ---------------------------------------------
+ *
+ *  Hij begon als de balk boven de INKOOP, met de standen uit werklijst.ts
+ *  erin verweven. Toen de verkoopkant dezelfde balk kreeg was de verleiding
+ *  om hem te kopiëren -- twee bestanden die op één na hetzelfde zijn, en dan
+ *  krijgt er eentje over een half jaar een verbetering die de ander mist.
+ *
+ *  Dus kent hij alleen nog vakjes: een naam, een getal en twee merkjes. Wat
+ *  er in een vakje valt bepaalt de aanroeper (stroom.ts voor inkoop,
+ *  verkoopstroom.ts voor verkoop), en dat zijn twee wezenlijk verschillende
+ *  processen die hier niets van elkaar hoeven te weten.
  *
  *  Drie keuzes die niet vanzelf spreken
  *  ------------------------------------
@@ -30,26 +42,39 @@ import { STAPPEN, type Stapstand, type StapSleutel } from '../lib/stroom'
  *     facturen, en anders staat hij er niet.
  * ------------------------------------------------------------------ */
 
+export interface Vakje {
+  /** Waarmee de aanroeper hem herkent als erop geklikt wordt. */
+  sleutel: string
+  label: string
+  /** Eén zin die zegt wat hier ligt; komt in de tooltip. */
+  uitleg: string
+  aantal: number
+  /** Hoeveel hiervan vastzitten -- het rode kruisje. Nul is geen merk. */
+  stuk?: number
+  /** Hoeveel hiervan te laat zijn -- het oranje uitroepteken. */
+  telaat?: number
+}
+
 export default function Stroombalk({
-  stroom, gekozen, kies,
+  vakjes, gekozen, kies,
 }: {
-  stroom: Stapstand[]
-  /** Welke stap nu gefilterd is, of null voor alles. */
-  gekozen: StapSleutel | null
-  kies: (sleutel: StapSleutel | null) => void
+  vakjes: Vakje[]
+  /** Welk vakje nu gefilterd is, of null voor alles. */
+  gekozen: string | null
+  kies: (sleutel: string | null) => void
 }) {
   return (
     <div className="stroombalk" role="group" aria-label="De stappen van een factuur">
-      {stroom.map((s, i) => (
-        <div key={s.stap.sleutel} className="stroomdeel">
+      {vakjes.map((v, i) => (
+        <div key={v.sleutel} className="stroomdeel">
           {i > 0 && <ChevronRight size={14} className="stroompijl" aria-hidden />}
-          <Vakje
-            stand={s}
-            actief={gekozen === s.stap.sleutel}
+          <Vak
+            vakje={v}
+            actief={gekozen === v.sleutel}
             /* Nog een keer klikken zet het filter weer uit. Dat is wat je
                verwacht van iets dat als knop aanvoelt, en het scheelt zoeken
                naar een kruisje om het ongedaan te maken. */
-            kies={() => kies(gekozen === s.stap.sleutel ? null : s.stap.sleutel)}
+            kies={() => kies(gekozen === v.sleutel ? null : v.sleutel)}
           />
         </div>
       ))}
@@ -57,14 +82,16 @@ export default function Stroombalk({
   )
 }
 
-function Vakje({
-  stand, actief, kies,
+function Vak({
+  vakje, actief, kies,
 }: {
-  stand: Stapstand
+  vakje: Vakje
   actief: boolean
   kies: () => void
 }) {
-  const { stap, aantal, stuk, telaat } = stand
+  const { label, uitleg, aantal } = vakje
+  const stuk = vakje.stuk ?? 0
+  const telaat = vakje.telaat ?? 0
   const leeg = aantal === 0
 
   /*
@@ -78,7 +105,7 @@ function Vakje({
       onClick={kies}
       className={['stroomvak', actief ? 'aan' : '', leeg ? 'leeg' : ''].filter(Boolean).join(' ')}
       aria-pressed={actief}
-      title={`${stap.label} -- ${stap.uitleg}`}
+      title={`${label} -- ${uitleg}`}
     >
       {stuk > 0 && (
         <span className="stroommerk stuk" title={`${stuk} vastgelopen of geweigerd`}>
@@ -93,7 +120,7 @@ function Vakje({
         </span>
       )}
       <span className="stroomcijfer">{aantal}</span>
-      <span className="stroomnaam">{stap.label}</span>
+      <span className="stroomnaam">{label}</span>
     </button>
   )
 }
@@ -105,21 +132,18 @@ function Vakje({
  * Losse component en geen vlaggetje op de bovenstaande: een knop die soms
  * geen knop is, is een knop waarvan niemand weet of hij ergens heen gaat.
  */
-export function Stroomlijn({ stroom, ga }: { stroom: Stapstand[]; ga: () => void }) {
-  const totaal = stroom.reduce((t, s) => t + s.aantal, 0)
+export function Stroomlijn({ vakjes, ga }: { vakjes: Vakje[]; ga: () => void }) {
+  const totaal = vakjes.reduce((t, v) => t + v.aantal, 0)
   if (totaal === 0) return null
 
   return (
     <button type="button" className="stroomlijn" onClick={ga}>
-      {stroom.filter((s) => s.aantal > 0).map((s) => (
-        <span key={s.stap.sleutel} className="stroomlijn-deel">
-          <strong>{s.aantal}</strong> {s.stap.label.toLowerCase()}
+      {vakjes.filter((v) => v.aantal > 0).map((v) => (
+        <span key={v.sleutel} className="stroomlijn-deel">
+          <strong>{v.aantal}</strong> {v.label.toLowerCase()}
         </span>
       ))}
       <ChevronRight size={14} aria-hidden />
     </button>
   )
 }
-
-/** De stappen, voor een keuzelijst die dezelfde woorden moet gebruiken. */
-export const STROOM_KEUZES = STAPPEN.map((s) => ({ waarde: s.sleutel, label: s.label }))
