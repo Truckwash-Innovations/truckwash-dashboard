@@ -1154,6 +1154,17 @@ export interface ExactAdministratie {
   naam: string
   actief: boolean
   hoofd: boolean
+  /**
+   * De rekening waarvan deze bv betaalt (0065), met de naam en BIC die in het
+   * SEPA-bestand komen als die van de opdrachtgever.
+   *
+   * Leeg is een geldige stand en geen fout: dan zegt het betaalscherm dat er
+   * voor deze bv nog geen rekening staat. Wat er niet moest zijn, was dat je
+   * hem nergens kon invullen.
+   */
+  eigenIban: string
+  eigenNaam: string
+  eigenBic: string
 }
 
 export interface FacturenStand {
@@ -1284,7 +1295,14 @@ export async function exactSyncAdministraties(): Promise<AdministratieRonde> {
 }
 
 export async function exactZetAdministratie(
-  code: string, velden: { actief?: boolean; hoofd?: boolean },
+  code: string,
+  velden: {
+    actief?: boolean
+    hoofd?: boolean
+    eigenIban?: string
+    eigenNaam?: string
+    eigenBic?: string
+  },
 ): Promise<ExactAdministratie[]> {
   const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
     'exact', { actie: 'zet-administratie', code, ...velden })

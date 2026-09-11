@@ -8084,5 +8084,118 @@ console.log('\n62. Het administratienummer van Exact')
     iVraag > 0 && iKies > 0 && iVraag < iKies)
 }
 
+/* ==================================================================== *
+ *  63. Exact hoort bij de administratie
+ *
+ *  Casper: "zorg dat dit soort dingen naar administratie verhuizen, alles
+ *  exact related mag naar administratie, behalve de koppeling zelf."
+ *
+ *  Acht kaarten stonden onder elkaar op het ontwikkelscherm -- niet omdat ze
+ *  daar horen, maar omdat ze daar zijn ontstaan, naast de sleutels waarmee ze
+ *  werden uitgeprobeerd. Ze zijn verhuisd en niet gekopieerd: de componenten
+ *  staan nog in Exact.tsx en worden geëxporteerd. Twee kopieën van een
+ *  betaalscherm is hoe een SEPA-bestand op twee manieren wordt opgebouwd.
+ *
+ *  Wat hier wordt vastgelegd is de verhuizing zelf. Die is met één regel
+ *  terug te draaien zonder dat iemand het merkt -- een <Grootboek /> erbij op
+ *  de ontwikkelpagina en het staat weer op twee plekken.
+ * ==================================================================== */
+
+console.log('\n63. Exact hoort bij de administratie')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const dev = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const adm = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
+  const mgt = readFileSync('src/dashboards/management/ManagementDashboard.tsx', 'utf8')
+
+  /*
+   * Het ontwikkelscherm rendert ze niet meer. Op de hoofdcomponent gekeken en
+   * niet op het hele bestand: de componenten stáán er nog, ze worden alleen
+   * niet meer op die pagina gezet.
+   */
+  const pagina = dev.slice(0, dev.indexOf('De rest staat bij de administratie'))
+  for (const wat of ['Administraties', 'Grootboek', 'Relaties', 'Facturen', 'Verkoop', 'Betalen']) {
+    check(`de ontwikkelpagina zet ${wat} niet meer neer`,
+      !pagina.includes(`<${wat} `) && !pagina.includes(`<${wat}/>`))
+  }
+
+  /* En de administratie doet dat wel. */
+  for (const wat of ['Administraties', 'Grootboek', 'Relaties', 'Facturen', 'Verkoop', 'Betalen']) {
+    check(`de administratie zet ${wat} wel neer`, adm.includes(`<${wat} `))
+  }
+
+  /*
+   * Behalve het personeel. Daar gaat het volledige Exact-record langs en daar
+   * kan een BSN in zitten; dat ligt sinds 0009 bij het management en bij de
+   * medewerker zelf. De database laat het ook niet toe -- de policy op
+   * exact_personeel is is_management().
+   */
+  check('het personeel staat bij management en niet bij de administratie',
+    mgt.includes('<ExactPersoneel ') && !adm.includes('ExactPersoneel'))
+
+  /* De koppeling zelf blijft waar hij was. */
+  check('de sleutels en het koppelen blijven bij ontwikkeling',
+    pagina.includes('De Exact-app') && pagina.includes('De koppeling'))
+
+  /* ---- de bv's en hun rekening ---- */
+
+  const functie = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  /*
+   * Het betaalscherm vroeg om een eigen rekeningnummer per bv en er was in de
+   * hele app geen plek om het in te vullen. Dezelfde soort fout als het
+   * verkoopdagboek: een scherm dat iets eist wat nergens te zetten is.
+   */
+  check('de bv geeft zijn eigen rekening mee',
+    /eigenIban: String\(r\.eigen_iban/.test(functie))
+  check('en die is ook te zetten',
+    functie.includes("if ('eigenIban' in body)"))
+
+  /*
+   * Nagerekend vóór het opslaan. Een bank weigert een bestand met één foute
+   * IBAN in zijn geheel, en dan zoek je in achttien regels naar een fout die
+   * in een invoerveld zit.
+   */
+  check('een fout rekeningnummer wordt geweigerd bij het opslaan',
+    functie.includes('ibanKlopt(ruw)') && functie.includes("import { ibanKlopt, maakSepa }"))
+
+  /* ---- ophalen ---- */
+
+  /*
+   * Casper: "of doe dat automatisch?" -- allebei. De knop blijft, en wat
+   * ouder is dan een dag haalt zichzelf op zodra het scherm opengaat.
+   */
+  check('verouderd is een dag',
+    dev.includes('const DAG = 24 * 60 * 60 * 1000'))
+  check('en wat verouderd is haalt zichzelf op',
+    (dev.match(/useVanzelfOphalen\(/g) ?? []).length >= 4)
+  check('hoogstens één keer per keer dat het scherm opengaat',
+    /const gedaan = useRef\(false\)/.test(dev))
+
+  /* ---- de lijst met bedrijven ---- */
+
+  /*
+   * De matrix is weg: twaalf bv's als kolommen, elk met duizend opties. Wat
+   * hij suggereerde was bovendien fout -- dat elk bedrijf in elke bv een
+   * relatie hoort te hebben. De server telt bedrijven met NUL koppelingen.
+   */
+  const relaties = dev.slice(dev.indexOf('export function Relaties'))
+  check('de bv\'s staan niet meer als kolommen in de lijst',
+    !relaties.slice(0, relaties.indexOf('<Modal')).includes('bvs.map'))
+  check('er kan gezocht worden',
+    relaties.includes('<Zoekveld'))
+  check('en het venster opent met de naam die wij kennen',
+    relaties.includes('setZoekRelatie(b.naam)'))
+
+  /*
+   * Nooit stil afkappen. Staat er meer dan er getoond wordt, dan hoort dat er
+   * te staan -- anders zoek je een relatie die er wel is, ziet hem niet, en
+   * concludeert dat hij in Exact ontbreekt.
+   */
+  check('een afgekapte keuzelijst zegt dat hij afgekapt is',
+    relaties.includes('totaal > lijst.length'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

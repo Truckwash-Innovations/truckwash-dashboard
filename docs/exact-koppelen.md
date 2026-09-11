@@ -5,6 +5,31 @@ Sinds versie 1.50.0 zet je de sleutels van Exact in het dashboard zelf, bij
 elke wijziging een `supabase secrets set` plus opnieuw uitrollen. Dat is prima
 voor iets dat nooit verandert en hopeloos als je nog aan het uitzoeken bent.
 
+## Waar staat wat
+
+Bij **Ontwikkeling → Exact** staat nog precies één ding: de koppeling zelf.
+De sleutels van de app, het inloggen bij Exact, en het terugkeeradres dat je
+daar moet invullen.
+
+Al het andere is dagelijks werk en staat bij **Administratie**:
+
+| Wat | Waar |
+| --- | --- |
+| De bv's, wie waar boekt, waarvan betaald wordt | Financieel → De bv's |
+| Het rekeningschema | Financieel → Grootboek |
+| Leveranciers en klantrelaties | Inkoop → Leveranciers |
+| Facturen naar Exact | Boekhouding |
+| Verkoopfacturen | Verkoop → Verkoopfacturen |
+| Betalen en SEPA | Financieel → Betalen |
+
+Het personeel staat bij **Management → Personeel**, en niet bij de
+administratie. Zie *Personeel* hieronder voor waarom.
+
+Ophalen bij Exact kan op al die schermen; dat is geen ontwikkelwerk. Wat
+langer dan een dag niet is opgehaald, haalt zichzelf op zodra je het scherm
+opent — de knop blijft voor als je net iets in Exact hebt gewijzigd en niet
+tot morgen wilt wachten.
+
 ## Wat je nodig hebt
 
 Een app in het [Exact App Center](https://apps.exactonline.com/). Daar
@@ -93,8 +118,9 @@ Zolang er *proefomgeving* staat, laat het statusblok dat zien. Staat er
 
 ## Het rekeningschema
 
-Onderaan het scherm staat je grootboek naast dat van Exact. Klik op **Ophalen
-uit Exact** en hij haalt het hele rekeningschema op.
+Bij **Administratie → Financieel → Grootboek** staat je grootboek naast dat
+van Exact. Klik op **Ophalen uit Exact** en hij haalt het hele rekeningschema
+op.
 
 Wat er *niet* gebeurt is dat schema over je eigen lijst heen zetten. Dat is
 met opzet: een administratie in Exact heeft er al gauw een paar honderd, en
@@ -159,9 +185,10 @@ HRM-kant van de Exact-API is alleen-lezen. `payroll/Employees`, `Employments`,
 — er is geen POST en geen PUT. Je kunt via de API dus geen medewerker
 aanmaken of wijzigen.
 
-Wat er wél is, staat onderaan het Exact-scherm: **Het personeel naast dat van
-Exact**. Klik op *Ophalen uit Exact* en hij haalt iedereen op die Exact kent.
-Wie op e-mailadres te koppelen is, koppelt hij meteen zelf.
+Wat er wél is, staat bij **Management → Personeel**, onder de personeelslijst:
+**Het personeel naast dat van Exact**. Klik op *Ophalen uit Exact* en hij
+haalt iedereen op die Exact kent. Wie op e-mailadres te koppelen is, koppelt
+hij meteen zelf.
 
 De rest doe je met de knop in de kolom *Nummer*: die opent een zoeker waarin je
 op naam, medewerkernummer of e-mailadres zoekt. Je ziet eerst wat Exact over
@@ -181,8 +208,8 @@ straks de uren van de een naar de loonstrook van de ander.
 
 ### Wie het mag zien
 
-Alleen het management. Strenger dan het rekeningschema (waar ontwikkeling
-meekijkt), en met opzet: het volledige Exact-record kan een burgerservicenummer
+Alleen het management. Dit is de reden dat dit ene scherm niet met de rest
+naar de administratie is meeverhuisd, en het is met opzet: het volledige Exact-record kan een burgerservicenummer
 bevatten, en dat ligt in migratie 0009 bij het management en bij de medewerker
 zelf. Een tabel ernaast met dezelfde gegevens maar een ruimere deur zou die
 afspraak waardeloos maken.

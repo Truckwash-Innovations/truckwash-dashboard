@@ -71,7 +71,7 @@ import {
   ExactFout, administratiesVan, exactDatum, exactLijst, exactPost, geldigToken,
   huidigeDivisie, type ExactLijn,
 } from '../_gedeeld/exact.ts'
-import { maakSepa } from '../_gedeeld/sepa.ts'
+import { ibanKlopt, maakSepa } from '../_gedeeld/sepa.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -860,6 +860,13 @@ async function administraties() {
       naam: String(r.naam ?? ''),
       actief: r.actief === true,
       hoofd: r.hoofd === true,
+      /* De rekening waarvan deze bv betaalt (0065). Stond hier niet bij, en
+         daarmee was er in de hele app geen plek om hem te zetten -- terwijl
+         het betaalscherm er wel om vraagt en zonder weigert een bestand te
+         maken. Een scherm dat iets eist wat nergens in te vullen is. */
+      eigenIban: String(r.eigen_iban ?? ''),
+      eigenNaam: String(r.eigen_naam ?? ''),
+      eigenBic: String(r.eigen_bic ?? ''),
     })),
   }
 }
@@ -870,6 +877,34 @@ async function zetAdministratie(body: Record<string, unknown>): Promise<Response
 
   const velden: Record<string, unknown> = { updated_at: Date.now() }
   if ('actief' in body) velden.actief = body.actief === true
+
+  /*
+   * De eigen rekening van deze bv.
+   *
+   * Nagerekend vóór het opslaan en niet pas bij het maken van het
+   * SEPA-bestand. Een bank weigert een bestand met één foute IBAN in zijn
+   * geheel, en dan sta je te zoeken in achttien regels terwijl de fout in het
+   * veld zit dat je drie weken geleden hebt ingetikt.
+   *
+   * Leeg mag: dat is "nog niet ingevuld", en dan zegt het betaalscherm dat
+   * gewoon. Alleen onzin wordt geweigerd.
+   */
+  if ('eigenIban' in body) {
+    const ruw = String(body.eigenIban ?? '').trim().toUpperCase()
+    if (ruw && !ibanKlopt(ruw)) {
+      return json({
+        ok: false,
+        reden: `${ruw} is geen geldig rekeningnummer -- de controle op het nummer zelf klopt niet. `
+          + 'Kijk of er een teken mist of dubbel staat.',
+      }, 400)
+    }
+    velden.eigen_iban = ruw || null
+  }
+  if ('eigenNaam' in body) velden.eigen_naam = String(body.eigenNaam ?? '').trim() || null
+  if ('eigenBic' in body) {
+    velden.eigen_bic = String(body.eigenBic ?? '').trim().toUpperCase() || null
+  }
+
   if ('hoofd' in body && body.hoofd === true) {
     /* Er kan er maar één zijn; de database bewaakt dat ook, maar een nette
        omzetting is beter dan een botsing op een unieke index. */

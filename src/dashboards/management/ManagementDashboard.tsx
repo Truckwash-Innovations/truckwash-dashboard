@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
@@ -11,6 +11,20 @@ import { money } from '../../lib/format'
 import Overzicht from './Overzicht'
 import Financieel from './Financieel'
 import Personeel from './Personeel'
+/*
+ * De koppeling van het personeel met Exact.
+ *
+ * Die stond bij ontwikkeling, tussen de sleutels van de Exact-app. Alles wat
+ * met Exact te maken heeft is naar de administratie verhuisd -- behalve dit:
+ * hier gaat het volledige Exact-record langs en daar kan een BSN in zitten.
+ * Dat ligt sinds 0009 bij het management en bij de medewerker zelf, en 0054
+ * herhaalt dat. De database laat een ruimere deur ook niet toe: de policy op
+ * exact_personeel is is_management().
+ *
+ * Onder een andere naam, want er staat hier al een Personeel.
+ */
+import { Personeel as ExactPersoneel } from '../developer/Exact'
+import { exactStatus } from '../../lib/trucksupply'
 import Voorraad from './Voorraad'
 import Planning from './Planning'
 import Beheer from './Beheer'
@@ -96,6 +110,23 @@ export default function ManagementDashboard() {
     [],
     [] as WashJob[],
   )
+
+  /*
+   * Of de koppeling met Exact staat. Alleen het personeelsscherm wil dat
+   * weten, om zijn ophaalknop aan of uit te zetten. Eén keer bij het openen:
+   * dit verandert alleen als iemand bij Ontwikkeling iets koppelt, en dat is
+   * geen moment waarop dit scherm hoeft mee te kijken.
+   */
+  const [exactVerbonden, setExactVerbonden] = useState(false)
+  useEffect(() => {
+    let weg = false
+    void exactStatus()
+      .then((st) => { if (!weg) setExactVerbonden(st.verbonden === true) })
+      /* Geen melding: het scherm zegt zelf wel dat er eerst gekoppeld moet
+         worden, en hier komt ook wie geen rechten op die functie heeft. */
+      .catch(() => { /* niet verbonden, of geen rechten */ })
+    return () => { weg = true }
+  }, [])
 
   const cijfers = useMemo(() => {
     const openKosten = bonnen.filter((b) => b.status === 'open')
@@ -418,7 +449,12 @@ export default function ManagementDashboard() {
       )}
       {page === 'overzicht' && <Overzicht days={days} />}
       {page === 'financieel' && <Financieel days={days} />}
-      {page === 'personeel' && <Personeel days={days} openId={openPersoon} />}
+      {page === 'personeel' && (
+        <>
+          <Personeel days={days} openId={openPersoon} />
+          <ExactPersoneel verbonden={exactVerbonden} />
+        </>
+      )}
       {page === 'aanmeldingen' && <Aanmeldingen />}
       {page === 'voorraad' && <Voorraad days={days} />}
       {page === 'planning' && <Planning />}

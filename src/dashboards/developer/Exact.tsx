@@ -35,7 +35,7 @@
  *  in de echte administratie te blijven hangen.
  * =========================================================================== */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check, Download, ExternalLink, Link2, Link2Off, Loader2, Plus, RefreshCw,
   Save, Search, Send, Trash2, TriangleAlert, Unlink, Users, X,
@@ -66,7 +66,7 @@ import {
   exactSyncAdministraties, exactSyncPersoneel, exactSyncRelaties,
   exactVerbindUrl, exactVerkoopOpmaken, exactVerkoopStand,
   exactVerkoopVersturen, exactZetAdministratie,
-  type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
+  type BedrijfRegel, type ExactAdministratie, type ExactBtwCode, type ExactDagboek,
   type BetaalStand, type FacturenStand, type RelatiesStand, type VerkoopStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand, type VerkoopFactuurRegel,
@@ -545,34 +545,95 @@ export default function Exact() {
         )}
       </div>
 
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Administraties verbonden={stand?.verbonden === true} />
-      </div>
+      {/*
+        Hier stonden ook de bv's, het grootboek, de relaties, de facturen, de
+        verkoop, het betalen en het personeel -- acht kaarten onder elkaar op
+        één pagina.
 
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Grootboek verbonden={stand?.verbonden === true} />
-      </div>
+        Casper: "zorg dat dit soort dingen naar administratie verhuizen, alles
+        exact related mag naar administratie, behalve de koppeling zelf."
 
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Personeel verbonden={stand?.verbonden === true} />
-      </div>
+        Terecht. Het waren geen ontwikkelschermen; ze stonden hier omdat ze
+        hier zijn ontstaan, naast de sleutels waarmee ze werden uitgeprobeerd.
+        Dagelijks werk hoort bij wie het doet.
 
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Relaties verbonden={stand?.verbonden === true} />
-      </div>
+        Verplaatst en niet gekopieerd: de componenten staan nog in dit bestand
+        en worden geëxporteerd. Twee kopieën van een betaalscherm is hoe een
+        SEPA-bestand op twee manieren wordt opgebouwd.
 
+        Het personeel ging niet naar administratie maar naar management. Daar
+        gaat het volledige Exact-record langs en daar kan een BSN in zitten;
+        dat ligt sinds 0009 bij het management en bij de medewerker zelf, en
+        0054 herhaalt dat met zoveel woorden. Een ruimere deur hier zou die
+        afspraak omzeilen -- de database laat het ook niet toe.
+      */}
       <div style={{ gridColumn: '1 / -1' }}>
-        <Facturen verbonden={stand?.verbonden === true} />
-      </div>
-
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Verkoop verbonden={stand?.verbonden === true} />
-      </div>
-
-      <div style={{ gridColumn: '1 / -1' }}>
-        <Betalen />
+        <Card title="De rest staat bij de administratie" hint="Verhuisd">
+          <p className="help" style={{ marginTop: 0 }}>
+            De bv's, het grootboek, de leveranciers, de klantrelaties, het boeken van
+            facturen, de verkoop en het betalen staan bij <strong>Administratie</strong>.
+            Ophalen bij Exact kan daar ook — dat is geen ontwikkelwerk. De koppeling van
+            het personeel staat bij <strong>Management → Personeel</strong>, omdat daar
+            gegevens langskomen die alleen het management mag zien.
+          </p>
+          <p className="help" style={{ marginBottom: 0 }}>
+            Wat hier blijft staan is de koppeling zelf: wie wij zijn richting Exact, en
+            het inloggen daar.
+          </p>
+        </Card>
       </div>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Eens per dag vanzelf ophalen
+ *
+ *  Casper: "Maar ook bij administratie moeten ze kunnen ophalen ect, of doe
+ *  dat automatisch?"
+ *
+ *  Allebei, en dat is geen compromis. De knop blijft: heb je net in Exact een
+ *  rekening bijgemaakt, dan wil je niet tot morgen wachten. En wie de knop
+ *  nooit aanraakt hoort geen lijst van vorige maand te zien -- is er langer
+ *  dan een dag niets opgehaald, dan gebeurt het bij het openen van het scherm
+ *  vanzelf.
+ *
+ *  Bij het openen en niet met een wekker. Er draait niets van ons 's nachts,
+ *  en een wekker in de browser loopt alleen zolang iemand het scherm open
+ *  heeft staan -- dat is geen automatisering maar een lamp die brandt als je
+ *  in de kamer bent. Dit is wat er kan zonder nieuwe machinerie, en het valt
+ *  samen met het moment dat het ertoe doet: je opent dit scherm juist als je
+ *  er iets mee wilt.
+ *
+ *  Hoogstens één keer per keer dat het scherm opengaat. Gaat het mis, dan
+ *  blijft het misgaan, en een scherm dat het elke seconde opnieuw probeert is
+ *  erger dan één foutmelding.
+ * ------------------------------------------------------------------ */
+
+const DAG = 24 * 60 * 60 * 1000
+
+/** Is dit zo lang geleden opgehaald dat het niet meer klopt? */
+function verouderd(laatstAt: number | null | undefined): boolean {
+  return !laatstAt || Date.now() - laatstAt > DAG
+}
+
+function useVanzelfOphalen(nodig: boolean, doe: () => void | Promise<void>) {
+  const gedaan = useRef(false)
+  useEffect(() => {
+    if (!nodig || gedaan.current) return
+    gedaan.current = true
+    void doe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodig])
+}
+
+/** De zin eronder, zodat niemand zich afvraagt waarom er iets gebeurde. */
+function VanzelfRegel({ laatstAt }: { laatstAt: number | null | undefined }) {
+  return (
+    <span className="ts-sub">
+      {laatstAt ? `Laatst opgehaald ${relative(laatstAt)}` : 'Nog niet opgehaald'}
+      {' · wordt eens per dag vanzelf bijgewerkt als je dit scherm opent'}
+    </span>
   )
 }
 
@@ -588,7 +649,7 @@ export default function Exact() {
  *  van zijn vestiging, en die staan hieronder.
  * ------------------------------------------------------------------ */
 
-function Administraties({ verbonden }: { verbonden: boolean }) {
+export function Administraties({ verbonden }: { verbonden: boolean }) {
   const [lijst, setLijst] = useState<ExactAdministratie[] | null>(null)
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
@@ -639,11 +700,30 @@ function Administraties({ verbonden }: { verbonden: boolean }) {
     }
   }
 
-  async function zet(code: string, velden: { actief?: boolean; hoofd?: boolean }) {
+  async function zet(
+    code: string,
+    velden: {
+      actief?: boolean
+      hoofd?: boolean
+      eigenIban?: string
+      eigenNaam?: string
+      eigenBic?: string
+    },
+  ) {
     try {
       setLijst(await exactZetAdministratie(code, velden))
+      /* Alleen melden wat je niet ziet gebeuren. Een vinkje dat omgaat spreekt
+         voor zich; een rekeningnummer dat is nagerekend en goedgekeurd niet. */
+      if (velden.eigenIban !== undefined && velden.eigenIban.trim()) {
+        toast.ok('Rekeningnummer opgeslagen.')
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+      /* Terug naar wat er werkelijk staat: een geweigerd nummer hoort niet in
+         beeld te blijven alsof het bewaard is. */
+      try {
+        setLijst((await exactFacturenStand()).administraties)
+      } catch { /* dan blijft staan wat er stond */ }
     }
   }
 
@@ -654,6 +734,11 @@ function Administraties({ verbonden }: { verbonden: boolean }) {
     await db.locations.put(nieuw)
     await enqueue('locations', 'put', nieuw.id, nieuw)
   }
+
+  /* Nog nooit opgehaald? Dan meteen, want zonder deze lijst werkt de rest
+     van de boekhouding niet: elke bon erft zijn bv hiervandaan. Er is geen
+     laatstAt voor de bv's -- een lege lijst zegt hier hetzelfde. */
+  useVanzelfOphalen(verbonden && lijst !== null && lijst.length === 0, haalOp)
 
   const actief = (lijst ?? []).filter((a) => a.actief)
   const zonder = vestigingen.filter((v) => !v.administratie)
@@ -753,9 +838,118 @@ function Administraties({ verbonden }: { verbonden: boolean }) {
               </tbody>
             </table>
           </div>
+
+          {/* ---- waarvan elke bv betaalt ---- */}
+
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>Waarvan elke bv betaalt</h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Dit komt in het SEPA-bestand te staan als rekening van de opdrachtgever. Zonder
+            rekeningnummer weigert het betaalscherm een bestand te maken voor die bv — en
+            tot nu toe was er geen enkele plek in de app om het in te vullen. Het nummer
+            wordt bij het opslaan nagerekend; een bank weigert een bestand met één foute
+            IBAN in zijn geheel.
+          </p>
+          {actief.length === 0
+            ? (
+              <p className="help">
+                Zet hierboven eerst een bv aan. Van een bv waarin niet geboekt wordt, hoeft
+                ook niets betaald te worden.
+              </p>
+            )
+            : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Bv</th>
+                      <th>Rekeningnummer</th>
+                      <th>Op naam van</th>
+                      <th style={{ width: 130 }}>BIC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actief.map((a) => (
+                      <RekeningRegel
+                        key={a.code}
+                        adm={a}
+                        bewaar={(velden) => zet(a.code, velden)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
         </>
       )}
     </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Eén bv en zijn rekening
+ *
+ *  Een eigen component omdat elk veld zijn eigen tussenstand heeft: zonder
+ *  dat zou elke aanslag meteen naar de server gaan, en dan valt de controle
+ *  op het rekeningnummer af op "NL2" voordat je klaar bent met typen.
+ *
+ *  Bewaren gebeurt bij het verlaten van het veld en alleen als er iets
+ *  veranderd is. Geen knop per regel: drie velden maal twaalf bv's is
+ *  zesendertig knoppen waarvan je er hooguit twee gebruikt.
+ * ------------------------------------------------------------------ */
+
+function RekeningRegel({
+  adm, bewaar,
+}: {
+  adm: ExactAdministratie
+  bewaar: (velden: { eigenIban?: string; eigenNaam?: string; eigenBic?: string }) => void
+}) {
+  const [iban, setIban] = useState(adm.eigenIban)
+  const [naam, setNaam] = useState(adm.eigenNaam)
+  const [bic, setBic] = useState(adm.eigenBic)
+
+  /* Komt er van de server iets anders terug dan wat hier staat -- na een
+     geweigerd nummer, of doordat iemand anders het zette -- dan wint de
+     server. Anders blijft er een waarde in beeld die nergens is opgeslagen. */
+  useEffect(() => { setIban(adm.eigenIban) }, [adm.eigenIban])
+  useEffect(() => { setNaam(adm.eigenNaam) }, [adm.eigenNaam])
+  useEffect(() => { setBic(adm.eigenBic) }, [adm.eigenBic])
+
+  return (
+    <tr>
+      <td>
+        <span className="mono">{adm.code}</span>
+        {adm.naam && <div className="ts-sub afgekapt">{adm.naam}</div>}
+      </td>
+      <td>
+        <input
+          className="input mono"
+          value={iban}
+          placeholder="NL00BANK0123456789"
+          spellCheck={false}
+          onChange={(e) => setIban(e.currentTarget.value)}
+          onBlur={() => { if (iban.trim() !== adm.eigenIban) bewaar({ eigenIban: iban }) }}
+        />
+      </td>
+      <td>
+        <input
+          className="input"
+          value={naam}
+          placeholder={adm.naam || 'Truckwash'}
+          onChange={(e) => setNaam(e.currentTarget.value)}
+          onBlur={() => { if (naam.trim() !== adm.eigenNaam) bewaar({ eigenNaam: naam }) }}
+        />
+      </td>
+      <td>
+        <input
+          className="input mono"
+          value={bic}
+          placeholder="optioneel"
+          spellCheck={false}
+          onChange={(e) => setBic(e.currentTarget.value)}
+          onBlur={() => { if (bic.trim() !== adm.eigenBic) bewaar({ eigenBic: bic }) }}
+        />
+      </td>
+    </tr>
   )
 }
 
@@ -797,6 +991,9 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
       }
     })()
   }, [])
+
+  useVanzelfOphalen(verbonden && stand !== null && verouderd(stand.laatstAt),
+    () => void haalOp())
 
   /**
    * Overnemen wat er nog niet is.
@@ -906,7 +1103,14 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
 
       <div className="row mb">
         {stand?.laatstAt
-          ? <span className="ts-sub">Laatst opgehaald {relative(stand.laatstAt)}{stand.door ? ` · ${stand.door}` : ''} · {stand.exactAantal} rekeningen in Exact</span>
+          ? (
+            <>
+              <VanzelfRegel laatstAt={stand.laatstAt} />
+              <span className="ts-sub">
+                {stand.door ? `· ${stand.door} ` : ''}· {stand.exactAantal} rekeningen in Exact
+              </span>
+            </>
+          )
           : <span className="ts-sub">Nog niet opgehaald.</span>}
       </div>
 
@@ -1186,7 +1390,7 @@ export function Grootboek({ verbonden }: { verbonden: boolean }) {
  *  Exact uit dienst en kan hier nog gewoon inloggen?
  * ------------------------------------------------------------------ */
 
-function Personeel({ verbonden }: { verbonden: boolean }) {
+export function Personeel({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<PersoneelStand | null>(null)
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
@@ -1678,13 +1882,40 @@ function leesbaar(waarde: unknown): string {
  *
  *  Per administratie, want dezelfde klant heeft in elke bv een eigen
  *  relatienummer -- en een verkoopfactuur wijst naar dat nummer.
+ *
+ *  Waarom dit scherm opnieuw is gebouwd
+ *  ------------------------------------
+ *
+ *  De eerste versie zette de bv's als KOLOMMEN neer: per bedrijf een rij, en
+ *  daarin per bv een keuzelijst. Op papier logisch, in het echt onbruikbaar.
+ *  Met twaalf bv's is dat twaalf keuzelijsten naast elkaar, horizontaal
+ *  scrollen tot je niet meer weet welke rij je aan het invullen bent -- en
+ *  elke lijst had duizend opties, want zoveel relaties staan er in Exact.
+ *  Duizend maal twaalf is twaalfduizend regels die de browser bij het openen
+ *  moet neerzetten.
+ *
+ *  Erger dan traag was wat het SUGGEREERDE: dat elk bedrijf in elke bv een
+ *  relatie hoort te hebben. Dat is niet zo. Een klant wordt gefactureerd
+ *  vanuit één bv; de andere elf zijn leeg en horen leeg te zijn. De server
+ *  zegt dat ook -- zonderKoppeling telt bedrijven met NUL koppelingen, niet
+ *  bedrijven die er elf missen.
+ *
+ *  Dus: een rij per bedrijf, met wat er in Exact aan hangt. Zoeken bovenaan.
+ *  Koppelen in een venster erbij, waar je zoekt in plaats van scrollt -- en
+ *  dat opent met de naam van het bedrijf al ingevuld, want negen van de tien
+ *  keer staat de juiste dan meteen in beeld.
  * ------------------------------------------------------------------ */
 
 export function Relaties({ verbonden }: { verbonden: boolean }) {
   const [stand, setStand] = useState<RelatiesStand | null>(null)
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
-  const [alles, setAlles] = useState(false)
+  const [zoek, setZoek] = useState('')
+  const [alleenLos, setAlleenLos] = useState(true)
+  /** Welk bedrijf staat er open om te koppelen. */
+  const [open, setOpen] = useState<string | null>(null)
+  /** De zoekterm in dat venster, apart van die in de lijst erachter. */
+  const [zoekRelatie, setZoekRelatie] = useState('')
 
   async function laad() {
     try {
@@ -1723,6 +1954,8 @@ export function Relaties({ verbonden }: { verbonden: boolean }) {
     }
   }
 
+  useVanzelfOphalen(verbonden && stand !== null && verouderd(stand.laatstAt), haalOp)
+
   /* Welke bv's er in de opgehaalde relaties voorkomen. Meer dan één betekent
      dat elk bedrijf per bv een eigen koppeling kan hebben. */
   const bvs = useMemo(
@@ -1730,8 +1963,90 @@ export function Relaties({ verbonden }: { verbonden: boolean }) {
     [stand])
 
   const bedrijven = stand?.bedrijven ?? []
-  const opvallend = bedrijven.filter((b) => b.koppelingen.length === 0)
-  const tonen = alles ? bedrijven : opvallend
+  const los = bedrijven.filter((b) => b.koppelingen.length === 0)
+
+  const getoond = useMemo(() => {
+    const t = zoek.trim().toLowerCase()
+    return bedrijven.filter((b) => {
+      if (alleenLos && b.koppelingen.length > 0) return false
+      if (!t) return true
+      return b.naam.toLowerCase().includes(t)
+        || (b.plaats ?? '').toLowerCase().includes(t)
+        /* Ook op de naam in Exact: zo vind je terug wat er verkeerd aan
+           hangt zonder eerst te weten hoe het bij ons heet. */
+        || b.koppelingen.some((k) => k.naam.toLowerCase().includes(t))
+    })
+  }, [bedrijven, zoek, alleenLos])
+
+  const dat = open ? bedrijven.find((b) => b.id === open) ?? null : null
+
+  /**
+   * De relaties die voor deze bv in aanmerking komen.
+   *
+   * Zonder zoekterm alleen wat er al aan hangt, en dat is met opzet: er staan
+   * duizend relaties in Exact, en die allemaal als optie neerzetten maakt het
+   * venster traag en de lijst onleesbaar. Wat er nu staat blijft altijd
+   * zichtbaar -- anders lijkt een bestaande koppeling verdwenen zodra je
+   * begint te typen.
+   */
+  function kandidaten(bv: string, huidig: string | null) {
+    const t = zoekRelatie.trim().toLowerCase()
+    const alles = (stand?.klanten ?? []).filter((k) => {
+      if (k.division !== bv) return false
+      /* Al aan een ánder bedrijf van ons gekoppeld: dan is hij vergeven. Eén
+         relatie in Exact hoort bij één bedrijf, anders is niet meer te zien
+         van wie een openstaande post is. */
+      if (k.gekoppeld && k.exactId !== huidig) return false
+      if (k.exactId === huidig) return true
+      if (!t) return false
+      return k.naam.toLowerCase().includes(t)
+        || (k.code ?? '').toLowerCase().includes(t)
+        || (k.plaats ?? '').toLowerCase().includes(t)
+    })
+    /* Wat er staat bovenaan, zodat het niet buiten de afkapping valt. */
+    alles.sort((a, b) => Number(b.exactId === huidig) - Number(a.exactId === huidig))
+    return { lijst: alles.slice(0, 100), totaal: alles.length }
+  }
+
+  const kolommen: Kolom<BedrijfRegel>[] = [
+    {
+      sleutel: 'naam',
+      kop: 'Bij ons',
+      toon: (b) => b.naam,
+      sorteer: (a, b) => a.naam.localeCompare(b.naam),
+    },
+    {
+      sleutel: 'plaats',
+      kop: 'Plaats',
+      zacht: true,
+      wegOnder: 900,
+      toon: (b) => b.plaats || '—',
+      sorteer: (a, b) => (a.plaats ?? '').localeCompare(b.plaats ?? ''),
+    },
+    {
+      sleutel: 'exact',
+      kop: 'In Exact',
+      sorteer: (a, b) => a.koppelingen.length - b.koppelingen.length,
+      toon: (b) => {
+        if (b.koppelingen.length === 0) {
+          return <Badge tone="warn">nog niet gekoppeld</Badge>
+        }
+        /* Dezelfde klant heet in elke bv hetzelfde; die naam één keer tonen
+           zegt meer dan een rij nummers. */
+        const namen = [...new Set(b.koppelingen.map((k) => k.naam))]
+        const opNaam = b.koppelingen.every((k) => k.bron === 'naam')
+        return (
+          <span>
+            {namen.join(', ')}
+            {b.koppelingen.length > 1 && (
+              <span className="ts-sub"> · in {b.koppelingen.length} bv's</span>
+            )}
+            {opNaam && <span className="ts-sub"> · automatisch op naam</span>}
+          </span>
+        )
+      },
+    },
+  ]
 
   return (
     <Card
@@ -1749,13 +2064,15 @@ export function Relaties({ verbonden }: { verbonden: boolean }) {
         Onze klantenlijst blijft van ons — er hangen wasbeurten en portalen aan. Wat hier gebeurt
         is koppelen: welk bedrijf van ons is welke relatie in Exact. Dat gaat automatisch op naam
         als er precies één relatie met die naam is; bij twee is kiezen raden, en dan doet een mens
-        het.
+        het. Eén koppeling is genoeg — een klant wordt vanuit één bv gefactureerd, niet vanuit
+        alle twaalf.
       </p>
 
       <div className="row mb">
-        {stand?.laatstAt
-          ? <span className="ts-sub">Laatst opgehaald {relative(stand.laatstAt)} · {stand.klanten.length} klanten in Exact</span>
-          : <span className="ts-sub">Nog niet opgehaald.</span>}
+        <VanzelfRegel laatstAt={stand?.laatstAt} />
+        {stand?.laatstAt && (
+          <span className="ts-sub">· {stand.klanten.length} relaties in Exact</span>
+        )}
       </div>
 
       {stand && stand.zonderKoppeling > 0 && (
@@ -1775,64 +2092,46 @@ export function Relaties({ verbonden }: { verbonden: boolean }) {
         </div>
       )}
 
-      {tonen.length === 0 && !stand?.laatstAt && (
-        <Empty text="Haal de relaties op bij Exact om te koppelen." />
-      )}
+      {!stand?.laatstAt
+        ? <Empty text="Haal de relaties op bij Exact om te koppelen." />
+        : (
+          <>
+            <Filterbalk>
+              <Zoekveld
+                waarde={zoek}
+                zet={setZoek}
+                hint="Zoek op bedrijf, plaats of de naam in Exact"
+              />
+              <button
+                className={`btn sm ${alleenLos ? 'primary' : 'ghost'}`}
+                onClick={() => setAlleenLos((v) => !v)}
+              >
+                {alleenLos
+                  ? <>Alleen wat nog niet gekoppeld is ({los.length})</>
+                  : <>Alle {bedrijven.length} bedrijven</>}
+              </button>
+            </Filterbalk>
 
-      {tonen.length > 0 && (
-        <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Bij ons</th>
-                <th>Plaats</th>
-                {bvs.map((bv) => <th key={bv}>In {bv}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {tonen.map((b) => (
-                <tr key={b.id}>
-                  <td className="afgekapt">{b.naam}</td>
-                  <td className="afgekapt">{b.plaats || '—'}</td>
-                  {bvs.map((bv) => {
-                    const link = b.koppelingen.find((k) => k.division === bv)
-                    const keuzes = (stand?.klanten ?? []).filter(
-                      (k) => k.division === bv && (!k.gekoppeld || k.exactId === link?.exactId))
-                    return (
-                      <td key={bv}>
-                        <select
-                          className="input"
-                          style={{ minWidth: 150 }}
-                          value={link?.exactId ?? ''}
-                          onChange={(e) => void koppel(b.id, bv, e.currentTarget.value || null)}
-                        >
-                          <option value="">— niet gekoppeld —</option>
-                          {keuzes.map((k) => (
-                            <option key={k.exactId} value={k.exactId}>
-                              {k.code ? `${k.code} · ` : ''}{k.naam}
-                            </option>
-                          ))}
-                        </select>
-                        {link?.bron === 'naam' && <span className="ts-sub"> op naam</span>}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {bedrijven.length > opvallend.length && (
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn ghost sm" onClick={() => setAlles((v) => !v)}>
-            {alles
-              ? <><X size={14} /> Alleen wat nog niet gekoppeld is</>
-              : <>Alle {bedrijven.length} bedrijven tonen</>}
-          </button>
-        </div>
-      )}
+            <Tabel
+              rijen={getoond}
+              kolommen={kolommen}
+              sleutelVan={(b) => b.id}
+              sorteerOp="naam"
+              opRij={(b) => { setOpen(b.id); setZoekRelatie(b.naam) }}
+              leeg={(
+                <LeegStaat
+                  gefilterd={zoek.trim() !== '' || alleenLos}
+                  titel={alleenLos && zoek.trim() === ''
+                    ? 'Alles is gekoppeld'
+                    : 'Geen bedrijf gevonden'}
+                  uitleg={alleenLos && zoek.trim() === ''
+                    ? 'Elk bedrijf hangt aan een relatie in Exact.'
+                    : 'Pas de zoekterm aan, of zet de knop om naar alle bedrijven.'}
+                />
+              )}
+            />
+          </>
+        )}
 
       {stand && stand.alleenInExact > 0 && (
         <p className="help" style={{ marginTop: 12, marginBottom: 0 }}>
@@ -1840,6 +2139,89 @@ export function Relaties({ verbonden }: { verbonden: boolean }) {
           Dat hoeft niet fout te zijn — daar zitten leveranciers en oude klanten tussen.
         </p>
       )}
+
+      {/* ---------------------- koppelen ---------------------- */}
+
+      <Modal
+        open={dat !== null}
+        title={dat ? `Koppelen: ${dat.naam}` : ''}
+        subtitle="Welke relatie in Exact is dit bedrijf"
+        onClose={() => { setOpen(null); setZoekRelatie('') }}
+        width={780}
+      >
+        {dat && (
+          <>
+            <p className="help" style={{ marginTop: 0 }}>
+              Eén koppeling is genoeg: kies de bv van waaruit dit bedrijf gefactureerd wordt.
+              De rest laat je leeg. Het zoekveld staat alvast op de naam die wij kennen.
+            </p>
+
+            <Zoekveld
+              waarde={zoekRelatie}
+              zet={setZoekRelatie}
+              hint="Zoek in Exact op naam, relatienummer of plaats"
+            />
+
+            <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto', marginTop: 10 }}>
+              <table className="data">
+                <thead><tr><th style={{ width: 110 }}>Bv</th><th>Relatie in Exact</th></tr></thead>
+                <tbody>
+                  {bvs.map((bv) => {
+                    const link = dat.koppelingen.find((k) => k.division === bv)
+                    const { lijst, totaal } = kandidaten(bv, link?.exactId ?? null)
+                    return (
+                      <tr key={bv}>
+                        <td className="mono">{bv}</td>
+                        <td>
+                          <select
+                            className="input"
+                            value={link?.exactId ?? ''}
+                            onChange={(e) => void koppel(dat.id, bv, e.currentTarget.value || null)}
+                          >
+                            <option value="">— niet gekoppeld —</option>
+                            {lijst.map((k) => (
+                              <option key={k.exactId} value={k.exactId}>
+                                {k.code ? `${k.code} · ` : ''}{k.naam}
+                                {k.plaats ? ` — ${k.plaats}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          {/*
+                            Nooit stil afkappen. Staat er meer dan er getoond
+                            wordt, dan hoort dat er te staan -- anders zoek je
+                            naar een relatie die er wel is en niet in de lijst
+                            staat, en concludeer je dat hij in Exact ontbreekt.
+                          */}
+                          {totaal > lijst.length && (
+                            <span className="ts-sub">
+                              {totaal} treffers, de eerste {lijst.length} staan erbij — typ verder
+                            </span>
+                          )}
+                          {totaal === 0 && zoekRelatie.trim() !== '' && (
+                            <span className="ts-sub">geen treffer in deze bv</span>
+                          )}
+                          {zoekRelatie.trim() === '' && !link && (
+                            <span className="ts-sub">typ hierboven om te zoeken</span>
+                          )}
+                          {link?.bron === 'naam' && (
+                            <span className="ts-sub">automatisch op naam gekoppeld</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setOpen(null); setZoekRelatie('') }}>
+                Sluiten
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
     </Card>
   )
 }

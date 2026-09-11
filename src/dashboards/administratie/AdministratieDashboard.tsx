@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Bot, ClipboardCheck, Clock, Inbox, LayoutDashboard, MessageSquare, Receipt,
+  Bot, Building2, ClipboardCheck, Clock, Inbox, LayoutDashboard, MessageSquare, Receipt,
   ScrollText, Settings, ShoppingCart, Store, Truck, UserPlus, Users, Wallet,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
@@ -20,7 +20,7 @@ import Postbus from '../../components/Postbus'
 import Inkoopinstellingen from '../developer/Inkoop'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import {
-  Betalen, Facturen, Grootboek, Relaties, Verkoop,
+  Administraties, Betalen, Facturen, Grootboek, Relaties, Verkoop,
 } from '../developer/Exact'
 import { exactStatus } from '../../lib/trucksupply'
 import { telStuk, telWerk } from '../../lib/werklijst'
@@ -65,6 +65,7 @@ const TITELS: Record<string, { title: string; subtitle: string }> = {
   verkoopfacturen: { title: 'Verkoopfacturen', subtitle: 'Wat wij versturen' },
   betalen: { title: 'Betalen', subtitle: 'Betaalbatches en SEPA-bestanden' },
   grootboek: { title: 'Grootboek', subtitle: 'Het rekeningschema uit Exact' },
+  bvs: { title: "De bv's", subtitle: 'Welke administraties er zijn, wie waar boekt en waarvan betaald wordt' },
   boekhouding: { title: 'Boekhouding', subtitle: 'Hoe facturen worden gelezen, geboekt en goedgekeurd' },
   trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
   uren: { title: 'Urenwijzigingen', subtitle: 'Correcties op wat er is geklokt' },
@@ -155,6 +156,7 @@ export default function AdministratieDashboard() {
     ? [
       { key: 'betalen', label: 'Betalen', icon: Wallet },
       { key: 'grootboek', label: 'Grootboek', icon: ScrollText },
+      { key: 'bvs', label: "De bv's", icon: Building2 },
     ]
     : []
 
@@ -353,6 +355,7 @@ export default function AdministratieDashboard() {
 
       {page === 'betalen' && <Betalen />}
       {page === 'grootboek' && <Grootboek verbonden={verbonden} />}
+      {page === 'bvs' && <Administraties verbonden={verbonden} />}
 
       {/*
         Geen tweede instellingenscherm. Adressen, de lezer, het automatisch
