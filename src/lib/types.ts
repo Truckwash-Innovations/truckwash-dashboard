@@ -611,6 +611,33 @@ export interface Expense {
    */
   indelingBron?: 'geheugen' | 'geraden' | 'handmatig'
 
+  /* --- in welke bv (0079) --- */
+
+  /**
+   * De administratiecode in Exact waarin deze factuur geboekt wordt.
+   *
+   * Leeg = afleiden uit de vestiging, zoals het sinds 0059 ging. Dat blijft
+   * de terugval; dit veld is het antwoord als het er is.
+   */
+  administratie?: string
+  /**
+   * Waar die bv vandaan komt.
+   *
+   *   gelezen     van het stuk, en zeker -- KvK-nummer of naam klopte precies
+   *   vermoeden   van het stuk, maar het leek er alleen op. Nakijken.
+   *   vestiging   afgeleid uit de vestiging van de bon
+   *   handmatig   een mens heeft het gezet, en dat wint van de rest
+   */
+  administratieBron?: 'gelezen' | 'vermoeden' | 'vestiging' | 'handmatig'
+  /**
+   * Aan welke vennootschap de factuur volgens het stuk gericht is, letterlijk.
+   *
+   * Blijft staan ook als er geen bv bij gevonden is. Juist dan: dan kun je
+   * zien waar de lezer naar heeft gekeken in plaats van te moeten raden
+   * waarom er niets staat.
+   */
+  geadresseerde?: string
+
   updatedAt: number
 
   /* --- waar hij in Exact terechtkwam (0053) --- */
@@ -627,6 +654,21 @@ export interface Expense {
   eersteDoor?: string
   eersteDoorNaam?: string
   eersteAt?: number
+
+  /* --- en of hij betaald is (0065) --- */
+
+  /*
+   * Deze drie kolommen bestaan sinds 0065 en stonden hier niet. Dat was geen
+   * keuze: het ophalen doet select('*'), dus ze kwamen wel binnen en stonden
+   * gewoon in de plaatselijke opslag -- alleen wist TypeScript er niets van,
+   * en dus kon geen enkel scherm de vraag "staat deze nog open" stellen.
+   * Daar liep de laatste stap van de stroom op vast (0079).
+   */
+  /** Wanneer hij betaald is, epoch ms. Leeg = staat nog open. */
+  betaaldAt?: number
+  betaaldDoor?: string
+  /** In welke betaalopdracht hij is meegegaan. */
+  betaalbatchId?: string
 }
 
 /**
@@ -703,6 +745,18 @@ export interface FactuurLezing {
   betalingskenmerk?: string
   btwNummer?: string
   kvk?: string
+
+  /**
+   * Aan welke vennootschap de factuur gericht is, letterlijk van het stuk.
+   *
+   * Niet te verwarren met leverancier: die stuurt hem, deze moet hem betalen.
+   * Dit is waaruit sinds 0079 de bv wordt bepaald; het staat ook los op de
+   * kostenpost (Expense.geadresseerde), zodat het scherm kan laten zien
+   * waarop de keuze berust.
+   */
+  geadresseerde?: string
+  geadresseerdeKvk?: string
+  geadresseerdeBtw?: string
 
   regels?: FactuurRegel[]
   subtotaalExcl?: number

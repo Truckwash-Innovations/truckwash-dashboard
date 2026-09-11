@@ -5920,8 +5920,30 @@ console.log('\n48. Te verwerken: welke stand heeft een factuur')
     standVan(bon({ status: 'eerste_akkoord' }), NU) === 'tweede')
   check('goedgekeurd betekent: moet naar Exact',
     standVan(bon({ status: 'goedgekeurd' }), NU) === 'boeken')
-  check('en met een exact-id is hij klaar',
-    standVan(bon({ status: 'goedgekeurd', exactId: '12345' }), NU) === 'klaar')
+  /*
+   * Hier stond: "en met een exact-id is hij klaar".
+   *
+   * Dat was fout, en deze regel ving het toen 'betalen' erbij kwam (0079).
+   * Geboekt is niet afgehandeld: de factuur staat in Exact en er is nog geen
+   * cent overgemaakt. Met de oude regel telde die hele stapel als afgerond --
+   * in de lijst van Casper bij Blue10 zijn dat er 559 -- en was hij in dit
+   * systeem nergens te zien.
+   */
+  check('geboekt maar niet betaald wacht op betalen',
+    standVan(bon({ status: 'goedgekeurd', exactId: '12345' }), NU) === 'betalen')
+  check('en pas met een betaaldatum is hij klaar',
+    standVan(bon({ status: 'goedgekeurd', exactId: '12345', betaaldAt: NU }), NU) === 'klaar')
+
+  /*
+   * En die stapel hoort NIET in de werklijst mee te tellen.
+   *
+   * Betalen is werk, maar het gaat via een betaalopdracht en een SEPA-bestand,
+   * niet via "kijk hiernaar en zeg ja of nee". Zou hij meetellen, dan groeit
+   * de badge van Te verwerken met alles wat op de bank wacht en is de handvol
+   * facturen waar iemand werkelijk naar moet kijken er niet meer in te vinden.
+   */
+  check('maar telt niet mee in de werklijst',
+    telWerk([bon({ status: 'goedgekeurd', exactId: '12345' })], NU) === 0)
 
   /*
    * De volgorde waar het om draait. Deze bon is goedgekeurd EN Exact gaf een
@@ -7586,6 +7608,168 @@ console.log('\n59. Geen doodlopende wegen')
       && !/{items\.slice\(0, 4\)\.map/.test(shell))
   check('en die lijst slaat groepskoppen over',
     /mobielItems = useMemo\(\s*\(\) =>\s*items\.flatMap/.test(shell))
+}
+
+
+/* ==================================================================== *
+ *  60. De stroom van een factuur
+ *
+ *  Casper stuurde foto's van Blue10 mee: "je moet echt blue10 een beetje
+ *  namaken met dat stuk" -- de rij vakjes boven de lijst, elk met een teller.
+ *
+ *  Wat hier wordt nagerekend is niet de opmaak maar de indeling: welke bon
+ *  in welk vakje valt. Dat is de plek waar het stil fout gaat. Een stand die
+ *  in geen enkel vakje valt verdwijnt uit de rij, en dan telt de balk minder
+ *  facturen dan er zijn zonder dat er iets misgaat -- precies het soort fout
+ *  waar niemand achter komt omdat er geen foutmelding bij hoort.
+ * ==================================================================== */
+
+console.log('\n60. De stroom van een factuur')
+
+{
+  const { STAPPEN, onafgehandeldePost, perBedrijf, stapVanStand, stroom, teLaat } =
+    await import('../src/lib/stroom.ts')
+  const { STANDEN, VOLGORDE } = await import('../src/lib/werklijst.ts')
+
+  const NU = 1_800_000_000_000
+
+  const bon = (extra: Record<string, unknown> = {}) => ({
+    id: 'e' + Math.random().toString(36).slice(2, 8),
+    locationId: 'loc_a', date: NU - 86_400_000, category: 'materiaal',
+    supplier: 'Chemtrans', description: '', amountExcl: 100, vatPct: 21,
+    status: 'open', submittedBy: 'u1', submittedByName: 'Wim', updatedAt: NU,
+    ...extra,
+  }) as never
+
+  /* ---- elke stand die werk is, valt in een vakje ---- */
+
+  /*
+   * De belangrijkste controle van dit hoofdstuk.
+   *
+   * Komt er ooit een stand bij in werklijst.ts en vergeet iemand hem in
+   * STAPPEN te zetten, dan verdwijnen die bonnen uit de balk. De teller klopt
+   * dan niet meer, en er is niets dat dat zegt. Hier valt het om.
+   */
+  for (const sleutel of VOLGORDE) {
+    check(`de stand "${sleutel}" heeft een vakje in de stroom`,
+      stapVanStand(sleutel) !== null)
+  }
+  check('en "betalen" ook, ook al staat die buiten de werklijst',
+    stapVanStand('betalen') === 'betalen')
+  check('wat afgerond is valt in geen enkel vakje',
+    stapVanStand('klaar') === null && stapVanStand('afgekeurd') === null)
+
+  /* ---- de indeling zelf ---- */
+
+  const stand = (uit: ReturnType<typeof stroom>, sleutel: string) =>
+    uit.find((s) => s.stap.sleutel === sleutel)!
+
+  const uit = stroom([
+    bon({ status: 'open' }),                                     // akkoord
+    bon({ status: 'eerste_akkoord' }),                           // tweede
+    bon({ status: 'open', amountExcl: 0, supplier: '' }),         // aanvullen
+    bon({ status: 'goedgekeurd' }),                              // boeken
+    bon({ status: 'goedgekeurd', exactId: 'X1' }),                // betalen
+    bon({ status: 'goedgekeurd', exactId: 'X2', betaaldAt: NU }), // klaar: telt niet
+    bon({ status: 'afgekeurd' }),                                // telt niet
+  ], [], NU)
+
+  check('akkoord en tweede vallen samen onder Goedkeuren',
+    stand(uit, 'goedkeuren').aantal === 2)
+  check('een bon zonder bedrag staat bij Aanvullen',
+    stand(uit, 'aanvullen').aantal === 1)
+  check('goedgekeurd staat bij Boeken',
+    stand(uit, 'boeken').aantal === 1)
+  check('geboekt en onbetaald staat bij Betalen',
+    stand(uit, 'betalen').aantal === 1)
+  check('wat betaald of afgekeurd is telt nergens mee',
+    uit.reduce((t, s) => t + s.aantal, 0) === 5)
+
+  /*
+   * Lege vakjes blijven staan. Dat is geen detail: een vakje dat verdwijnt
+   * verschuift alle andere, en dan staat Goedkeuren de ene dag op plek drie
+   * en de volgende op plek twee. Zo'n rij leer je niet lezen.
+   */
+  check('alle stappen komen terug, ook de lege',
+    stroom([], [], NU).length === STAPPEN.length)
+
+  /* ---- het kruisje en het uitroepteken ---- */
+
+  const stuk = stroom([
+    bon({ status: 'goedgekeurd', exactFout: 'Dagboek 70 bestaat niet' }),
+    bon({ status: 'goedgekeurd' }),
+  ], [], NU)
+  check('een fout van Exact telt als stuk bij Boeken',
+    stand(stuk, 'boeken').aantal === 2 && stand(stuk, 'boeken').stuk === 1)
+
+  check('een verstreken vervaldatum is te laat',
+    teLaat(bon({ vervaldatum: NU - 86_400_000 }), NU) === true)
+  check('maar niet als hij betaald is',
+    teLaat(bon({ vervaldatum: NU - 86_400_000, betaaldAt: NU }), NU) === false)
+  check('en een vervaldatum in de toekomst ook niet',
+    teLaat(bon({ vervaldatum: NU + 86_400_000 }), NU) === false)
+
+  /* ---- Binnen: post waar nog geen factuur van is ---- */
+
+  const post = (extra: Record<string, unknown> = {}) => ({
+    id: 'm' + Math.random().toString(36).slice(2, 8),
+    richting: 'in', van: 'a@b.nl', aan: 'inkoop.venlo@x.nl', onderwerp: 'Factuur',
+    tekst: '', hadHtml: false, at: NU, status: 'nieuw', attachments: [], updatedAt: NU,
+    ...extra,
+  }) as never
+
+  check('post zonder kostenpost telt als binnengekomen',
+    onafgehandeldePost([post()]).length === 1)
+  check('post waar al een factuur van is telt niet mee',
+    onafgehandeldePost([post({ expenseId: 'e1' })]).length === 0)
+  /*
+   * Een doorgestuurde eigen verkoopfactuur is met opzet GEEN kostenpost
+   * geworden (0047). Die als achterstand tellen zou betekenen dat er elke
+   * maand werk in de rij staat dat er niet is -- en dan kijkt niemand meer
+   * naar dat vakje.
+   */
+  check('en een doorgestuurde verkoopfactuur ook niet',
+    onafgehandeldePost([post({ soort: 'verkoop' })]).length === 0)
+  check('uitgaande post telt niet mee',
+    onafgehandeldePost([post({ richting: 'uit' })]).length === 0)
+
+  check('het vakje Binnen telt post en geen bonnen',
+    stand(stroom([bon()], [post(), post()], NU), 'binnen').aantal === 2)
+
+  /* ---- per onderneming ---- */
+
+  const namen = new Map([['001', 'Truckwash 1 Asten B.V.'], ['002', 'Truckwash 1 Vastgoed B.V.']])
+  const groepen = perBedrijf([
+    bon({ administratie: '001', amountExcl: 100, vatPct: 0 }),
+    bon({ administratie: '001', amountExcl: 200, vatPct: 0 }),
+    bon({ administratie: '002', amountExcl: 1000, vatPct: 0 }),
+    bon({ amountExcl: 50, vatPct: 0 }),
+  ], namen, NU)
+
+  check('de bonnen worden per bv opgeteld',
+    groepen.find((g) => g.code === '001')?.bedrag === 300)
+  check('en de naam komt uit Exact',
+    groepen.find((g) => g.code === '002')?.naam === 'Truckwash 1 Vastgoed B.V.')
+  /*
+   * Wat nergens bij hoort staat bovenaan, ook al is het bedrag het kleinst.
+   * Dat is het enige in deze lijst waar iemand iets aan moet doen; de rest is
+   * een stand van zaken.
+   */
+  check('wat nog geen onderneming heeft staat bovenaan',
+    groepen[0].code === '' && groepen[0].naam === 'Nog geen onderneming')
+  check('en de rest staat op bedrag, grootste eerst',
+    groepen[1].code === '002' && groepen[2].code === '001')
+
+  /* ---- de uitleg in de balk moet ergens over gaan ---- */
+
+  for (const stap of STAPPEN) {
+    check(`de stap "${stap.sleutel}" legt zichzelf uit`,
+      stap.uitleg.length > 15 && stap.uitleg.endsWith('.'))
+    /* Elke stand die genoemd wordt moet bestaan; een tikfout hier laat
+       bonnen stilletjes uit de balk vallen. */
+    check(`en noemt alleen standen die bestaan`,
+      stap.standen.every((s) => s in STANDEN))
+  }
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -31,6 +31,7 @@ export type Verwerkstand =
   | 'akkoord'
   | 'tweede'
   | 'boeken'
+  | 'betalen'
   | 'geweigerd'
   | 'klaar'
   | 'afgekeurd'
@@ -93,10 +94,31 @@ export const STANDEN: Record<Verwerkstand, Standinfo> = {
     uitleg: 'Goedgekeurd en klaar om geboekt te worden.',
     actie: true,
   },
+  /*
+   * Betalen is werk, en toch staat het niet in deze lijst.
+   *
+   * Het hoort bij de stroom (zie stroom.ts) en bij het scherm Betalen, waar
+   * je facturen in een betaalopdracht zet en er een SEPA-bestand van maakt.
+   * Dat is een andere handeling dan "kijk hiernaar en zeg er ja of nee op",
+   * en het gaat om honderden regels tegelijk. Zou hij in VOLGORDE staan, dan
+   * groeit de werklijst met alles wat op de bank wacht en is de handvol
+   * facturen waar een mens werkelijk naar moet kijken er niet meer in terug
+   * te vinden.
+   *
+   * Vandaar: een echte stand, geteld in de stroom, maar buiten de werklijst.
+   * actie blijft true omdat het werkelijk werk is; telWerk() kijkt daarom
+   * niet alleen naar actie maar ook naar VOLGORDE.
+   */
+  betalen: {
+    sleutel: 'betalen',
+    label: 'Te betalen',
+    uitleg: 'Geboekt in Exact en nog niet betaald. Gaat via een betaalopdracht.',
+    actie: true,
+  },
   klaar: {
     sleutel: 'klaar',
-    label: 'Geboekt',
-    uitleg: 'Staat in Exact. Hier is niets meer te doen.',
+    label: 'Betaald',
+    uitleg: 'Geboekt en betaald. Hier is niets meer te doen.',
     actie: false,
     afgerond: true,
   },
@@ -134,7 +156,15 @@ export function standVan(bon: Expense, nu: number = Date.now()): Verwerkstand {
      uitkomt. Blijft hij tussen 'goedgekeurd' hangen, dan ziet het eruit als
      werk dat nog moet gebeuren terwijl het al drie keer is geprobeerd. */
   if (bon.exactFout) return 'geweigerd'
-  if (bon.exactId) return 'klaar'
+  /*
+   * Geboekt is niet hetzelfde als afgehandeld.
+   *
+   * Hier stond 'klaar' zodra er een boekingsnummer was, en daarmee viel de
+   * hele betaalkant buiten beeld: honderden facturen die in Exact stonden en
+   * nog betaald moesten worden, telden als afgerond. In Blue10 is dat de
+   * grootste stapel van allemaal, en bij ons was hij onzichtbaar.
+   */
+  if (bon.exactId) return bon.betaaldAt ? 'klaar' : 'betalen'
 
   if (bon.status === 'goedgekeurd') return 'boeken'
   if (bon.status === 'eerste_akkoord') return 'tweede'
@@ -168,6 +198,25 @@ export function ontbreekt(bon: Expense): string[] {
   if (!(bon.amountExcl > 0)) uit.push('Er staat geen bedrag op.')
   if (!bon.supplier.trim()) uit.push('De leverancier is niet ingevuld.')
   if (!bon.date) uit.push('De factuurdatum ontbreekt.')
+
+  /*
+   * De vennootschap (0079).
+   *
+   * Een bv die alleen maar "lijkt te kloppen" hoort niet stil door te gaan.
+   * Hij bepaalt in welke jaarrekening de post landt, en een fout daarin komt
+   * pas bij de accountant boven -- als niemand meer weet waar die factuur
+   * vandaan kwam. Dus staat hij hier, tussen de dingen waarop je niet blind
+   * ja zegt.
+   *
+   * Alleen een vermoeden, niet een lege bv: leeg betekent dat hij uit de
+   * vestiging volgt, en dat is hoe het tot 0079 altijd ging.
+   */
+  if (bon.administratieBron === 'vermoeden') {
+    uit.push(bon.geadresseerde
+      ? `De factuur is gericht aan "${bon.geadresseerde}". Welke onderneming dat is, `
+        + 'is geraden op de naam -- kijk het na.'
+      : 'Welke onderneming dit wordt, is geraden op de naam -- kijk het na.')
+  }
 
   const lezing = bon.gelezen
   if (lezing) {
@@ -228,9 +277,23 @@ export function verdeel(bonnen: Expense[], nu: number = Date.now()): Vak[] {
     }))
 }
 
-/** Hoeveel bonnen er op iemand wachten. Dat is het getal voor de badge. */
+/**
+ * Hoeveel bonnen er op iemand wachten. Dat is het getal voor de badge.
+ *
+ * Op VOLGORDE en niet alleen op `actie`, en dat verschil is er pas sinds
+ * 'betalen' bestaat. Die stand is werk -- er moet geld overgemaakt worden --
+ * maar hij hoort bij het scherm Betalen en niet bij deze lijst. Zonder deze
+ * grens sprong de badge van "Te verwerken" van een handvol naar honderden, en
+ * dan zegt hij niets meer.
+ *
+ * Vandaag telt dit precies hetzelfde als vroeger: elke stand in VOLGORDE heeft
+ * actie. Het staat er voor de volgende die een stand toevoegt.
+ */
 export function telWerk(bonnen: Expense[], nu: number = Date.now()): number {
-  return bonnen.filter((b) => STANDEN[standVan(b, nu)].actie).length
+  return bonnen.filter((b) => {
+    const stand = standVan(b, nu)
+    return STANDEN[stand].actie && VOLGORDE.includes(stand)
+  }).length
 }
 
 /** En hoeveel daarvan stuk zijn. Die krijgen een andere kleur. */

@@ -17,9 +17,14 @@ import {
 } from '../../lib/facturen'
 import { dateShort, dateTime, datumMisschienTijd, maandNaam, money } from '../../lib/format'
 import {
-  BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht, zetBoeking,
+  BRON_TEKST, BV_BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht,
+  zetBoeking, zetOnderneming,
 } from '../../lib/boeking'
 import { historieVan } from '../../lib/factuurhistorie'
+import Stroombalk from '../../components/Stroombalk'
+import { stapVanStand, stroom, teLaat, type StapSleutel } from '../../lib/stroom'
+import { standVan } from '../../lib/werklijst'
+import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
 import {
   Badge, Card, Documentpaneel, Empty, Field, Filterbalk, Filterchips, Knop,
   Kruimels, LeegStaat, Modal, Paginakop, Stand, Stat, Tabbladen, Tabel, Zoekveld,
@@ -69,7 +74,19 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'alles', label: 'Alles' },
 ]
 
-export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
+export default function Kostenposten({ openBon, naarPostbus }: {
+  openBon?: string
+  /**
+   * Waar "Binnen" in de stroombalk heen gaat (0079).
+   *
+   * Dat vakje telt post waar nog GEEN kostenpost van is, dus er valt in deze
+   * lijst niets op te filteren -- die bonnen bestaan niet. Zonder deze uitweg
+   * zou het een vakje zijn dat wel een getal toont en nergens heen gaat, en
+   * dat is precies het soort doodlopende weg waar je twee keer op klikt
+   * voordat je gelooft dat er niets gebeurt.
+   */
+  naarPostbus?: () => void
+} = {}) {
   const user = useAuth((s) => s.user)!
   const perms = usePerms()
   const [tab, setTab] = useState<Tab>('open')
@@ -105,6 +122,38 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
   const [wie, setWie] = useState('')
 
   /*
+   * En twee die bij de stroom horen (0079).
+   *
+   * `stap` is wat er in de balk bovenaan is aangeklikt -- teller en filter in
+   * één. `bedrijf` is de vennootschap; die vraag stelt een holding met ruim
+   * twintig bv's elke maand ("wat staat er open bij Vastgoed"), en tot nu toe
+   * was het antwoord alleen in Exact te vinden.
+   */
+  const [stap, setStap] = useState<StapSleutel | null>(null)
+  const [bedrijf, setBedrijf] = useState('')
+
+  /*
+   * De bv's staan niet in de plaatselijke opslag.
+   *
+   * Ze horen bij Exact, worden niet meegesynchroniseerd en veranderen hoogstens
+   * een paar keer per jaar. Eén keer ophalen bij het openen is genoeg; mislukt
+   * het -- niet gekoppeld, geen rechten -- dan tonen de kolom en het filter de
+   * code in plaats van de naam, en werkt de rest gewoon.
+   */
+  const [bedrijven, setBedrijven] = useState<ExactAdministratie[]>([])
+  useEffect(() => {
+    let weg = false
+    void exactFacturenStand()
+      .then((s) => { if (!weg) setBedrijven(s.administraties) })
+      .catch(() => { /* niet gekoppeld; dan de code tonen */ })
+    return () => { weg = true }
+  }, [])
+
+  const bedrijfsnamen = useMemo(
+    () => new Map(bedrijven.map((b) => [b.code, b.naam])),
+    [bedrijven])
+
+  /*
    * Binnenkomen op een bon.
    *
    * Uit de werklijst ("Openen") of uit een mail met ?open=kosten&id=exp_123.
@@ -137,11 +186,33 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
       .sort((a, b) => a.localeCompare(b, 'nl')),
     [alle])
 
+  /*
+   * De ondernemingen waar werkelijk facturen op staan.
+   *
+   * Uit de bonnen en niet uit de lijst van Exact: een bv waar nog nooit iets
+   * op geboekt is, levert een filter op dat gegarandeerd nul rijen geeft. De
+   * naam komt wél uit Exact; staat hij daar niet, dan de code -- dat is
+   * eerlijker dan hem verbergen, want een code die op facturen staat en niet
+   * in de lijst is precies wat je wilt zien.
+   */
+  const bedrijfsKeuzes = useMemo(
+    () => [...new Set(alle.map((e) => e.administratie).filter((c): c is string => !!c))]
+      .map((code) => ({ code, naam: bedrijfsnamen.get(code) ?? code }))
+      .sort((a, b) => a.naam.localeCompare(b.naam, 'nl')),
+    [alle, bedrijfsnamen])
+
   /* De perioden waar bonnen in zitten, nieuwste eerst. Als 2026-03. */
   const perioden = useMemo(
     () => [...new Set(alle.map((e) => new Date(e.date).toISOString().slice(0, 7)))]
       .sort().reverse(),
     [alle])
+
+  /* Voor het vakje "Binnen": post waar nog geen kostenpost van is gemaakt. */
+  const postbusAlles = useLiveQuery(() => db.mailbox.toArray(), [], [] as MailBericht[])
+
+  const stroomStand = useMemo(
+    () => stroom(alle, postbusAlles),
+    [alle, postbusAlles])
 
   const rijen = useMemo(
     () => alle
@@ -150,16 +221,32 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
       .filter((e) => !leverancier || e.supplier === leverancier)
       .filter((e) => !wie || e.submittedByName === wie)
       .filter((e) => !periode || new Date(e.date).toISOString().slice(0, 7) === periode)
+      .filter((e) => !bedrijf || (e.administratie ?? '') === bedrijf)
+      .filter((e) => !stap || stapVanStand(standVan(e)) === stap)
       .sort((a, b) => b.date - a.date),
-    /* Alle vier de filters hoorden hier in. `zoek` ontbrak eerst, en dan werd
-       de lijst pas opnieuw gefilterd als je van tabblad wisselde -- het
-       zoekveld leek stuk terwijl er niets mis mee was. */
-    [alle, tab, zoek, leverancier, wie, periode],
+    /* Alle filters hoorden hier in. `zoek` ontbrak eerst, en dan werd de lijst
+       pas opnieuw gefilterd als je van tabblad wisselde -- het zoekveld leek
+       stuk terwijl er niets mis mee was. */
+    [alle, tab, zoek, leverancier, wie, periode, bedrijf, stap],
   )
 
   /* Wat er aan staat, voor de chips eronder. Op een plek, zodat de chips en
      het wissen niet uit elkaar kunnen lopen. */
   const actieveFilters = [
+    ...(stap
+      ? [{
+          label: 'Stap',
+          waarde: stroomStand.find((s) => s.stap.sleutel === stap)?.stap.label ?? stap,
+          weg: () => setStap(null),
+        }]
+      : []),
+    ...(bedrijf
+      ? [{
+          label: 'Onderneming',
+          waarde: bedrijfsnamen.get(bedrijf) ?? bedrijf,
+          weg: () => setBedrijf(''),
+        }]
+      : []),
     ...(leverancier ? [{ label: 'Leverancier', waarde: leverancier, weg: () => setLeverancier('') }] : []),
     ...(periode ? [{ label: 'Periode', waarde: maandNaam(periode), weg: () => setPeriode('') }] : []),
     ...(wie ? [{ label: 'Ingediend door', waarde: wie, weg: () => setWie('') }] : []),
@@ -171,6 +258,27 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
     setPeriode('')
     setWie('')
     setZoek('')
+    setBedrijf('')
+    setStap(null)
+  }
+
+  /*
+   * Een stap aanklikken zet het tabblad op "alles".
+   *
+   * Zonder dat is de balk half stuk: je staat op het tabblad Open, klikt op
+   * Boeken -- dat zijn per definitie goedgekeurde facturen -- en krijgt een
+   * lege lijst. Twee filters die elkaar uitsluiten, zonder dat er iets zegt
+   * waarom er niets staat. De stap IS de weergave; het tabblad hoort daar dan
+   * uit de weg te gaan.
+   */
+  function kiesStap(sleutel: StapSleutel | null) {
+    if (sleutel === 'binnen') {
+      /* Daar staan geen kostenposten; die post is er nog niet eens een. */
+      naarPostbus?.()
+      return
+    }
+    setStap(sleutel)
+    if (sleutel) setTab('alles')
   }
 
   /*
@@ -358,7 +466,53 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
       wegOnder: 1440,
       zacht: true,
       sorteer: (x, y) => (x.vervaldatum ?? 0) - (y.vervaldatum ?? 0),
-      toon: (e) => (e.vervaldatum ? dateShort(e.vervaldatum) : '—'),
+      /*
+       * Een verstreken vervaldatum springt eruit. In de lijst van Casper is
+       * "Verstreken vervaldatum" de omschrijving waar 559 facturen onder
+       * staan; dan hoort het niet een grijze datum tussen de andere te zijn.
+       */
+      toon: (e) => (e.vervaldatum
+        ? (
+          <span className={teLaat(e) ? 'tekst-laat' : undefined}>
+            {dateShort(e.vervaldatum)}
+          </span>
+          )
+        : '—'),
+    },
+    {
+      /*
+       * De vennootschap (0079).
+       *
+       * Blue10 heeft hier "Bedrijf" staan, en dat is met ruim twintig bv's de
+       * kolom waarop de administratie sorteert. Bij ons stond hij nergens: de
+       * bv werd pas bij het boeken uit de vestiging afgeleid en was tot dat
+       * moment onzichtbaar.
+       */
+      sleutel: 'bv',
+      kop: 'Onderneming',
+      breedte: 168,
+      wegOnder: 1560,
+      sorteer: (x, y) => (x.administratie ?? '').localeCompare(y.administratie ?? '', 'nl'),
+      toon: (e) => <Onderneming bon={e} namen={bedrijfsnamen} />,
+    },
+    {
+      /*
+       * Hoe lang hij er al ligt. In Blue10 "# dagen".
+       *
+       * Een datum vraagt om rekenen, een aantal dagen niet -- en juist die
+       * vraag ("hoe lang ligt dit er al") is waarom je naar zo'n lijst kijkt.
+       */
+      sleutel: 'dagen',
+      kop: 'Dagen',
+      breedte: 78,
+      getal: true,
+      zacht: true,
+      wegOnder: 1680,
+      sorteer: (x, y) => x.date - y.date,
+      toon: (e) => {
+        const dagen = Math.max(0, Math.floor((Date.now() - e.date) / 86400000))
+        return <span title={`Binnengekomen ${dateShort(e.date)}`}>{dagen}</span>
+      },
     },
     {
       sleutel: 'wie',
@@ -465,6 +619,7 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
         onGoedkeuren={() => void keurGoed([gekozen.id])}
         onAfkeuren={() => { setAfkeuren(gekozen); setReden('') }}
         doorMij={gekozen.eersteDoor === user.id}
+        bedrijven={bedrijven}
       />
     )
   }
@@ -499,6 +654,17 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
         <span className="scheiding" aria-hidden="true">·</span>
         <span><b>{alle.filter((e) => e.gelezen).length}</b> voorgelezen</span>
       </div>
+
+      {/*
+        * De stroom, bovenaan (0079).
+        *
+        * Boven de tabbladen en niet ertussen: dit is de vraag "waar ligt de
+        * stapel", en die stel je vóór "welke status wil ik zien". De
+        * tabbladen daaronder blijven wat ze waren -- de standen van een bon --
+        * en een stap aanklikken zet ze op "alles", anders sluiten de twee
+        * elkaar uit.
+        */}
+      <Stroombalk stroom={stroomStand} gekozen={stap} kies={kiesStap} />
 
       <Tabbladen
         actief={tab}
@@ -552,6 +718,27 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
           <option value="">Iedereen</option>
           {indieners.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
+
+        {/*
+          * De vennootschap (0079).
+          *
+          * Alleen als er meer dan een is. Bij een enkele administratie is dit
+          * een keuzelijst met een keuze erin, en dat is een filter dat alleen
+          * maar ruimte kost.
+          */}
+        {bedrijfsKeuzes.length > 1 && (
+          <select
+            value={bedrijf}
+            onChange={(e) => setBedrijf(e.target.value)}
+            data-aan={bedrijf ? 'ja' : undefined}
+            aria-label="Filter op onderneming"
+          >
+            <option value="">Alle ondernemingen</option>
+            {bedrijfsKeuzes.map((b) => (
+              <option key={b.code} value={b.code}>{b.naam}</option>
+            ))}
+          </select>
+        )}
       </Filterbalk>
 
       <Filterchips chips={actieveFilters} wisAlles={wisFilters} />
@@ -658,7 +845,7 @@ export default function Kostenposten({ openBon }: { openBon?: string } = {}) {
  * ================================================================== */
 
 function BonDetail({
-  bon, magLezen, onClose, onGoedkeuren, onAfkeuren, doorMij,
+  bon, magLezen, onClose, onGoedkeuren, onAfkeuren, doorMij, bedrijven,
 }: {
   bon: Expense
   magLezen: boolean
@@ -667,6 +854,8 @@ function BonDetail({
   onAfkeuren: () => void
   /** Heeft de kijker zelf de eerste handtekening al gezet? */
   doorMij: boolean
+  /** De bv's uit Exact, om de onderneming te kunnen kiezen (0079). */
+  bedrijven: ExactAdministratie[]
 }) {
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
@@ -776,7 +965,7 @@ function BonDetail({
 
           <Overzicht bon={bon} />
           <Splitsen bon={bon} />
-          <Boeking bon={bon} />
+          <Boeking bon={bon} bedrijven={bedrijven} />
 
           <AnimatePresence mode="wait">
             {bon.gelezen && (
@@ -1504,7 +1693,7 @@ function Overzicht({ bon }: { bon: Expense }) {
  * wat er op het papier staat; dit is waar het in de boekhouding terechtkomt.
  * Dat tweede is de vraag die de accountant stelt.
  */
-function Boeking({ bon }: { bon: Expense }) {
+function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministratie[] }) {
   const rekeningen = useLiveQuery(
     () => db.grootboek.toArray(), [], [] as Grootboek[])
   const tags = useLiveQuery(() => db.kostenTags.toArray(), [], [] as KostenTag[])
@@ -1531,6 +1720,15 @@ function Boeking({ bon }: { bon: Expense }) {
     setBezig(true)
     try {
       await zetBoeking(bon, { grootboekCode: code || undefined })
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function kiesOnderneming(code: string) {
+    setBezig(true)
+    try {
+      await zetOnderneming(bon, code)
     } finally {
       setBezig(false)
     }
@@ -1563,6 +1761,25 @@ function Boeking({ bon }: { bon: Expense }) {
         </p>
       )}
 
+      {/*
+        * Een geraden vennootschap hoort hier hardop te staan.
+        *
+        * De grootboekrekening erboven waarschuwt al bij een gok; de bv deed
+        * dat niet, terwijl de gevolgen zwaarder zijn. Een verkeerde rekening
+        * corrigeer je binnen dezelfde jaarrekening; een verkeerde bv zet de
+        * post in de boekhouding van een andere vennootschap.
+        */}
+      {bon.administratieBron === 'vermoeden' && (
+        <p className="waarschuwing">
+          <AlertTriangle size={14} style={{ verticalAlign: -2 }} />{' '}
+          {bon.geadresseerde
+            ? `De factuur is gericht aan "${bon.geadresseerde}". Welke onderneming dat `
+              + 'is, is geraden op de naam. Kijk het na — hierin zit in welke '
+              + 'jaarrekening deze post terechtkomt.'
+            : 'Welke onderneming dit wordt, is geraden op de naam. Kijk het na.'}
+        </p>
+      )}
+
       <div className="grid cols-2 mb">
         <Field
           label="Grootboekrekening"
@@ -1582,6 +1799,39 @@ function Boeking({ bon }: { bon: Expense }) {
             ))}
           </select>
         </Field>
+
+        {/*
+          * De vennootschap (0079).
+          *
+          * Alleen als er iets te kiezen valt. Staat de koppeling met Exact
+          * niet, dan is deze lijst leeg en zou dit een keuzelijst zijn zonder
+          * keuzes -- en dan lijkt het alsof er iets stuk is terwijl er alleen
+          * nog niet gekoppeld is.
+          */}
+        {bedrijven.length > 0 && (
+          <Field
+            label="Onderneming"
+            help={bon.administratieBron
+              ? BV_BRON_TEKST[bon.administratieBron]
+              : 'Leeg: volgt de vestiging van deze bon'}
+          >
+            <select
+              className="select"
+              value={bon.administratie ?? ''}
+              disabled={bezig}
+              onChange={(e) => void kiesOnderneming(e.target.value)}
+            >
+              <option value="">— volgt de vestiging —</option>
+              {bedrijven
+                .filter((b) => b.actief || b.code === bon.administratie)
+                .map((b) => (
+                  <option key={b.code} value={b.code}>
+                    {b.naam}{b.actief ? '' : ' (uit)'}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        )}
 
         <div>
           <Veld label="Factuurnummer" waarde={bon.factuurnummer} mono />
@@ -1870,6 +2120,47 @@ function Veld({ label, waarde, mono }: { label: string; waarde?: string; mono?: 
  *
  *  De stip zit in .stand (systeem.css): status mag niet alleen kleur zijn.
  * ================================================================== */
+
+/* ------------------------------------------------------------------ *
+ *  In welke bv deze factuur hoort
+ *
+ *  Drie dingen in één cel, en alle drie doen ze werk:
+ *
+ *    de naam     wat er geboekt gaat worden
+ *    de bron     waaróp dat berust -- gelezen van het stuk, geraden op de
+ *                naam, afgeleid uit de vestiging, of gezet door een mens
+ *    leeg        er staat niets op de bon; dan volgt hij zijn vestiging,
+ *                zoals het tot 0079 altijd ging
+ *
+ *  Die middelste is de reden dat deze cel bestaat en niet gewoon een naam is.
+ *  Een bv die alleen maar lijkt te kloppen bepaalt in welke jaarrekening de
+ *  post landt, en dat verschil hoort te zien te zijn zonder de bon te openen.
+ * ------------------------------------------------------------------ */
+
+function Onderneming({ bon, namen }: { bon: Expense; namen: Map<string, string> }) {
+  if (!bon.administratie) {
+    return (
+      <span className="zacht" title="Er staat geen onderneming op; hij volgt zijn vestiging.">
+        via vestiging
+      </span>
+    )
+  }
+
+  const naam = namen.get(bon.administratie) ?? bon.administratie
+  const bron = bon.administratieBron
+
+  return (
+    <span className="krimp" title={bon.geadresseerde
+      ? `Gericht aan "${bon.geadresseerde}"`
+      : undefined}>
+      {naam}
+      {bron === 'vermoeden' && (
+        <span className="bv-bron vermoeden"> · geraden</span>
+      )}
+      {bron === 'handmatig' && <span className="bv-bron"> · met de hand</span>}
+    </span>
+  )
+}
 
 function BonStand({ bon }: { bon: Expense }) {
   if (bon.status === 'open') return <Stand stemming="nieuw">Te valideren</Stand>

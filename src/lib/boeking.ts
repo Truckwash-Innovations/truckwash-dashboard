@@ -29,6 +29,38 @@ export const BRON_TEKST: Record<NonNullable<Expense['indelingBron']>, string> = 
   handmatig: 'Met de hand ingesteld',
 }
 
+/** En hetzelfde voor de vennootschap waarop geboekt wordt (0079). */
+export const BV_BRON_TEKST: Record<NonNullable<Expense['administratieBron']>, string> = {
+  gelezen: 'Van de factuur gelezen — de naam of het KvK-nummer klopte',
+  vermoeden: 'Geraden op de naam — kijk dit na',
+  vestiging: 'Afgeleid uit de vestiging van deze bon',
+  handmatig: 'Met de hand ingesteld',
+}
+
+/**
+ * Handmatig de vennootschap zetten.
+ *
+ * Zet de bron op handmatig, en dat is de hele reden dat deze functie bestaat:
+ * de lezer werkt de bv bij elke nieuwe lezing bij, maar laat met rust wat een
+ * mens heeft gezet (zie verwerking.ts). Zonder deze functie is die afspraak
+ * eenzijdig -- de database respecteert 'handmatig' en er is geen manier om
+ * het te worden.
+ *
+ * Leeg zetten mag ook: dan volgt de bon weer zijn vestiging, zoals het tot
+ * 0079 altijd ging.
+ */
+export async function zetOnderneming(bon: Expense, code: string): Promise<Expense> {
+  const nieuw: Expense = {
+    ...bon,
+    administratie: code || undefined,
+    administratieBron: code ? 'handmatig' : undefined,
+    updatedAt: Date.now(),
+  }
+  await db.expenses.put(nieuw)
+  await enqueue('expenses', 'put', nieuw.id, nieuw)
+  return nieuw
+}
+
 /**
  * Handmatig een rekening en tags zetten.
  *

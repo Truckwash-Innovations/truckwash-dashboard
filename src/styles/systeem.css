@@ -1524,3 +1524,141 @@ a.k { text-decoration: none; }
   .start-kop { flex-direction: column; gap: var(--s3); }
   .ingangen { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ==================================================================
+   26. De stroombalk
+   ==================================================================
+
+   Casper stuurde foto's van Blue10 mee: "je moet echt blue10 een beetje
+   namaken met dat stuk". Dat stuk is de rij vakjes boven de factuurlijst.
+
+   Wat het van Blue10 overneemt is de vorm -- een rij van links naar rechts,
+   een groot getal per vakje, pijltjes ertussen -- en niet de kleur. Daar is
+   elk vakje felblauw en staat op bijna allemaal een badge; dan is een badge
+   meubilair geworden. Hier is de rij rustig en valt op wat opvalt.
+   ================================================================== */
+
+.stroombalk {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-bottom: var(--s5);
+  padding: var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.stroomdeel { display: flex; align-items: center; }
+
+.stroompijl {
+  flex: none;
+  margin: 0 var(--s1);
+  color: var(--text-3);
+  opacity: .6;
+}
+
+.stroomvak {
+  position: relative;
+  min-width: 88px;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color .12s var(--ease), border-color .12s var(--ease);
+}
+.stroomvak:hover { background: var(--surface-3); border-color: var(--line); }
+
+/* Het gekozen vakje. Donker en niet geel: geel is van het logo en van de ene
+   hoofdactie per scherm, en zes gele vakken maken dat betekenisloos. */
+.stroomvak.aan {
+  background: var(--ui);
+  border-color: var(--ui);
+  color: var(--text-ui);
+}
+.stroomvak.aan:hover { background: var(--ui-2); border-color: var(--ui-2); }
+
+/* Een leeg vakje blijft staan -- de rij is het proces -- maar hoeft geen
+   aandacht te trekken. */
+.stroomvak.leeg { color: var(--text-3); }
+.stroomvak.leeg .stroomcijfer { color: var(--text-3); font-weight: var(--fw-medium); }
+.stroomvak.aan.leeg { color: var(--text-ui); }
+
+.stroomcijfer {
+  font-size: 19px;
+  font-weight: var(--fw-vet);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.stroomnaam {
+  font-size: var(--fs-meta);
+  color: inherit;
+  opacity: .85;
+  white-space: nowrap;
+}
+
+/* De merkjes. Rechtsboven, klein, en alleen als ze iets betekenen. */
+.stroommerk {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pil);
+  color: #fff;
+}
+.stroommerk.stuk { background: var(--danger); }
+.stroommerk.laat { background: var(--warn); color: #1a1a1a; }
+
+/* ---- de samenvatting op een startscherm ------------------------- */
+
+.stroomlijn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-klein);
+  text-align: left;
+  cursor: pointer;
+}
+.stroomlijn:hover { background: var(--surface); border-color: var(--line); color: var(--text); }
+.stroomlijn-deel { white-space: nowrap; }
+.stroomlijn-deel strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-vet);
+  color: var(--text);
+}
+.stroomlijn svg { margin-left: auto; flex: none; color: var(--text-3); }
+
+@media (max-width: 640px) {
+  .stroombalk { gap: var(--s2); padding: var(--s2); }
+  /* De pijltjes weg als de rij omklapt: een pijl naar rechts onder een vakje
+     dat eronder staat wijst de verkeerde kant op. */
+  .stroompijl { display: none; }
+  .stroomvak { min-width: 72px; }
+}
+
+/* Een verstreken vervaldatum. Niet vet en niet rood-op-rood: de datum zelf
+   krijgt de kleur, zodat een kolom vervaldatums in één blik te scannen is
+   zonder dat de tabel een waarschuwingsbord wordt. */
+.tekst-laat { color: var(--text-danger); font-weight: var(--fw-medium); }
+
+/* Waar de bv vandaan komt. Een vermoeden hoort zichtbaar te zijn -- dat is
+   het hele punt van de bron (0079) -- maar het is geen fout, dus geen rood. */
+.bv-bron { font-size: var(--fs-mini); color: var(--text-3); }
+.bv-bron.vermoeden { color: var(--text-warn); }

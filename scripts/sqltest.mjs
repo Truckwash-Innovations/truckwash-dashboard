@@ -7040,6 +7040,219 @@ console.log('\n57. De app zei ja en de database nee')
       values ('cm57c', 'ch57a', '${mij}', 'Baas', 'hoi', 2);`))
 }
 
+/* ==================================================================== *
+ *  58. In welke bv hoort deze factuur
+ *
+ *  Casper: "zorg ervoor dat je ai ook laat zoeken onder welke onderneming
+ *  vanuit exact het geboekt moet worden".
+ *
+ *  Wat hier wordt nagerekend is de plek waar het stil fout gaat. Een factuur
+ *  op de verkeerde vennootschap boeken levert geen foutmelding op -- de
+ *  boeking lukt, het bedrag klopt, alleen staat hij in de jaarrekening van de
+ *  verkeerde bv. Dat komt pas bij de accountant boven, en dan weet niemand
+ *  meer waar die factuur vandaan kwam.
+ *
+ *  Daarom staat hier vooral wat er NIET mag gebeuren: raden tussen twee bv's
+ *  die op elkaar lijken, en een bv pakken die niet in gebruik is.
+ * ==================================================================== */
+
+console.log('\n58. In welke bv hoort deze factuur')
+
+{
+  await asServer(db)
+
+  await db.exec(`
+    insert into public.exact_administratie (code, naam, actief, hoofd, kvk) values
+      ('100', 'Truckwash 1 Asten B.V.',            true,  false, '61234501'),
+      ('101', 'Truckwash 1 Aalsmeer B.V.',         true,  false, '61234502'),
+      ('102', 'Truckwash 1 Vastgoed B.V.',         true,  false, null),
+      ('103', 'Truckwash 1 Techniek & Beheer B.V.', true, false, null),
+      ('900', 'Oude Holding B.V.',                 false, false, '61234599')
+    on conflict (code) do update
+      set naam = excluded.naam, actief = excluded.actief, kvk = excluded.kvk;
+  `)
+
+  /* ---- de zoeknaam wordt vanzelf gezet ---- */
+
+  /*
+   * De trigger doet het werk, niet de aanroeper. Zou de zoeknaam met de hand
+   * gezet moeten worden, dan is er een dag waarop iemand een bv hernoemt en
+   * hij onvindbaar wordt -- zonder dat er iets misgaat.
+   */
+  const zoeknaam = async (code) => (await db.query(
+    `select zoeknaam from public.exact_administratie where code = '${code}'`)).rows[0].zoeknaam
+
+  check('de rechtsvorm gaat van de zoeknaam af',
+    (await zoeknaam('100')) === 'truckwash 1 asten')
+  check('en leestekens ook',
+    (await zoeknaam('103')) === 'truckwash 1 techniek beheer')
+
+  await db.exec(`update public.exact_administratie set naam = 'Truckwash 1 Asten BV' where code = '100';`)
+  check('en hernoemen zet hem opnieuw',
+    (await zoeknaam('100')) === 'truckwash 1 asten')
+
+  /* ---- zoeken ---- */
+
+  const zoek = async (naam, kvk, btw) => (await db.query(
+    `select * from public.administratie_zoeken(${naam === null ? 'null' : "'" + naam + "'"}, ` +
+    `${kvk === null || kvk === undefined ? 'null' : "'" + kvk + "'"}, ` +
+    `${btw === null || btw === undefined ? 'null' : "'" + btw + "'"})`)).rows
+
+  let uit = await zoek('Truckwash 1 Asten B.V.')
+  check('de naam op de factuur vindt de bv',
+    uit.length === 1 && uit[0].code === '100' && uit[0].zeker === true)
+
+  uit = await zoek('TRUCKWASH  1   ASTEN  bv')
+  check('en dat is ongevoelig voor hoofdletters en spaties',
+    uit.length === 1 && uit[0].code === '100')
+
+  /*
+   * Het KvK-nummer is een feit en de naam een gelijkenis. Dus wint het
+   * nummer, ook als de naam naar een andere bv wijst -- dat is precies het
+   * geval waarin een scan de naam verkeerd heeft gelezen.
+   */
+  uit = await zoek('Truckwash 1 Aalsmeer B.V.', 'KvK 61234501')
+  check('het KvK-nummer wint van de naam',
+    uit.length === 1 && uit[0].code === '100' && uit[0].zeker === true)
+
+  uit = await zoek(null, '6123 4501')
+  check('en spaties in het nummer maken niet uit',
+    uit.length === 1 && uit[0].code === '100')
+
+  /* ---- wat er NIET mag gebeuren ---- */
+
+  /*
+   * Een bv die niet in gebruik is, vangt geen facturen. Anders boekt een
+   * oude holding die ooit is aangemaakt de post van vandaag.
+   */
+  uit = await zoek('Oude Holding B.V.', '61234599')
+  check('een bv die uit staat wordt niet gekozen', uit.length === 0)
+
+  /*
+   * Twee bv's met dezelfde naam. In de lijst van Casper staat Truckwash 1
+   * Group twee keer -- een in euro en een in dollar. Kiezen is dan raden, en
+   * raden is hier een boeking in de verkeerde vennootschap.
+   */
+  await db.exec(`
+    insert into public.exact_administratie (code, naam, actief) values
+      ('200', 'Truckwash 1 Group B.V.', true),
+      ('201', 'Truckwash 1 Group B.V.', true)
+    on conflict (code) do update set naam = excluded.naam, actief = excluded.actief;
+  `)
+  uit = await zoek('Truckwash 1 Group B.V.')
+  check('twee bvs met dezelfde naam geven geen keuze',
+    uit.length === 1 && uit[0].code === null && uit[0].zeker === false)
+  check('en zeggen erbij waarom',
+    String(uit[0].waarom).includes('2'))
+
+  uit = await zoek('Garage Van Dijk B.V.')
+  check('een naam die nergens op lijkt geeft niets', uit.length === 0)
+
+  /*
+   * Een gedeeltelijke treffer is een aanwijzing en geen feit. Hij komt er wel
+   * uit -- weggooien zou betekenen dat een stuk waar "Truckwash Vastgoed" op
+   * staat helemaal niets oplevert -- maar met zeker op onwaar, zodat de
+   * werklijst er een mens naar laat kijken.
+   */
+  /*
+   * Let op wat GEEN vermoeden is: kaal_bedrijf haalt de rechtsvorm eraf, dus
+   * 'Truckwash 1 Vastgoed' en 'Truckwash 1 Vastgoed B.V.' komen op hetzelfde
+   * uit. Dat is een precieze match. Een echte afkorting is er een waarbij de
+   * BV-naam langer is dan wat er op het stuk staat.
+   */
+  uit = await zoek('Truckwash 1 Vastgoed')
+  check('de rechtsvorm weglaten is nog steeds een precieze match',
+    uit.length === 1 && uit[0].code === '102' && uit[0].zeker === true)
+
+  uit = await zoek('Truckwash 1 Techniek')
+  check('een afgekorte naam is een vermoeden',
+    uit.length === 1 && uit[0].code === '103' && uit[0].zeker === false)
+
+  /*
+   * En de andere kant op NIET. Dit is de fout die deze test heeft gevonden:
+   * er staat in de testdatabase een bv die "Holding" heet, en de eerste versie
+   * deed 'oude holding' like '%holding%'. Daarmee werd een factuur gericht aan
+   * "Oude Holding B.V." toegewezen aan een heel andere vennootschap -- precies
+   * de fout waarvoor 0079 bestaat, ingebouwd in de reparatie zelf.
+   *
+   * De regel is nu: de bv-naam moet BEGINNEN met wat er op de factuur staat.
+   * Heeft het stuk woorden die de bv niet heeft, dan noemt het iets anders.
+   */
+  uit = await zoek('Oude Holding B.V.')
+  check('een bv-naam die toevallig in de factuurnaam zit telt niet',
+    uit.length === 0)
+
+  uit = await zoek('Truckwash')
+  check('en een naam die op alles past ook niet', uit.length === 0)
+
+  /* ---- welke bv een bon krijgt ---- */
+
+  await db.exec(`
+    update public.locations set administratie = '101' where id = 'loc_utr';
+    insert into public.expenses
+      (id, location_id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, submitted_by, submitted_by_name)
+    values
+      ('exp58a', 'loc_utr', 1, 'materiaal', 'Enexis', '', 100, 21, 'goedgekeurd', null, ''),
+      ('exp58b', 'loc_utr', 1, 'materiaal', 'Enexis', '', 100, 21, 'open', null, ''),
+      ('exp58c', null,      1, 'materiaal', 'Enexis', '', 100, 21, 'open', null, '')
+    on conflict (id) do nothing;
+    update public.expenses set administratie = '102', administratie_bron = 'gelezen'
+     where id = 'exp58b';
+  `)
+
+  const bv = async (id) => (await db.query(
+    `select public.bon_administratie('${id}') as x`)).rows[0].x
+
+  check('zonder bv op de bon geldt die van de vestiging', (await bv('exp58a')) === '101')
+  /*
+   * Dit is de hele reparatie. Tot 0079 volgde elke bon zijn vestiging, en een
+   * huurfactuur voor Vastgoed boekte op de vestiging waar het pand staat.
+   */
+  check('maar wat op de bon staat gaat voor', (await bv('exp58b')) === '102')
+
+  /*
+   * De hoofdadministratie niet zelf zetten.
+   *
+   * Er staat er al een uit een eerder hoofdstuk, en 0059 heeft een unieke
+   * index die er maar een toelaat -- die viel hier om toen deze test er een
+   * tweede naast wilde zetten. Dat is de index die zijn werk doet: twee
+   * hoofdadministraties zou betekenen dat de terugval afhangt van de volgorde
+   * waarin je toevallig leest.
+   *
+   * Dus vragen we wat de hoofdadministratie IS en rekenen we daarmee na.
+   */
+  const hoofd = (await db.query(
+    'select code from public.exact_administratie where hoofd limit 1')).rows[0]?.code ?? null
+  check('er is precies een hoofdadministratie', hoofd !== null)
+  check('en zonder allebei valt een bon daarop terug', (await bv('exp58c')) === hoofd)
+
+  /* ---- wat nergens heen kan ---- */
+
+  /*
+   * exp58a staat hierboven al op goedgekeurd, en niet via een update.
+   *
+   * Die update viel om op de vier-ogen-trigger (0060): van 'open' rechtstreeks
+   * naar 'goedgekeurd' mag niet, er hoort een eerste handtekening tussen te
+   * zitten. Dat is de trigger die doet waarvoor hij er staat. Deze test gaat
+   * over iets anders -- welke bv een bon krijgt -- en hoeft die weg niet na te
+   * spelen; bij een insert komt de trigger niet langs.
+   */
+  const zonder = (await db.query('select * from public.bonnen_zonder_bv()')).rows
+  check('een goedgekeurde bon zonder rekening staat in de lijst',
+    zonder.some((r) => r.id === 'exp58a'))
+  check('en zegt erbij waarom',
+    String(zonder.find((r) => r.id === 'exp58a').reden).includes('grootboekrekening'))
+
+  /* Opruimen: de bv's hierboven zijn van dit hoofdstuk en de hoofdvlag die
+     erop staat zou verderop een andere vraag beantwoorden dan bedoeld. */
+  await db.exec(`
+    delete from public.expenses where id in ('exp58a','exp58b','exp58c');
+    delete from public.exact_administratie where code in ('100','101','102','103','200','201','900');
+    update public.locations set administratie = null where id = 'loc_utr';
+  `)
+}
+
 await db.close()
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

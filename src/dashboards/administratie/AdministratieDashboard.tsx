@@ -340,7 +340,12 @@ export default function AdministratieDashboard() {
       {page === 'start' && <Start tegels={tegels} />}
 
       {page === 'verwerken' && <TeVerwerken onOpen={openBon} />}
-      {page === 'kosten' && <Kostenposten openBon={bonId ?? undefined} />}
+      {page === 'kosten' && (
+        <Kostenposten
+          openBon={bonId ?? undefined}
+          naarPostbus={() => setPage('postbus')}
+        />
+      )}
       {page === 'postbus' && <Postbus />}
       {page === 'leveranciers' && <Relaties verbonden={verbonden} />}
 

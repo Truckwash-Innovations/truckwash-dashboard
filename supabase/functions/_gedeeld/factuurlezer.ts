@@ -114,6 +114,28 @@ export const SYSTEEM = [
   '- "kenmerk" is de korte omschrijving waar deze factuur over gaat, zoals je',
   '  hem zelf in een boekhouding zou zetten: "elektra maart", "afvalcontainer",',
   '  "osmosefilters". Niet de bedrijfsnaam en niet het factuurnummer.',
+  '- "geadresseerde" is AAN WELKE VENNOOTSCHAP deze factuur gericht is. Dat is',
+  '  iets anders dan de leverancier: de leverancier stuurt hem, de',
+  '  geadresseerde moet hem betalen. Je vindt hem bij "aan", "factuuradres",',
+  '  "t.a.v.", "debiteur" of in het adresblok bovenaan.',
+  '  Dit is belangrijk. Truckwash 1 Group bestaat uit ruim twintig besloten',
+  '  vennootschappen -- een per vestiging (Truckwash 1 Asten B.V., Truckwash 1',
+  '  Venlo B.V.) plus een aantal die geen vestiging zijn (Truckwash 1 Group',
+  '  B.V., Truckwash 1 Vastgoed B.V., Truckwash 1 Techniek & Beheer B.V.,',
+  '  Truckshop 1 B.V., Truckstop 8 B.V.). Elk daarvan heeft een eigen',
+  '  boekhouding, en een factuur die in de verkeerde terechtkomt staat in de',
+  '  jaarrekening van de verkeerde vennootschap.',
+  '  Neem de naam over zoals hij op het stuk staat, volledig en met de',
+  '  rechtsvorm erbij als die er staat. Verzin niets: staat er alleen',
+  '  "Truckwash" zonder meer, geef dan "Truckwash" en niet de vestiging waarvan',
+  '  je denkt dat het die zal zijn.',
+  '  Staat er geen ontvanger op, laat het veld dan weg.',
+  '- "geadresseerdeKvk" en "geadresseerdeBtw" zijn het KvK- en btw-nummer van',
+  '  die geadresseerde, als ze op het stuk staan. Let op wiens nummer je pakt:',
+  '  bovenaan staan die van de LEVERANCIER, en die horen in "kvk" en',
+  '  "btwNummer". Alleen een nummer dat bij het ontvangstadres staat is van de',
+  '  geadresseerde. Twijfel je bij wie een nummer hoort, laat het dan weg --',
+  '  een verkeerd nummer hier boekt de factuur bij de verkeerde vennootschap.',
   '',
   'Antwoord met alleen JSON, zonder uitleg eromheen:',
   '',
@@ -128,6 +150,9 @@ export const SYSTEEM = [
   '  "betalingskenmerk": "string",',
   '  "btwNummer": "string",',
   '  "kvk": "string",',
+  '  "geadresseerde": "string",',
+  '  "geadresseerdeKvk": "string",',
+  '  "geadresseerdeBtw": "string",',
   '  "valuta": "EUR",',
   '  "kenmerk": "string",',
   '  "regels": [',
@@ -181,6 +206,9 @@ export const LEZING_SCHEMA = {
     betalingskenmerk: { type: 'string' },
     btwNummer: { type: 'string' },
     kvk: { type: 'string' },
+    geadresseerde: { type: 'string' },
+    geadresseerdeKvk: { type: 'string' },
+    geadresseerdeBtw: { type: 'string' },
     valuta: { type: 'string' },
     kenmerk: { type: 'string' },
     regels: {
@@ -211,6 +239,17 @@ export const LEZING_SCHEMA = {
     'soort', 'richting', 'leverancier', 'factuurnummer', 'datum', 'vervaldatum',
     'iban', 'btwNummer', 'kvk', 'kenmerk', 'regels', 'subtotaalExcl', 'btwBedrag',
     'totaalIncl', 'voorstelCategorie', 'twijfel',
+    /*
+     * De geadresseerde staat er met opzet bij.
+     *
+     * Zie de uitleg boven dit schema: wat niet verplicht is laat een lokaal
+     * model weg, ook als het op de factuur staat. En juist dit veld moet er
+     * zijn, want zonder de geadresseerde valt de boeking terug op de
+     * vestiging van het mailadres -- en dat is precies wat 0079 repareert.
+     * Staat er niets op het stuk, dan komt er een lege tekst uit en maakt
+     * opschonen() daar undefined van; dat is hetzelfde als weggelaten.
+     */
+    'geadresseerde', 'geadresseerdeKvk', 'geadresseerdeBtw',
   ],
 }
 
@@ -291,6 +330,18 @@ export interface Lezing {
   betalingskenmerk?: string
   btwNummer?: string
   kvk?: string
+  /**
+   * Aan welke vennootschap de factuur gericht is, letterlijk van het stuk.
+   *
+   * Niet te verwarren met leverancier: die stuurt hem, deze moet hem betalen.
+   * Truckwash 1 Group telt ruim twintig bv's met elk een eigen boekhouding, en
+   * tot 0079 werd de bv afgeleid uit het mailadres waarop de factuur
+   * binnenkwam. Dat klopt voor een vestiging en niet voor Vastgoed, Techniek
+   * & Beheer of de holding -- die hebben geen eigen inkoopadres.
+   */
+  geadresseerde?: string
+  geadresseerdeKvk?: string
+  geadresseerdeBtw?: string
   valuta: string
   kenmerk?: string
   regels: Record<string, unknown>[]
@@ -446,6 +497,9 @@ export function opschonen(
     betalingskenmerk: tekst(uit.betalingskenmerk, 60),
     btwNummer: tekst(uit.btwNummer, 30),
     kvk: tekst(uit.kvk, 20),
+    geadresseerde: tekst(uit.geadresseerde, 200),
+    geadresseerdeKvk: tekst(uit.geadresseerdeKvk, 20),
+    geadresseerdeBtw: tekst(uit.geadresseerdeBtw, 30),
     valuta: tekst(uit.valuta, 8) ?? 'EUR',
     kenmerk: tekst(uit.kenmerk, 200),
     regels,

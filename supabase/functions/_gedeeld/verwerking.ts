@@ -237,6 +237,47 @@ export async function vulInVanuitLezing(admin: any, opties: {
     console.warn('[verwerking] indelen mislukte: ' + String(e))
   }
 
+  /* --- in welke bv (0079) --- */
+
+  /*
+   * Waarom dit hier staat en niet bij het boeken.
+   *
+   * Tot 0079 leidde bon_administratie() de bv af uit de vestiging van de bon,
+   * en die vestiging komt uit het mailadres waarop de factuur binnenkwam. Dat
+   * werkt voor een vestiging en niet voor de bv's die er geen zijn: Vastgoed,
+   * Techniek & Beheer, de holding, Truckshop. Die hebben geen eigen
+   * inkoopadres, dus een huurfactuur voor Vastgoed boekte op de vestiging
+   * waar het pand toevallig staat.
+   *
+   * De leverancier heeft het antwoord zelf op het stuk gezet, want hij kreeg
+   * van ons te horen naar wie hij moest factureren. Dus nemen we dat over.
+   *
+   * Wat hier NIET gebeurt: een bv overschrijven die een mens heeft gezet. Zie
+   * de controle op administratie_bron hieronder -- een lezing is een voorstel
+   * en een mens is een besluit.
+   */
+  let bv: { code: string | null; naam: string | null; zeker: boolean; waarom: string } | null = null
+  if (lezing.geadresseerde || lezing.geadresseerdeKvk || lezing.geadresseerdeBtw) {
+    try {
+      const { data, error } = await admin.rpc('administratie_zoeken', {
+        naam_in: lezing.geadresseerde ?? null,
+        kvk_in: lezing.geadresseerdeKvk ?? null,
+        btw_in: lezing.geadresseerdeBtw ?? null,
+      })
+      if (error) throw new Error(error.message)
+      const rij = Array.isArray(data) ? data[0] : data
+      if (rij) bv = rij
+    } catch (e) {
+      /*
+       * Geen fout naar boven. De bv is een verbetering bovenop wat er al werkt;
+       * gaat het opzoeken mis, dan valt bon_administratie() terug op de
+       * vestiging en is dat precies de oude toestand. Een factuur die
+       * helemaal niet wordt ingevuld omdat een opzoekactie faalde is erger.
+       */
+      console.warn('[verwerking] bv opzoeken mislukte: ' + String(e))
+    }
+  }
+
   /* --- wegschrijven --- */
 
   const bij: Willekeurig = { updated_at: nu() }
@@ -286,6 +327,45 @@ export async function vulInVanuitLezing(admin: any, opties: {
     bij.grootboek_code = indeling.grootboek_code
     bij.tags = indeling.tags ?? []
     bij.indeling_bron = indeling.bron
+  }
+
+  /*
+   * De geadresseerde gaat er altijd op als hij gelezen is, ook als er geen bv
+   * bij gevonden werd. Juist dan: dan kan een mens zien waar de lezer naar
+   * heeft gekeken, in plaats van te moeten raden waarom er niets staat.
+   */
+  if (lezing.geadresseerde) bij.geadresseerde = lezing.geadresseerde
+
+  if (bv?.code) {
+    /*
+     * Een mens wint. Heeft iemand de bv met de hand gezet, dan blijft die
+     * staan -- ook als de lezer later iets anders vindt. Dezelfde afspraak
+     * als bij indeling_bron (0044): een lezing is een voorstel, een mens is
+     * een besluit.
+     *
+     * Eerst kijken en dan schrijven, want dit is een update zonder returning
+     * en PostgREST kan geen voorwaarde op een deel van de velden.
+     */
+    const { data: staand } = await admin
+      .from('expenses')
+      .select('administratie_bron')
+      .eq('id', expenseId)
+      .maybeSingle()
+
+    if (staand?.administratie_bron !== 'handmatig') {
+      bij.administratie = bv.code
+      /*
+       * Een bijna-match gaat er wel op, maar als vermoeden.
+       *
+       * De verleiding is hem gewoon als antwoord te nemen -- hij klopt
+       * meestal. Maar "meestal" betekent hier dat er af en toe een factuur in
+       * de jaarrekening van de verkeerde vennootschap belandt, en dat komt pas
+       * bij de accountant boven. De werklijst laat een vermoeden zien als iets
+       * dat nagekeken moet worden (ontbreekt() in src/lib/werklijst.ts), dus
+       * het bezinkt niet.
+       */
+      bij.administratie_bron = bv.zeker ? 'gelezen' : 'vermoeden'
+    }
   }
 
   const { error } = await admin.from('expenses').update(bij).eq('id', expenseId)
