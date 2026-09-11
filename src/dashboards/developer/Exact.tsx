@@ -607,8 +607,29 @@ function Administraties({ verbonden }: { verbonden: boolean }) {
     setFout(null)
     try {
       const uit = await exactSyncAdministraties()
-      setLijst(uit)
-      toast.ok(`${uit.length} administratie(s) gevonden.`)
+      setLijst(uit.administraties)
+
+      /*
+       * Wat er is rechtgezet gaat voor het aantal. Bij een wissel van
+       * Exact-account wijst het opgeslagen nummer nog naar de oude
+       * administratie, en dan is "18 administratie(s) gevonden" waar en
+       * nietszeggend -- terwijl er net iets is veranderd aan waar de
+       * boekingen heen gaan.
+       */
+      const gezegd = [
+        uit.hersteld
+          ? `Administratie rechtgezet: ${uit.hersteld.van} hoort niet bij dit `
+            + `Exact-account, nu ${uit.hersteld.naar}.`
+          : null,
+        uit.uitgezet.length
+          ? `${uit.uitgezet.join(', ')} uitgezet -- ${uit.uitgezet.length === 1 ? 'hoort' : 'horen'} `
+            + 'bij een ander account.'
+          : null,
+      ].filter(Boolean)
+
+      toast.ok(gezegd.length
+        ? gezegd.join(' ')
+        : `${uit.administraties.length} administratie(s) gevonden.`)
     } catch (e) {
       const b = e instanceof Error ? e.message : 'Ophalen mislukte.'
       setFout(b)

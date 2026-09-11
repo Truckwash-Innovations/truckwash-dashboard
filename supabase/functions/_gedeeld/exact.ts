@@ -217,6 +217,43 @@ export async function geldigToken(admin: SupabaseClient): Promise<ExactLijn> {
 }
 
 /* ------------------------------------------------------------------ *
+ *  De enige vraag zonder administratienummer
+ * ------------------------------------------------------------------ */
+
+/**
+ * Welke administratie heeft dit Exact-account nu openstaan?
+ *
+ * Dit is het enige adres bij Exact waar geen administratienummer in staat, en
+ * precies daarom staat het apart. Al het andere gaat via
+ * /api/v1/<division>/..., en dat is een kringetje zodra dat nummer niet bij
+ * het gekoppelde account hoort: je kunt de lijst met administraties niet
+ * ophalen om het nummer recht te zetten, want die lijst zit zelf achter
+ * datzelfde nummer. Elk verzoek geeft dan "Forbidden - WrongDivision", ook
+ * het verzoek waarmee je het zou repareren.
+ *
+ * "current" is een woord en geen nummer. Dit werkt dus ook als er een
+ * divisienummer van een heel ander account is blijven staan, en is daarmee de
+ * weg terug.
+ *
+ * Geeft null als Exact niet meewerkt. Dat is geen fout om de aanroeper mee om
+ * de oren te slaan: hij heeft dan gewoon niets beters dan wat er al stond.
+ */
+export async function huidigeDivisie(basis: string, token: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${basis}/api/v1/current/Me?$select=CurrentDivision`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    const uit = await res.json() as ODataAntwoord<{ CurrentDivision?: number }>
+    const blok = Array.isArray(uit.d) ? uit.d : (uit.d?.results ?? [])
+    const code = blok[0]?.CurrentDivision
+    return code == null ? null : String(code)
+  } catch {
+    return null
+  }
+}
+
+/* ------------------------------------------------------------------ *
  *  Opvragen
  * ------------------------------------------------------------------ */
 
@@ -225,6 +262,31 @@ const MAX_PAGINAS = 40
 
 interface ODataAntwoord<T> {
   d?: { results?: T[]; __next?: string } | T[]
+}
+
+/**
+ * De fout van Exact, met de uitleg erbij die hij zelf niet geeft.
+ *
+ * "Forbidden - WrongDivision" leest als een rechtenprobleem en is het bijna
+ * nooit. Het betekent: het nummer in het adres hoort niet bij het account
+ * waarmee je gekoppeld bent. Dat gebeurt vanzelf zodra je van een
+ * proefomgeving naar de echte administratie overstapt -- de tokens
+ * veranderen, de nummers die er ergens opgeschreven staan niet.
+ *
+ * Zonder deze zin ga je zoeken in de rechten van de Exact-app, en daar is
+ * niets te vinden. Vandaar dat het nummer er met zoveel woorden bij staat:
+ * dat is het hele antwoord.
+ */
+function vertaal(status: number, pad: string, tekst: string, division: string): ExactFout {
+  if (status === 403 && tekst.includes('WrongDivision')) {
+    return new ExactFout(
+      `Administratie ${division} hoort niet bij het Exact-account waarmee je nu ` +
+      'gekoppeld bent. Haal de administraties opnieuw op bij Ontwikkeling, Exact; ' +
+      'dan wordt het nummer rechtgezet.',
+      { status: 409 })
+  }
+  return new ExactFout(`Exact gaf ${status} op ${pad}: ${tekst}`,
+    { opnieuwKoppelen: status === 401, status: 502 })
 }
 
 /**
@@ -267,8 +329,7 @@ export async function exactLijst<T = Record<string, unknown>>(
 
     if (!res.ok) {
       const tekst = (await res.text()).slice(0, 300)
-      throw new ExactFout(`Exact gaf ${res.status} op ${pad}: ${tekst}`,
-        { opnieuwKoppelen: res.status === 401, status: 502 })
+      throw vertaal(res.status, pad, tekst, division ?? lijn.division)
     }
 
     const uit = await res.json() as ODataAntwoord<T>
@@ -282,6 +343,44 @@ export async function exactLijst<T = Record<string, unknown>>(
   }
 
   return alles
+}
+
+/* ------------------------------------------------------------------ *
+ *  Welke administraties heeft dit account?
+ * ------------------------------------------------------------------ */
+
+export interface ExactAdmRij {
+  code: string
+  naam: string
+}
+
+/**
+ * De bv's van het gekoppelde Exact-account.
+ *
+ * Vanaf een administratie die zeker bij dit account hoort -- doorgaans die
+ * uit huidigeDivisie(). Het token geldt voor elke bv waar de ingelogde
+ * gebruiker bij mag, dus welke je als ingang neemt maakt voor de UITKOMST
+ * niet uit; het moet er alleen een zijn die bestaat.
+ *
+ * Geen Main in de $select: dat veld bestaat niet op system/Divisions en
+ * maakte het hele ophalen kapot met een 400. Zie de kanttekening in
+ * syncAdministraties().
+ */
+export async function administratiesVan(
+  basis: string,
+  token: string,
+  vanaf: string,
+): Promise<ExactAdmRij[]> {
+  const rijen = await exactLijst<{ Code?: number | string; Description?: string }>(
+    /* Een lijn voor deze ene vraag. omgeving doet hier niets -- die staat op
+       de koppeling voor het scherm, niet voor het verkeer. */
+    { basis, token, division: vanaf, omgeving: 'echt' },
+    'system/Divisions',
+    { $select: 'Code,Description' },
+  )
+  return rijen
+    .map((r) => ({ code: String(r.Code ?? '').trim(), naam: String(r.Description ?? '').trim() }))
+    .filter((r) => r.code !== '')
 }
 
 /** Eén ding naar Exact sturen. Geeft terug wat Exact ervan maakte. */
@@ -309,6 +408,9 @@ export async function exactPost<T = Record<string, unknown>>(
      * periode is afgesloten". Die hoort mee terug naar het scherm, ingekort
      * maar niet weggegooid.
      */
+    if (res.status === 403 && tekst.includes('WrongDivision')) {
+      throw vertaal(res.status, pad, tekst, division ?? lijn.division)
+    }
     throw new ExactFout(`Exact weigerde ${pad} (${res.status}): ${tekst.slice(0, 400)}`,
       { opnieuwKoppelen: res.status === 401, status: 502 })
   }

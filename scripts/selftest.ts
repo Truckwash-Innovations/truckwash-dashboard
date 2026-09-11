@@ -7914,5 +7914,175 @@ console.log('\n61. De stroom aan de verkoopkant')
   }
 }
 
+/* ==================================================================== *
+ *  62. Het administratienummer van Exact
+ *
+ *  Casper koppelde de echte Exact nadat er met een proefaccount was
+ *  geoefend, en kreeg op alles:
+ *
+ *      403 op financial/GLAccounts
+ *      { "error": { "message": { "value": "Forbidden - WrongDivision" } } }
+ *
+ *  Dat leest als een rechtenprobleem en is het niet. Het divisienummer van
+ *  het proefaccount stond nog in de instelling exact_division, die won bij
+ *  het koppelen van wat Exact zelf zei, en elk adres bij Exact is
+ *  /api/v1/<division>/... -- dus faalde alles.
+ *
+ *  Het venijn zit in de weg terug. Ook system/Divisions, de lijst waarmee je
+ *  het nummer zou rechtzetten, zit achter datzelfde nummer. Een koppeling die
+ *  er goed uitziet, niets kan, en geen knop meer heeft om zichzelf te
+ *  repareren.
+ *
+ *  Hier staat vast wat dat dichthoudt: één vraag zonder nummer in het adres,
+ *  en een foutmelding die het nummer noemt in plaats van "403".
+ * ==================================================================== */
+
+console.log('\n62. Het administratienummer van Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const { administratiesVan, exactLijst, huidigeDivisie } =
+    await import('../supabase/functions/_gedeeld/exact.ts')
+
+  const echteFetch = globalThis.fetch
+  const gevraagd: string[] = []
+
+  const json = (lijf: unknown, status = 200) =>
+    new Response(JSON.stringify(lijf), {
+      status, headers: { 'content-type': 'application/json' },
+    })
+
+  function stub(maak: (url: string) => Response) {
+    gevraagd.length = 0
+    globalThis.fetch = ((invoer: unknown) => {
+      const url = String(invoer)
+      gevraagd.push(url)
+      return Promise.resolve(maak(url))
+    }) as typeof fetch
+  }
+
+  try {
+    /* ---- de vraag die altijd werkt ---- */
+
+    stub(() => json({ d: { results: [{ CurrentDivision: 3010101 }] } }))
+    check('de huidige administratie komt van Exact zelf',
+      await huidigeDivisie('https://start.exactonline.nl', 'tok') === '3010101')
+
+    /*
+     * Dit is de hele reparatie in één regel. Staat er wél een nummer in dit
+     * adres, dan is er bij een verkeerd nummer geen weg terug meer.
+     */
+    check('en in dat adres staat geen administratienummer',
+      gevraagd[0] === 'https://start.exactonline.nl/api/v1/current/Me?$select=CurrentDivision')
+
+    /* Exact levert soms de array rechtstreeks onder d, zonder results. */
+    stub(() => json({ d: [{ CurrentDivision: 42 }] }))
+    check('ook de vorm zonder results wordt gelezen',
+      await huidigeDivisie('https://x', 'tok') === '42')
+
+    /*
+     * Gaat Exact onderuit, dan geen fout maar niets. De aanroeper heeft dan
+     * nog wat er al stond; een uitzondering zou het ophalen van de
+     * administraties laten mislukken op de stap die het juist moest redden.
+     */
+    stub(() => json({}, 500))
+    check('en bij een storing komt er niets terug in plaats van een fout',
+      await huidigeDivisie('https://x', 'tok') === null)
+
+    /* ---- de lijst met bv's ---- */
+
+    stub(() => json({ d: { results: [
+      { Code: 3010101, Description: 'Truckwash 1 Group B.V.' },
+      { Code: 3010102, Description: 'Truckwash 1 Venlo B.V.' },
+    ] } }))
+    const lijst = await administratiesVan('https://start.exactonline.nl', 'tok', '3010101')
+
+    check('de administraties komen met naam mee',
+      lijst.length === 2 && lijst[1].code === '3010102'
+      && lijst[1].naam === 'Truckwash 1 Venlo B.V.')
+    check('opgehaald vanaf de administratie die je meegeeft',
+      gevraagd[0].includes('/api/v1/3010101/system/Divisions'))
+
+    /* Main bestaat niet op system/Divisions; het opvragen gaf een 400 op het
+       hele ophalen. Zie de kanttekening in syncAdministraties(). */
+    check('zonder Main in de $select',
+      !gevraagd[0].includes('Main'))
+
+    /* ---- de foutmelding ---- */
+
+    stub(() => new Response(
+      '{"error":{"code":"","message":{"lang":"","value":"Forbidden - WrongDivision"}}}',
+      { status: 403 }))
+
+    const lijn = {
+      basis: 'https://start.exactonline.nl', token: 'tok',
+      division: '999999', omgeving: 'echt' as const,
+    }
+    let melding = ''
+    try {
+      await exactLijst(lijn, 'financial/GLAccounts')
+    } catch (e) {
+      melding = e instanceof Error ? e.message : String(e)
+    }
+
+    /*
+     * Het nummer erbij, want dat IS het antwoord. Zonder dat ga je zoeken in
+     * de rechten van de Exact-app, en daar is niets te vinden.
+     */
+    check('een WrongDivision noemt het nummer dat niet deugt',
+      melding.includes('999999'))
+    check('en zegt wat je eraan doet',
+      melding.includes('Haal de administraties opnieuw op'))
+    check('in plaats van alleen de foutcode door te geven',
+      !melding.includes('403'))
+
+    /* Een gewone fout blijft wel gewoon een gewone fout. */
+    stub(() => new Response('boem', { status: 500 }))
+    melding = ''
+    try {
+      await exactLijst(lijn, 'financial/GLAccounts')
+    } catch (e) {
+      melding = e instanceof Error ? e.message : String(e)
+    }
+    check('een andere fout gaat ongeschonden door',
+      melding.includes('500') && melding.includes('boem'))
+  } finally {
+    globalThis.fetch = echteFetch
+  }
+
+  /* ---- en de kant die de reparatie uitvoert ---- */
+
+  const bron = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  check('het ophalen van de administraties begint bij current/Me',
+    /const huidig = await huidigeDivisie\(lijn\.basis, lijn\.token\)/.test(bron))
+
+  check('en niet bij het nummer dat juist stuk kan zijn',
+    !/administratiesVan\(lijn\.basis, lijn\.token, lijn\.division\)/.test(bron))
+
+  check('een koppelnummer dat er niet bij hoort wordt rechtgezet',
+    bron.includes('hersteld = { van: lijn.division, naar: huidig }'))
+
+  /*
+   * Uitzetten en niet weggooien. Aan die codes hangen vestigingen, bonnen en
+   * grootboekregels (0059, 0079); een rij weghalen laat die verwijzingen in
+   * het niets wijzen.
+   */
+  check('een administratie van een ander account gaat uit',
+    bron.includes('.update({ actief: false, updated_at: nu }).in(\'code\', vreemd)'))
+  check('en wordt niet weggegooid',
+    !bron.includes("from('exact_administratie').delete()"))
+
+  /*
+   * Bij het koppelen beslist Exact, en mag de instelling daar alleen uit
+   * kiezen. Andersom was precies de fout: een oud nummer dat won van de
+   * werkelijkheid.
+   */
+  const iVraag = bron.indexOf('division = await huidigeDivisie(')
+  const iKies = bron.indexOf('mag.some((a) => a.code === gewenst)')
+  check('bij het koppelen wordt eerst gevraagd wat Exact heeft',
+    iVraag > 0 && iKies > 0 && iVraag < iKies)
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

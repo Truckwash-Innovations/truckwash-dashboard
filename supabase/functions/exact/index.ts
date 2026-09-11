@@ -68,7 +68,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import {
-  ExactFout, exactDatum, exactLijst, exactPost, geldigToken, type ExactLijn,
+  ExactFout, administratiesVan, exactDatum, exactLijst, exactPost, geldigToken,
+  huidigeDivisie, type ExactLijn,
 } from '../_gedeeld/exact.ts'
 import { maakSepa } from '../_gedeeld/sepa.ts'
 
@@ -499,27 +500,49 @@ async function terug(url: URL): Promise<Response> {
   }
 
   /*
-   * Welke administratie. Een instelling gaat voor; staat die leeg, dan wat
-   * Exact zelf als huidige administratie van dit account opgeeft. Lukt dat
-   * niet, dan is de koppeling er nog steeds -- alleen zonder division, en
-   * dat staat dan zichtbaar in het dashboard.
+   * Welke administratie.
+   *
+   * Hier stond het andersom: de instelling exact_division ging voor, en
+   * alleen als die leeg was vroegen we het aan Exact. Dat is precies
+   * verkeerd om zodra je van account wisselt.
+   *
+   * Wat er gebeurde: er was geoefend met een proefaccount van Exact, en het
+   * divisienummer daarvan stond in die instelling. Bij het koppelen van de
+   * echte administratie won dat nummer van wat Exact zelf zei, en daarna gaf
+   * élk verzoek "Forbidden - WrongDivision" -- ook het verzoek waarmee je de
+   * lijst met administraties zou ophalen om het recht te zetten. Een
+   * koppeling die er goed uitziet en niets kan, zonder weg terug.
+   *
+   * Nu beslist Exact, en mag de instelling kiezen uit wat dit account
+   * werkelijk heeft. Een nummer dat er niet bij hoort wordt genegeerd, en dat
+   * staat op de pagina waar je na het koppelen terugkomt -- niet in een
+   * logregel die niemand leest.
    */
   let division: string | null = null
+  let opmerking = ''
+  let gewenst = ''
   try {
     const { data } = await admin.from('instellingen').select('waarde').eq('sleutel', 'exact_division').maybeSingle()
-    division = String(data?.waarde ?? '').trim() || null
-    if (!division) {
-      const me = await fetch(`${sleutels.basis}/api/v1/current/Me?$select=CurrentDivision`, {
-        headers: { Authorization: `Bearer ${antwoord.access_token}`, Accept: 'application/json' },
-      })
-      if (me.ok) {
-        const uit = await me.json() as { d?: { results?: Array<{ CurrentDivision?: number }> } }
-        const cd = uit.d?.results?.[0]?.CurrentDivision
-        if (cd != null) division = String(cd)
+    gewenst = String(data?.waarde ?? '').trim()
+
+    division = await huidigeDivisie(sleutels.basis, antwoord.access_token)
+
+    if (gewenst && division && gewenst !== division) {
+      const mag = await administratiesVan(sleutels.basis, antwoord.access_token, division)
+      if (mag.some((a) => a.code === gewenst)) {
+        division = gewenst
+      } else {
+        opmerking = ` Let op: de ingestelde administratie ${gewenst} hoort niet bij dit `
+          + `account. Er is gekoppeld op ${division}.`
       }
     }
+
+    /* Exact zei niets bruikbaar. Dan is de instelling het enige wat we
+       hebben, en dat was tot nu toe ook wat er gebeurde. */
+    if (!division && gewenst) division = gewenst
   } catch (e) {
-    console.error('[exact] division ophalen', e)
+    console.error('[exact] division bepalen', e)
+    if (!division && gewenst) division = gewenst
   }
 
   /* Exact geeft de looptijd in seconden (doorgaans 600). */
@@ -536,7 +559,8 @@ async function terug(url: URL): Promise<Response> {
     state_at: null,
   })
 
-  return await terugNaarApp('ok', 'Gekoppeld', 'Exact Online is gekoppeld. Je kunt dit venster sluiten.')
+  return await terugNaarApp('ok', 'Gekoppeld',
+    'Exact Online is gekoppeld. Je kunt dit venster sluiten.' + opmerking)
 }
 
 /* ------------------------------------------------------------------ *
@@ -728,36 +752,38 @@ async function instellen(body: Record<string, unknown>, beller: Beller): Promise
  *  levert lijsten op waar niemand iets aan heeft. Aanzetten doe je zelf.
  * ------------------------------------------------------------------ */
 
-interface ExactDivision {
-  Code?: number | string
-  Description?: string
-  HID?: number
-}
+/* De vorm van system/Divisions staat in _gedeeld/exact.ts, bij
+   administratiesVan(): die vraag wordt nu op twee plekken gesteld -- hier, en
+   bij het koppelen -- en hoort daarom op één plek te staan. */
 
 async function syncAdministraties(): Promise<Response> {
   const lijn = await geldigToken(admin)
+
   /*
-   * Geen Main in de $select.
+   * Eerst aan Exact vragen wat hij zelf als huidige administratie heeft, en
+   * vanaf DIE de lijst ophalen -- niet vanaf lijn.division.
    *
-   * Casper kreeg: Exact gaf 400 op system/Divisions -- Type
-   * Exact.Web.Api.Models.System.Division does not have a property named
-   * Main. Dat veld bestaat daar niet (het staat wel op andere endpoints), en
-   * het werd hier ook nooit gelezen: welke administratie de hoofdadministratie
-   * is, zetten we zelf in exact_administratie.hoofd. Een veld opvragen dat je
-   * niet gebruikt en dat niet bestaat, blokkeerde daarmee het hele ophalen.
+   * Dat verschil is de hele reden dat deze functie er zo uitziet. Hoort het
+   * opgeslagen nummer niet bij het gekoppelde account, dan geeft elk verzoek
+   * WrongDivision, ook dit. En dan is er geen knop meer over om het mee recht
+   * te zetten: de lijst met administraties zit achter hetzelfde nummer dat
+   * kapot is. "current" is een woord en geen nummer, dus dat blijft werken.
+   *
+   * Dit is daarmee de enige ingang die zichzelf kan repareren, en dat hoort
+   * hij dan ook te doen.
+   *
+   * Geen Main in de $select (dat zit in administratiesVan): dat veld bestaat
+   * niet op system/Divisions en gaf een 400 op het hele ophalen.
    */
-  const rijen = await exactLijst<ExactDivision>(lijn, 'system/Divisions', {
-    $select: 'Code,Description',
-  })
+  const huidig = await huidigeDivisie(lijn.basis, lijn.token)
+  const rijen = await administratiesVan(lijn.basis, lijn.token, huidig ?? lijn.division)
 
   const nu = Date.now()
-  const codes = rijen
-    .map((r) => ({ code: String(r.Code ?? '').trim(), naam: String(r.Description ?? '').trim() }))
-    .filter((r) => r.code)
+  const bekend = new Set(rijen.map((r) => r.code))
 
-  for (const r of codes) {
-    /* Alleen invoegen wat er nog niet is: actief en hoofd zijn keuzes die
-       hier zijn gemaakt en die een ophaalronde niet hoort terug te draaien. */
+  for (const r of rijen) {
+    /* Alleen naam en tijdstempel: actief en hoofd zijn keuzes die hier zijn
+       gemaakt en die een ophaalronde niet hoort terug te draaien. */
     await admin.from('exact_administratie').upsert(
       { code: r.code, naam: r.naam, updated_at: nu },
       { onConflict: 'code', ignoreDuplicates: false },
@@ -765,19 +791,65 @@ async function syncAdministraties(): Promise<Response> {
   }
 
   /*
-   * Is er nog geen hoofdadministratie, dan wordt het die van de koppeling.
-   * Zonder hoofd valt bon_administratie() terug op niets, en dan blijft elke
-   * bon zonder vestiging staan zonder dat het scherm zegt waarom.
+   * Het nummer van de koppeling rechtzetten als het er niet bij hoort.
+   *
+   * Nu pas kan dat: hiervoor wisten we niet wat "erbij horen" betekende.
    */
-  const { count: hoofden } = await admin.from('exact_administratie')
-    .select('code', { count: 'exact', head: true }).eq('hoofd', true)
-  if (!hoofden) {
-    await admin.from('exact_administratie')
-      .update({ hoofd: true, actief: true, updated_at: nu })
-      .eq('code', lijn.division)
+  let hersteld: { van: string; naar: string } | null = null
+  if (huidig && !bekend.has(lijn.division)) {
+    await admin.from('exact_koppeling')
+      .update({ division: huidig, updated_at: nu }).eq('id', 'exact')
+    hersteld = { van: lijn.division, naar: huidig }
+    console.log(`[exact] division ${lijn.division} hoort niet bij dit account, nu ${huidig}`)
   }
 
-  return json({ ok: true, aantal: codes.length, ...await administraties() })
+  const { data: staand } = await admin.from('exact_administratie').select('code, actief, hoofd')
+
+  /*
+   * En de administraties die hier staan maar niet bij dit account horen.
+   *
+   * Weggooien kan niet, en dat is geen slapheid: aan die codes hangen
+   * vestigingen, bonnen en grootboekregels (0059, 0079), en die verwijzingen
+   * laat je niet in het niets wijzen. Aan laten staan kan ook niet -- dan
+   * loopt de eerstvolgende ophaalronde van het grootboek er weer een 403 op.
+   * Dus gaat de vlag eraf en blijft de rij staan.
+   */
+  const vreemd = (staand ?? [])
+    .filter((r) => r.actief === true && !bekend.has(String(r.code)))
+    .map((r) => String(r.code))
+  if (vreemd.length) {
+    await admin.from('exact_administratie')
+      .update({ actief: false, updated_at: nu }).in('code', vreemd)
+    console.log(`[exact] uitgezet, horen niet bij dit account: ${vreemd.join(', ')}`)
+  }
+
+  /*
+   * De hoofdadministratie. Zonder valt bon_administratie() terug op niets, en
+   * dan blijft elke bon zonder vestiging staan zonder dat het scherm zegt
+   * waarom. Een hoofd dat bij een ánder account hoort is net zo goed geen
+   * hoofd, dus dat telt hier als "geen".
+   */
+  const hoofdNu = (staand ?? []).find((r) => r.hoofd === true)
+  if (!hoofdNu || !bekend.has(String(hoofdNu.code))) {
+    const nieuw = huidig && bekend.has(huidig) ? huidig : rijen[0]?.code
+    if (nieuw) {
+      /* Eerst de oude eraf: er kan er maar één zijn, en de database bewaakt
+         dat met een unieke index. */
+      if (hoofdNu) {
+        await admin.from('exact_administratie').update({ hoofd: false }).eq('hoofd', true)
+      }
+      await admin.from('exact_administratie')
+        .update({ hoofd: true, actief: true, updated_at: nu }).eq('code', nieuw)
+    }
+  }
+
+  return json({
+    ok: true,
+    aantal: rijen.length,
+    hersteld,
+    uitgezet: vreemd,
+    ...await administraties(),
+  })
 }
 
 async function administraties() {

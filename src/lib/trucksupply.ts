@@ -1255,10 +1255,32 @@ export async function exactBtwCodes(): Promise<ExactBtwCode[]> {
  *  als NIET actief -- er kunnen bv's tussen zitten waar wij niets mee doen.
  * ------------------------------------------------------------------ */
 
-export async function exactSyncAdministraties(): Promise<ExactAdministratie[]> {
-  const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(
+/**
+ * Wat het ophalen deed, niet alleen wat het opleverde.
+ *
+ * `hersteld` en `uitgezet` gaan over het geval dat er van Exact-account is
+ * gewisseld: dan wijzen het opgeslagen administratienummer en een deel van de
+ * lijst nog naar het oude. Het ophalen zet dat recht, en dat hoort het scherm
+ * te zeggen -- anders verandert er stilletjes iets aan waar de boekingen heen
+ * gaan, en dat is precies het soort wijziging waarvan je later wilt weten dat
+ * hij is gebeurd.
+ */
+export interface AdministratieRonde {
+  administraties: ExactAdministratie[]
+  /** Het nummer van de koppeling hoorde niet bij dit account en is vervangen. */
+  hersteld: { van: string; naar: string } | null
+  /** Administraties die uit stonden gezet omdat ze bij een ander account horen. */
+  uitgezet: string[]
+}
+
+export async function exactSyncAdministraties(): Promise<AdministratieRonde> {
+  const uit = await roepFunctie<Partial<AdministratieRonde>>(
     'exact', { actie: 'sync-administraties' })
-  return uit.administraties ?? []
+  return {
+    administraties: uit.administraties ?? [],
+    hersteld: uit.hersteld ?? null,
+    uitgezet: uit.uitgezet ?? [],
+  }
 }
 
 export async function exactZetAdministratie(
