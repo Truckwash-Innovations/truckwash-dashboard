@@ -189,32 +189,34 @@ const BACKEND_KEY = 'backend'
  *
  * Geeft true terug als er iets gewist is; de sessie hoort dan ook te vervallen.
  */
+/**
+ * De hele lokale kopie leegmaken.
+ *
+ * Uit TABLE_OF en niet uit een lijst met de hand. Hier stonden twee van die
+ * lijsten, allebei bijgehouden door wie er een tabel bij zette en er toevallig
+ * aan dacht -- en allebei liepen ze achter: taken, projecten, reacties,
+ * vacatures, sollicitaties, documenten, mappen, delingen en de koppeling van
+ * documenten aan taken werden niet gewist. "Opnieuw ophalen" zei dus dat de
+ * lokale kopie schoon was terwijl er negen tabellen bleven staan, en dat is
+ * precies het soort belofte waar je later op bouwt.
+ *
+ * TABLE_OF is de lijst waar het ophalen zelf op draait. Wat daarin staat wordt
+ * gesynchroniseerd, en wat gesynchroniseerd wordt hoort hier weg te kunnen.
+ * Komt er een tabel bij, dan doet hij vanzelf mee.
+ */
+async function wisLokaleKopie(): Promise<void> {
+  await Promise.all(Object.values(TABLE_OF).map((pak) => pak().clear()))
+}
+
 export async function ensureBackendMatches(): Promise<boolean> {
   const stored = await getMeta<string | null>(BACKEND_KEY, null)
   if (stored === api.name) return false
 
-  await Promise.all([
-    db.locations.clear(), db.users.clear(), db.companies.clear(), db.washJobs.clear(),
-    db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
-    db.timeEntries.clear(), db.shifts.clear(),
-    db.notifications.clear(), db.courses.clear(), db.courseProgress.clear(),
-    db.assets.clear(), db.faults.clear(), db.workOrders.clear(),
-    db.maintenancePlans.clear(), db.tickets.clear(),
-    db.ticketMessages.clear(), db.logEvents.clear(), db.devPlans.clear(),
-    db.mailOutbox.clear(), db.hourRequests.clear(), db.trips.clear(),
-    db.posRegisters.clear(), db.posDevices.clear(), db.posPairings.clear(),
-    db.posSafes.clear(), db.posSafeMoves.clear(), db.locationPhotos.clear(),
-    db.signups.clear(), db.channels.clear(),
-    db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
-    db.personnelPrivate.clear(), db.personnelLoon.clear(),
-    db.expenseGebeurtenissen.clear(), db.expenseRegels.clear(),
-    db.documents.clear(), db.mailbox.clear(),
-    db.changeRequests.clear(), db.agendaItems.clear(),
-    db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
-    db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
-    // Wijzigingen die voor een andere server bedoeld waren zijn onbruikbaar.
-    db.outbox.clear(),
-  ])
+  await wisLokaleKopie()
+  /* De wachtrij en de uitgaande mail staan niet in TABLE_OF: dat is geen
+     opgehaalde kopie maar eigen werk. Bij een andere backend is dat werk
+     onbruikbaar -- het was voor een andere server bedoeld. */
+  await Promise.all([db.mailOutbox.clear(), db.outbox.clear()])
 
   await setMeta(LAST_SYNC, 0)
   await setMeta(BACKEND_KEY, api.name)
@@ -237,26 +239,7 @@ export async function ensureBackendMatches(): Promise<boolean> {
 export async function haalAllesOpnieuw(): Promise<void> {
   const wachtrij = await db.outbox.count()
 
-  await Promise.all([
-    db.locations.clear(), db.users.clear(), db.companies.clear(), db.washJobs.clear(),
-    db.inventory.clear(), db.stockMovements.clear(), db.expenses.clear(),
-    db.timeEntries.clear(), db.shifts.clear(),
-    db.notifications.clear(), db.courses.clear(), db.courseProgress.clear(),
-    db.assets.clear(), db.faults.clear(), db.workOrders.clear(),
-    db.maintenancePlans.clear(), db.tickets.clear(),
-    db.ticketMessages.clear(), db.logEvents.clear(), db.devPlans.clear(),
-    db.hourRequests.clear(), db.trips.clear(),
-    db.posRegisters.clear(), db.posDevices.clear(), db.posPairings.clear(),
-    db.posSafes.clear(), db.posSafeMoves.clear(), db.locationPhotos.clear(),
-    db.signups.clear(), db.channels.clear(),
-    db.chatMessages.clear(), db.channelReads.clear(), db.emailLog.clear(),
-    db.personnelPrivate.clear(), db.personnelLoon.clear(),
-    db.expenseGebeurtenissen.clear(), db.expenseRegels.clear(),
-    db.documents.clear(), db.mailbox.clear(),
-    db.changeRequests.clear(), db.agendaItems.clear(),
-    db.employers.clear(), db.employerLinks.clear(), db.employerRules.clear(),
-    db.voorraadAlarmen.clear(), db.bestellingen.clear(), db.bestelregels.clear(),
-  ])
+  await wisLokaleKopie()
 
   await setMeta(LAST_SYNC, 0)
   useSync.setState({ lastSyncAt: null })

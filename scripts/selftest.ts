@@ -5330,8 +5330,24 @@ console.log('\n41. Het dossier valt uiteen')
 
   const sync = readFileSync('src/lib/sync.ts', 'utf8')
   check('personnelLoon staat in de duwvolgorde', sync.includes("'personnelLoon'"))
-  check('en wordt opgeruimd bij het uitloggen',
-    (sync.match(/db\.personnelLoon\.clear\(\)/g) ?? []).length === 2)
+
+  /*
+   * Hier stond: db.personnelLoon.clear() komt twee keer voor. Dat klopte
+   * zolang er twee lijsten met de hand werden bijgehouden -- en precies dat
+   * bleek het probleem: ze liepen allebei achter, en negen tabellen werden
+   * bij "Opnieuw ophalen" niet gewist terwijl het scherm zei van wel.
+   *
+   * Nu komt de lijst uit TABLE_OF, waar het ophalen zelf ook op draait. De
+   * belofte is dezelfde en de meting is anders: staat de tabel erin, dan
+   * wordt hij gewist -- en dat geldt meteen voor elke tabel die er later bij
+   * komt.
+   */
+  check('en wordt opgeruimd, want hij staat in TABLE_OF',
+    /TABLE_OF[\s\S]*personnelLoon: \(\) => db\.personnelLoon/.test(sync))
+  check('het wissen komt uit die ene lijst',
+    sync.includes('Object.values(TABLE_OF).map((pak) => pak().clear())'))
+  check('en beide plekken die wissen gebruiken hem',
+    (sync.match(/await wisLokaleKopie\(\)/g) ?? []).length === 2)
 }
 
 /* ==================================================================== *

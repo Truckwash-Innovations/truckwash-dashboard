@@ -7255,5 +7255,152 @@ console.log('\n58. In welke bv hoort deze factuur')
 
 await db.close()
 
+/* ==================================================================== *
+ *  59. Schone lei
+ *
+ *  Casper wilde de gegevens weg om opnieuw te beginnen, met behoud van de
+ *  gebruikers. Dat staat in supabase/schoonmaak.sql, en dat bestand is van
+ *  een andere orde dan de rest: het maakt dingen kapot die niet terugkomen.
+ *
+ *  Twee dingen kunnen er stil misgaan, en allebei merk je pas halverwege de
+ *  echte database.
+ *
+ *  Het eerste zijn de sloten. Op een afgerekende bon, een kluisboeking en
+ *  een uitgevoerde betaalopdracht zit een trigger die verwijderen weigert --
+ *  terecht, daar is hij voor. Het script zet ze één transactie lang uit. Eén
+ *  triggernaam die niet meer klopt en de hele wissing valt om, of erger: hij
+ *  blijft uit staan.
+ *
+ *  Het tweede is de lijst zelf. Een tabel die erin staat maar er niet in
+ *  hoort is onomkeerbaar, en een tabel die ontbreekt komt nooit aan het licht
+ *  -- die blijft gewoon staan.
+ *
+ *  Hier staan ze allebei vast: wat weg moet gaat weg, wat blijven moet
+ *  blijft, en na afloop staan de sloten weer aan.
+ * ==================================================================== */
+
+console.log('\n59. Schone lei')
+
+{
+  const schoon = await fresh()
+  await schoon.exec(sqlFile('supabase/setup.sql'))
+  await asServer(schoon)
+
+  await schoon.exec(`
+    insert into public.locations (id, code, name, city)
+      values ('loc_schoon','TST-SCH','Schoonmaakvestiging','Venlo');
+    insert into public.profiles (id, email, name, roles, active, location_id)
+      values ('u_schoon','schoon@test.nl','De Baas', array['management'], true, 'loc_schoon');
+    insert into public.companies (id, name, city) values ('co_schoon','Van Dijk','Venlo');
+    update public.profiles set company_id = 'co_schoon' where id = 'u_schoon';
+
+    insert into public.expenses (id, supplier, amount_excl, status, expense_date, location_id)
+      values ('exp_schoon','Reinchem', 100, 'goedgekeurd', 1, 'loc_schoon');
+    insert into public.expense_regel (id, expense_id, omschrijving, bedrag_excl)
+      values ('er_schoon','exp_schoon','iets', 100);
+    /* Geboekt in Exact: dan zit expense_regel op slot. */
+    update public.expenses set exact_id = 'BOEKING-SCHOON' where id = 'exp_schoon';
+
+    insert into public.pos_registers (id, code, name, location_id)
+      values ('reg_schoon','KAS-SCH','Kassa','loc_schoon');
+    insert into public.pos_devices (id, register_id, location_id, device_key, name, status)
+      values ('dev_schoon','reg_schoon','loc_schoon','sleutel','Tablet','actief');
+    insert into public.pos_products (id, location_id, code, name, price_incl)
+      values ('pp_schoon','loc_schoon','A1','Ruitenwisser', 9.95);
+    /* Afgerekend: dan weigert pos_sales_niet_wissen de verwijdering. */
+    insert into public.pos_sales (id, register_id, location_id, status, total_incl, seq)
+      values ('sale_schoon','reg_schoon','loc_schoon','afgerekend', 9.95, 1);
+    insert into public.pos_safe_moves (id, safe_id, location_id, soort, amount)
+      values ('sm_schoon',
+              (select id from public.pos_safes where location_id='loc_schoon'),
+              'loc_schoon','inleg', 50);
+
+    insert into public.time_entries (id, user_id, location_id, started_at)
+      values ('te_schoon','u_schoon','loc_schoon', 1);
+    insert into public.exact_administratie (code, naam, actief, hoofd, eigen_iban)
+      values ('999999','Truckwash 1 Group B.V.', true, true, 'NL24INGB0106727621');
+  `)
+
+  const tel = async (t) =>
+    Number((await schoon.query(`select count(*)::int as n from public.${t}`)).rows[0].n)
+
+  const script = sqlFile('supabase/schoonmaak.sql')
+
+  /* --- het slot --- */
+  let tegengehouden = false
+  try {
+    await schoon.exec(script)
+  } catch (e) {
+    tegengehouden = String(e.message).includes('ik_weet_het_zeker')
+  }
+  check('zonder het slot om te zetten gebeurt er niets', tegengehouden)
+  check('en dan staat de klant er nog', await tel('companies') === 1)
+
+  /*
+   * replaceAll en niet replace: de regel staat ook in de kop van het bestand,
+   * als uitleg. Met replace zet je die om en blijft de echte op false staan --
+   * en dan meet je dat er niets gebeurt terwijl je het tegendeel test.
+   */
+  const aan = script.replaceAll(
+    'ik_weet_het_zeker boolean := false;', 'ik_weet_het_zeker boolean := true;')
+  const gelukt = await run(schoon, 'het script draait in een keer', aan)
+
+  if (gelukt) {
+    for (const t of [
+      'companies', 'wash_jobs', 'expenses', 'expense_regel', 'verkoopfactuur',
+      'betaalbatch', 'pos_sales', 'pos_sale_lines', 'pos_payments',
+      'pos_safe_moves', 'pos_products', 'pos_pins', 'inventory_items',
+      'time_entries', 'deletion_log',
+    ]) {
+      const over = await tel(t)
+      check(`${t} is leeg`, over === 0, `${over} over`)
+    }
+
+    check('de gebruikers staan er nog', await tel('profiles') >= 1)
+    check('de vestigingen ook', await tel('locations') >= 1)
+    check('de instellingen ook', await tel('instellingen') > 0)
+    check('het rekeningschema ook', await tel('grootboek') > 0)
+    check('de kassa als apparaat ook', await tel('pos_registers') === 1)
+    check('en de kluizen ook', await tel('pos_safes') >= 1)
+    check('de bv houdt zijn rekeningnummer',
+      (await schoon.query(
+        "select eigen_iban from public.exact_administratie where code='999999'"))
+        .rows[0]?.eigen_iban === 'NL24INGB0106727621')
+
+    /* De gebruiker blijft, zijn klant niet -- en dus ook de verwijzing niet. */
+    check('de gebruiker hangt niet meer aan een klant',
+      (await schoon.query("select company_id from public.profiles where id='u_schoon'"))
+        .rows[0].company_id === null)
+
+    /* Het apparaat wist zichzelf pas als het hoort dat het is ingetrokken. */
+    check('het kassa-apparaat is ingetrokken',
+      (await schoon.query("select status from public.pos_devices where id='dev_schoon'"))
+        .rows[0]?.status === 'ingetrokken')
+
+    /*
+     * En de sloten weer dicht. Dit is de controle die er echt toe doet: een
+     * script dat ze open laat staan maakt van een beveiliging een
+     * eenmalige.
+     */
+    const staatAan = async (tabel, naam) => Number((await schoon.query(
+      `select count(*)::int as n from pg_trigger t join pg_class c on c.oid = t.tgrelid
+        where c.relname = '${tabel}' and t.tgname = '${naam}' and t.tgenabled <> 'D'`
+    )).rows[0].n) === 1
+
+    check('een afgerekende bon staat weer vast',
+      await staatAan('pos_sales', 'pos_sales_niet_wissen'))
+    check('een kluisboeking ook',
+      await staatAan('pos_safe_moves', 'pos_safe_moves_niet_wissen'))
+    check('een geboekte factuur ook',
+      await staatAan('expense_regel', 'expense_regel_op_slot_trg'))
+    check('en een klant met wasbeurten is weer beschermd',
+      await staatAan('companies', 'klant_niet_zomaar_weg_trg'))
+
+    await run(schoon, 'opnieuw draaien mag', aan)
+  }
+
+  await schoon.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
