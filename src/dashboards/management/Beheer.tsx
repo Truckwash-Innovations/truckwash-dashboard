@@ -2,21 +2,26 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bell, Database, Download, HardDrive, KeyRound, RefreshCw, ServerCog,
-  ShieldCheck, Trash2, TriangleAlert, Wifi, WifiOff,
+  ShieldCheck, Trash2, TriangleAlert, Users, Wifi, WifiOff,
 } from 'lucide-react'
 import { db, setMeta, alleMensen } from '../../lib/db'
+import {
+  haalLidWeg, maakPostbus, zetLid, zetPostbusActief,
+} from '../../lib/werkmail'
 import { LAST_SYNC, useSync } from '../../lib/sync'
 import { activeBackend, isForcedOffline, setForcedOffline } from '../../lib/api'
 import { useUpdates } from '../../lib/updates'
 import {
-  PERMISSIONS, ROLE_LABELS, SERVICES, type Role, type User,
+  PERMISSIONS, ROLE_LABELS, SERVICES,
+  type Postbus, type PostbusLid, type Role, type User,
 } from '../../lib/types'
 import { effectivePermissions } from '../../lib/permissions'
 import { money, relative } from '../../lib/format'
-import { Badge, Card, Empty, Stat } from '../../components/ui'
+import { Badge, Card, Empty, Modal, Stat } from '../../components/ui'
 import { notifyPermissionState, requestNotifyPermission } from '../../lib/notify'
 import { toast } from '../../store/useToasts'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
+import { useAuth } from '../../store/useAuth'
 
 /* ------------------------------------------------------------------ *
  *  Beheerderspaneel
@@ -232,6 +237,7 @@ export default function Beheer() {
         </Card>
 
         <Werkadressen />
+        <GedeeldePostvakken />
       </div>
 
       <Card title="Rechtenoverzicht" hint="Wat iedereen daadwerkelijk mag" flush className="mb">
@@ -433,5 +439,215 @@ function Werkadressen() {
         maar komt er niets aan en gaat er niets weg.
       </p>
     </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Gedeelde postvakken
+ *
+ *  Casper: "en echt postvakken kunnen maken ect."
+ *
+ *  info@, verkoop@ -- een adres dat niet aan een mens hangt maar aan het
+ *  bedrijf. Wie erbij mag staat er met naam bij; er is geen regel die het
+ *  management er ongevraagd in laat kijken, en dat is met opzet zo gebleven
+ *  (zie de kop van 0084). Wil je erin, zet jezelf er dan bij -- dan staat het
+ *  ergens opgeschreven.
+ *
+ *  Weggooien kan niet. Er hangt post aan, en "weg" is dan hetzelfde als
+ *  "kwijt". Een postvak dat je niet meer gebruikt zet je dicht; het adres
+ *  blijft bezet en de post blijft staan.
+ * ------------------------------------------------------------------ */
+
+function GedeeldePostvakken() {
+  const ik = useAuth((s) => s.user)!
+  const vakken = useLiveQuery(() => db.postbussen.toArray(), [], [] as Postbus[])
+  const leden = useLiveQuery(() => db.postbusLeden.toArray(), [], [] as PostbusLid[])
+  const mensen = useLiveQuery(() => alleMensen(), [], [] as User[])
+
+  const [adres, setAdres] = useState('')
+  const [naam, setNaam] = useState('')
+  const [bezig, setBezig] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
+
+  async function maak() {
+    setBezig(true)
+    try {
+      const vak = await maakPostbus({ adres, naam, door: ik })
+      toast.ok(vak.adres + ' aangemaakt')
+      setAdres('')
+      setNaam('')
+      /* Meteen open, want het is nog van niemand: een postvak zonder leden
+         neemt wel post aan en laat niemand kijken. */
+      setOpen(vak.id)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  const gekozen = open ? vakken.find((v) => v.id === open) ?? null : null
+
+  return (
+    <Card title="Gedeelde postvakken" hint="info@, verkoop@ — met wie erbij mag">
+      {vakken.length === 0 ? (
+        <p className="help" style={{ marginTop: 0 }}>
+          Nog geen gedeeld postvak. Post op zo’n adres komt binnen bij iedereen
+          die je eraan toevoegt, en zij kunnen er ook namens antwoorden.
+        </p>
+      ) : (
+        <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+          {vakken.map((v) => {
+            const hoeveel = leden.filter((l) => l.postbusId === v.id).length
+            return (
+              <div key={v.id} className="setting-row" style={{ borderBottom: 0, padding: '6px 0' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="setting-label">
+                    {v.naam} {!v.actief && <Badge tone="warn">dicht</Badge>}
+                  </div>
+                  <div className="setting-hint" style={{ wordBreak: 'break-all' }}>
+                    {v.adres} · {hoeveel === 0
+                      ? 'nog niemand'
+                      : `${hoeveel} ${hoeveel === 1 ? 'persoon' : 'mensen'}`}
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn sm ghost" onClick={() => setOpen(v.id)}>
+                    <Users size={14} /> Wie
+                  </button>
+                  <button
+                    className={`btn sm ${v.actief ? 'ghost danger' : ''}`}
+                    onClick={() => void zetPostbusActief(v, !v.actief).then(() =>
+                      toast.ok(v.actief
+                        ? 'Dicht. Het adres blijft bezet en de post blijft staan.'
+                        : 'Weer open.'))}
+                  >
+                    {v.actief ? 'Sluiten' : 'Openen'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <input
+          className="input"
+          value={adres}
+          placeholder="info@truckwash1group.nl"
+          onChange={(e) => setAdres(e.target.value)}
+          style={{ flex: '1 1 220px', minWidth: 0 }}
+        />
+        <input
+          className="input"
+          value={naam}
+          placeholder="Naam, bijv. Info"
+          onChange={(e) => setNaam(e.target.value)}
+          style={{ flex: '1 1 140px', minWidth: 0 }}
+        />
+        <button className="btn sm primary" disabled={bezig || !adres.trim()} onClick={() => void maak()}>
+          Aanmaken
+        </button>
+      </div>
+
+      <p className="help" style={{ marginTop: 12 }}>
+        Het adres moet bij Resend op een geverifieerd domein staan en naar de
+        functie <span className="mono">ontvang-mail</span> wijzen. Anders kun
+        je hier wel een postvak aanmaken maar komt er niets in.
+      </p>
+
+      {gekozen && (
+        <PostvakLeden
+          vak={gekozen}
+          leden={leden.filter((l) => l.postbusId === gekozen.id)}
+          mensen={mensen}
+          ikId={ik.id}
+          sluit={() => setOpen(null)}
+        />
+      )}
+    </Card>
+  )
+}
+
+function PostvakLeden({
+  vak, leden, mensen, ikId, sluit,
+}: {
+  vak: Postbus
+  leden: PostbusLid[]
+  mensen: User[]
+  ikId: string
+  sluit: () => void
+}) {
+  const [erbij, setErbij] = useState('')
+
+  const kandidaten = mensen
+    .filter((m) => m.active && !leden.some((l) => l.userId === m.id))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  return (
+    <Modal open title={`Wie mag bij ${vak.adres}`} onClose={sluit} width={520}>
+      {leden.length === 0 ? (
+        <p className="help" style={{ marginTop: 0 }}>
+          Nog niemand. Post die hier binnenkomt ziet dus ook niemand.
+        </p>
+      ) : (
+        <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+          {leden.map((l) => {
+            const wie = mensen.find((m) => m.id === l.userId)
+            return (
+              <div key={l.id} className="setting-row" style={{ borderBottom: 0, padding: '6px 0' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="setting-label">{wie?.name ?? l.userId}</div>
+                  <div className="setting-hint">
+                    {l.magSturen ? 'Leest mee en mag versturen' : 'Leest alleen mee'}
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button
+                    className="btn sm ghost"
+                    title="Lezen en versturen zijn niet hetzelfde"
+                    onClick={() => void zetLid(vak.id, l.userId, !l.magSturen, ikId)}
+                  >
+                    {l.magSturen ? 'Alleen lezen' : 'Mag versturen'}
+                  </button>
+                  <button className="btn sm ghost danger" onClick={() => void haalLidWeg(l)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="row" style={{ gap: 8 }}>
+        <select
+          className="input"
+          value={erbij}
+          onChange={(e) => setErbij(e.target.value)}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <option value="">Kies iemand…</option>
+          {kandidaten.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+        <button
+          className="btn sm primary"
+          disabled={!erbij}
+          onClick={() => {
+            void zetLid(vak.id, erbij, true, ikId).then(() => {
+              toast.ok('Toegevoegd')
+              setErbij('')
+            })
+          }}
+        >
+          Toevoegen
+        </button>
+      </div>
+
+      <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+        <button className="btn primary" onClick={sluit}>Klaar</button>
+      </div>
+    </Modal>
   )
 }

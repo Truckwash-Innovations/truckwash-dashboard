@@ -2509,9 +2509,60 @@ export interface TaakDocument {
 
 export type MailMap = 'postvak' | 'verzonden' | 'concept' | 'archief' | 'prullenbak'
 
+/**
+ * Een gedeeld postvak: info@, verkoop@ (0084).
+ *
+ * Hangt aan een adres en niet aan een mens. Wie erbij mag staat met naam in
+ * PostbusLid -- er is geen regel die het management er ongevraagd in laat.
+ */
+export interface Postbus {
+  id: string
+  adres: string
+  naam: string
+  omschrijving?: string
+  /** Uit = het adres blijft bezet, maar er komt en gaat niets. */
+  actief: boolean
+  door?: string
+  doorNaam?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface PostbusLid {
+  id: string
+  postbusId: string
+  userId: string
+  /** Lezen en versturen zijn niet hetzelfde; zie 0084. */
+  magSturen: boolean
+  door?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * Een eigen map in een postvak.
+ *
+ * Van een mens (userId) of van een gedeeld postvak (postbusId), nooit
+ * allebei. Komt naast de vaste mappen en nooit in de plaats.
+ */
+export interface WerkMailMap {
+  id: string
+  userId?: string
+  postbusId?: string
+  naam: string
+  volgorde: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface WerkMail {
   id: string
-  userId: string
+  /** Van een mens, of leeg als dit bericht in een gedeeld postvak hangt. */
+  userId?: string
+  /** Het gedeelde postvak waar dit bericht in hangt (0084). */
+  postbusId?: string
+  /** In welke eigen map. Leeg = in de vaste map uit `map`. */
+  mapId?: string
   richting: 'in' | 'uit'
   map: MailMap
   van: string
@@ -2557,7 +2608,7 @@ export type EntityName =
   | 'taken' | 'taakProjecten' | 'taakReacties'
   | 'vacatures' | 'sollicitaties'
   | 'docMappen' | 'docBestanden' | 'docToegang' | 'taakDocumenten'
-  | 'werkmail'
+  | 'werkmail' | 'postbussen' | 'postbusLeden' | 'werkmailMappen'
 
 export type SyncOp = 'put' | 'delete'
 

@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Archive, Loader2, Mail, MailOpen, Paperclip, PenLine, Reply, ReplyAll,
-  RotateCcw, Send, Star, Trash2, Undo2, Forward,
+  Archive, FolderPlus, Inbox, Loader2, Mail, MailOpen, Paperclip, PenLine,
+  Reply, ReplyAll, RotateCcw, Send, Star, Trash2, Undo2, Forward, Users, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
-  MAPPEN, antwoordOp, bijlageAdres, doorsturen, draadVan, inMap, markeerGelezen,
-  naarMap, versturen, zetSter, zoekIn, type NieuwBericht,
+  MAPPEN, MIJN_VAK, antwoordOp, bijlageAdres, doorsturen, draadVan, inEigenMap,
+  inMap, maakMap, mappenVan, markeerGelezen, naarEigenMap, naarMap, postVan,
+  verwijderMap, versturen, zetSter, zoekIn,
+  type NieuwBericht, type Vak,
 } from '../lib/werkpost'
 import { handtekeningVoor } from '../lib/handtekening'
 import { zetHandtekening } from '../lib/werkmail'
-import type { MailMap, WerkMail } from '../lib/types'
+import type { MailMap, Postbus, PostbusLid, WerkMail, WerkMailMap } from '../lib/types'
 import { dateTime, relative } from '../lib/format'
 import { useAuth } from '../store/useAuth'
 import { toast } from '../store/useToasts'
@@ -44,17 +46,63 @@ import { Filterbalk, LeegStaat, Zoekveld } from './ui'
 
 export default function Postvak() {
   const ik = useAuth((s) => s.user)
-  const post = useLiveQuery(() => db.werkmail.toArray(), [], [] as WerkMail[])
+  const alles = useLiveQuery(() => db.werkmail.toArray(), [], [] as WerkMail[])
+  const alleMappen = useLiveQuery(
+    () => db.werkmailMappen.toArray(), [], [] as WerkMailMap[])
+  const postbussen = useLiveQuery(() => db.postbussen.toArray(), [], [] as Postbus[])
+  const leden = useLiveQuery(() => db.postbusLeden.toArray(), [], [] as PostbusLid[])
 
+  const [vak, setVak] = useState<Vak>(MIJN_VAK)
   const [map, setMap] = useState<MailMap>('postvak')
+  /* Een eigen map staat náást de vaste mappen: is deze gevuld, dan kijk je
+     daarin en doet `map` even niet mee. */
+  const [eigenMap, setEigenMap] = useState<string | null>(null)
   const [zoek, setZoek] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [opstellen, setOpstellen] = useState<NieuwBericht | null>(null)
   const [handtekening, setHandtekening] = useState(false)
+  const [nieuweMap, setNieuweMap] = useState(false)
 
-  const lijst = useMemo(() => zoekIn(inMap(post, map), zoek), [post, map, zoek])
+  /*
+   * De gedeelde postvakken waar ik lid van ben.
+   *
+   * Uit de plaatselijke kopie en niet uit een vraag aan de server: wat hier
+   * staat is wat de synchronisatie heeft opgehaald, en de database geeft me
+   * alleen de postvakken waar ik bij mag (0084). Twee keer dezelfde vraag
+   * stellen zou betekenen dat er een dag komt waarop ze iets anders zeggen.
+   */
+  const mijnVakken = useMemo(() => {
+    if (!ik) return [] as Postbus[]
+    const van = new Set(leden.filter((l) => l.userId === ik.id).map((l) => l.postbusId))
+    return postbussen
+      .filter((p) => p.actief && van.has(p.id))
+      .sort((a, b) => a.naam.localeCompare(b.naam))
+  }, [postbussen, leden, ik?.id])
+
+  const magSturenHier = useMemo(() => {
+    if (vak.soort === 'ik') return true
+    return leden.some((l) => l.postbusId === vak.id && l.userId === ik?.id && l.magSturen)
+  }, [leden, vak, ik?.id])
+
+  const post = useMemo(() => postVan(alles, vak), [alles, vak])
+  const mappen = useMemo(() => mappenVan(alleMappen, vak), [alleMappen, vak])
+
+  const lijst = useMemo(
+    () => zoekIn(eigenMap ? inEigenMap(post, eigenMap) : inMap(post, map), zoek),
+    [post, map, eigenMap, zoek])
   const gekozen = open ? post.find((m) => m.id === open) ?? null : null
   const draad = gekozen ? draadVan(post, gekozen) : []
+
+  /* Van postvak wisselen zet je terug bij Postvak IN. Blijven staan in een
+     map die daar niet bestaat geeft een lege lijst waar niets mis mee is en
+     die er toch uitziet alsof er post kwijt is. */
+  function kiesVak(nieuw: Vak) {
+    setVak(nieuw)
+    setMap('postvak')
+    setEigenMap(null)
+    setOpen(null)
+    setZoek('')
+  }
 
   /* Openen is lezen. Niet bij het selecteren in de lijst maar bij het tonen:
      zo blijft doorbladeren met de pijltjes geen manier om alles ongelezen te
@@ -66,7 +114,18 @@ export default function Postvak() {
   const telling = useMemo(() => {
     const uit: Partial<Record<MailMap, number>> = {}
     for (const m of post) {
-      if (m.map === 'postvak' && !m.gelezenAt) uit.postvak = (uit.postvak ?? 0) + 1
+      if (m.map === 'postvak' && !m.mapId && !m.gelezenAt) {
+        uit.postvak = (uit.postvak ?? 0) + 1
+      }
+    }
+    return uit
+  }, [post])
+
+  /* En per eigen map, zodat je ziet waar nog iets ligt zonder hem te openen. */
+  const perMap = useMemo(() => {
+    const uit: Record<string, number> = {}
+    for (const m of post) {
+      if (m.mapId && !m.gelezenAt) uit[m.mapId] = (uit[m.mapId] ?? 0) + 1
     }
     return uit
   }, [post])
@@ -90,18 +149,50 @@ export default function Postvak() {
       {/* ------------------------- de mappen ------------------------- */}
 
       <div className="postvak-mappen">
-        <button className="btn primary" onClick={() => setOpstellen({
-          aan: [], onderwerp: '', tekst: '',
-        })}>
+        <button
+          className="btn primary"
+          disabled={!magSturenHier}
+          title={magSturenHier
+            ? undefined
+            : 'In dit postvak mag je meekijken maar niet versturen'}
+          onClick={() => setOpstellen({
+            aan: [], onderwerp: '', tekst: '',
+            vanaf: vak.soort === 'gedeeld' ? vak.id : undefined,
+          })}
+        >
           <Send size={15} /> Nieuw bericht
         </button>
+
+        {/* ---- welk postvak ---- */}
+
+        {mijnVakken.length > 0 && (
+          <div className="mappen-lijst postvak-keuze">
+            <button
+              className={`map ${vak.soort === 'ik' ? 'aan' : ''}`}
+              onClick={() => kiesVak(MIJN_VAK)}
+              title={ik.werkEmail}
+            >
+              <Inbox size={14} /> <span>Mijn post</span>
+            </button>
+            {mijnVakken.map((p) => (
+              <button
+                key={p.id}
+                className={`map ${vak.soort === 'gedeeld' && vak.id === p.id ? 'aan' : ''}`}
+                onClick={() => kiesVak({ soort: 'gedeeld', id: p.id })}
+                title={p.adres}
+              >
+                <Users size={14} /> <span>{p.naam || p.adres}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="mappen-lijst">
           {MAPPEN.map((m) => (
             <button
               key={m.sleutel}
-              className={`map ${map === m.sleutel ? 'aan' : ''}`}
-              onClick={() => { setMap(m.sleutel); setOpen(null) }}
+              className={`map ${map === m.sleutel && !eigenMap ? 'aan' : ''}`}
+              onClick={() => { setMap(m.sleutel); setEigenMap(null); setOpen(null) }}
               title={m.uitleg}
             >
               <span>{m.label}</span>
@@ -110,18 +201,50 @@ export default function Postvak() {
           ))}
         </div>
 
-        <div className="ts-sub" style={{ marginTop: 14, wordBreak: 'break-all' }}>
-          {ik.werkEmail}
+        {/* ---- eigen mappen ---- */}
+
+        <div className="mappen-lijst">
+          {mappen.map((m) => (
+            <button
+              key={m.id}
+              className={`map ${eigenMap === m.id ? 'aan' : ''}`}
+              onClick={() => { setEigenMap(m.id); setOpen(null) }}
+              /* Meteen bij het slepen, zodat de map zelf de knop is. Dat is
+                 hoe iedereen het van een postvak kent. */
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                const id = e.dataTransfer.getData('text/plain')
+                const mail = post.find((x) => x.id === id)
+                if (mail) void naarEigenMap(mail, m.id)
+              }}
+            >
+              <span>{m.naam}</span>
+              {perMap[m.id] ? <Badge tone="brand">{perMap[m.id]}</Badge> : null}
+            </button>
+          ))}
+
+          <button className="map nieuw" onClick={() => setNieuweMap(true)}>
+            <FolderPlus size={14} /> <span>Nieuwe map</span>
+          </button>
         </div>
 
-        <button
-          className="btn ghost sm"
-          style={{ marginTop: 8 }}
-          onClick={() => setHandtekening(true)}
-          title="Wat er onder elk bericht komt dat je verstuurt"
-        >
-          <PenLine size={14} /> Handtekening
-        </button>
+        <div className="ts-sub" style={{ marginTop: 14, wordBreak: 'break-all' }}>
+          {vak.soort === 'ik'
+            ? ik.werkEmail
+            : mijnVakken.find((p) => p.id === vak.id)?.adres}
+        </div>
+
+        {vak.soort === 'ik' && (
+          <button
+            className="btn ghost sm"
+            style={{ marginTop: 8 }}
+            onClick={() => setHandtekening(true)}
+            title="Wat er onder elk bericht komt dat je verstuurt"
+          >
+            <PenLine size={14} /> Handtekening
+          </button>
+        )}
       </div>
 
       {/* ------------------------- de lijst -------------------------- */}
@@ -134,6 +257,26 @@ export default function Postvak() {
             hint="Zoek op afzender, onderwerp of inhoud"
             sneltoets
           />
+          {/* Een map opruimen kan alleen als je erin staat. Een kruisje bij
+              elke map in de lijst zou de kolom een mijnenveld maken. */}
+          {eigenMap && (
+            <button
+              className="btn ghost sm danger"
+              title="Deze map weghalen; de post blijft staan"
+              onClick={() => {
+                const m = mappen.find((x) => x.id === eigenMap)
+                if (!m) return
+                void verwijderMap(m).then((hoeveel) => {
+                  setEigenMap(null)
+                  toast.ok(hoeveel
+                    ? `Map weg. ${hoeveel} bericht(en) staan weer in hun vorige map.`
+                    : 'Map weg.')
+                })
+              }}
+            >
+              <X size={14} /> Map weghalen
+            </button>
+          )}
         </Filterbalk>
 
         {lijst.length === 0 ? (
@@ -151,6 +294,10 @@ export default function Postvak() {
                 key={m.id}
                 className={`bericht ${open === m.id ? 'aan' : ''} ${m.gelezenAt ? '' : 'ongelezen'}`}
                 onClick={() => setOpen(m.id)}
+                /* Slepen naar een map links. Dat is de snelste manier om een
+                   postvak op te ruimen, en de enige die mensen al kennen. */
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData('text/plain', m.id)}
               >
                 <div className="regel">
                   <span className="wie">
@@ -186,8 +333,16 @@ export default function Postvak() {
           <Bericht
             mail={gekozen}
             draad={draad}
-            opAntwoord={(allen) => setOpstellen(antwoordOp(gekozen, allen))}
-            opDoorsturen={() => setOpstellen(doorsturen(gekozen))}
+            mappen={mappen}
+            magSturen={magSturenHier}
+            opAntwoord={(allen) => setOpstellen({
+              ...antwoordOp(gekozen, allen),
+              vanaf: vak.soort === 'gedeeld' ? vak.id : undefined,
+            })}
+            opDoorsturen={() => setOpstellen({
+              ...doorsturen(gekozen),
+              vanaf: vak.soort === 'gedeeld' ? vak.id : undefined,
+            })}
           />
         )}
       </div>
@@ -200,6 +355,14 @@ export default function Postvak() {
       )}
 
       {handtekening && <Handtekening sluit={() => setHandtekening(false)} />}
+
+      {nieuweMap && (
+        <NieuweMap
+          vak={vak}
+          ikId={ik.id}
+          sluit={() => setNieuweMap(false)}
+        />
+      )}
     </div>
   )
 }
@@ -209,10 +372,12 @@ export default function Postvak() {
  * ------------------------------------------------------------------ */
 
 function Bericht({
-  mail, draad, opAntwoord, opDoorsturen,
+  mail, draad, mappen, magSturen, opAntwoord, opDoorsturen,
 }: {
   mail: WerkMail
   draad: WerkMail[]
+  mappen: WerkMailMap[]
+  magSturen: boolean
   opAntwoord: (allen: boolean) => void
   opDoorsturen: () => void
 }) {
@@ -232,17 +397,35 @@ function Bericht({
       <div className="kop">
         <h3>{mail.onderwerp || '(geen onderwerp)'}</h3>
         <div className="acties">
-          <button className="btn sm" onClick={() => opAntwoord(false)}>
-            <Reply size={14} /> Antwoorden
-          </button>
-          {(mail.aan.length + mail.cc.length) > 1 && (
-            <button className="btn sm ghost" onClick={() => opAntwoord(true)}>
-              <ReplyAll size={14} /> Allen
-            </button>
+          {magSturen && (
+            <>
+              <button className="btn sm" onClick={() => opAntwoord(false)}>
+                <Reply size={14} /> Antwoorden
+              </button>
+              {(mail.aan.length + mail.cc.length) > 1 && (
+                <button className="btn sm ghost" onClick={() => opAntwoord(true)}>
+                  <ReplyAll size={14} /> Allen
+                </button>
+              )}
+              <button className="btn sm ghost" onClick={opDoorsturen}>
+                <Forward size={14} /> Doorsturen
+              </button>
+            </>
           )}
-          <button className="btn sm ghost" onClick={opDoorsturen}>
-            <Forward size={14} /> Doorsturen
-          </button>
+
+          {/* Naar een eigen map, voor wie niet sleept -- op een tablet is dat
+              iedereen. */}
+          {mappen.length > 0 && (
+            <select
+              className="input sm"
+              value={mail.mapId ?? ''}
+              onChange={(e) => void naarEigenMap(mail, e.target.value || undefined)}
+              title="In welke map"
+            >
+              <option value="">Geen map</option>
+              {mappen.map((m) => <option key={m.id} value={m.id}>{m.naam}</option>)}
+            </select>
+          )}
           <button className="btn sm ghost" onClick={() => void zetSter(mail, !mail.ster)}>
             <Star size={14} className={mail.ster ? 'ster' : ''} />
           </button>
@@ -540,6 +723,62 @@ function Handtekening({ sluit }: { sluit: () => void }) {
         <button className="btn ghost" onClick={sluit}>Annuleren</button>
         <button className="btn primary" disabled={bezig} onClick={() => void bewaar()}>
           {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Bewaren'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Een eigen map
+ *
+ *  0082 zette hier een streep door en 0084 draait dat terug; in de kop van
+ *  die migratie staat waarom. Wat blijft: de vaste mappen zijn niet te
+ *  hernoemen en niet weg te gooien. Een eigen map komt erbij, nooit in de
+ *  plaats -- anders is "Verzonden" op het ene toestel iets anders dan op het
+ *  andere.
+ * ------------------------------------------------------------------ */
+
+function NieuweMap({ vak, ikId, sluit }: { vak: Vak; ikId: string; sluit: () => void }) {
+  const [naam, setNaam] = useState('')
+  const [bezig, setBezig] = useState(false)
+
+  async function maak() {
+    setBezig(true)
+    try {
+      await maakMap(vak, ikId, naam)
+      toast.ok(`Map "${naam.trim()}" gemaakt`)
+      sluit()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Modal open title="Nieuwe map" onClose={sluit} width={420}>
+      <p className="help" style={{ marginTop: 0 }}>
+        {vak.soort === 'ik'
+          ? 'Alleen jij ziet deze map.'
+          : 'Iedereen die bij dit postvak mag, ziet deze map.'}
+      </p>
+
+      <Field label="Naam">
+        <input
+          className="input"
+          value={naam}
+          placeholder="Facturen"
+          autoFocus
+          onChange={(e) => setNaam(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && naam.trim()) void maak() }}
+        />
+      </Field>
+
+      <div className="row" style={{ marginTop: 14, justifyContent: 'flex-end' }}>
+        <button className="btn ghost" onClick={sluit}>Annuleren</button>
+        <button className="btn primary" disabled={bezig || !naam.trim()} onClick={() => void maak()}>
+          {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Maken'}
         </button>
       </div>
     </Modal>

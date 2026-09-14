@@ -7782,5 +7782,228 @@ console.log('\n62. Een document dat hier is geschreven')
   await dc.close()
 }
 
+/* ================================================================== *
+ *  63. Een gedeeld postvak, en eigen mappen
+ *
+ *  0084 draait één keuze uit 0082 terug (vrije mappen) en zet er een tweede
+ *  soort postvak naast. Daarmee gaat de regel waar 0082 een streep onder
+ *  zette -- "de post van een medewerker is van hem" -- voor het eerst naast
+ *  iets anders staan, en dat is precies het moment waarop zo'n regel stil
+ *  kan verwateren.
+ *
+ *  Vandaar dat hier evenveel aandacht gaat naar wat er NIET mag als naar wat
+ *  er wel moet werken. De helft van dit hoofdstuk zijn controles die groen
+ *  horen te blijven als er niets verandert.
+ * ================================================================== */
+
+console.log('\n63. Een gedeeld postvak, en eigen mappen')
+
+{
+  const pb = await fresh()
+  await pb.exec(sqlFile('supabase/setup.sql'))
+  await pb.exec('grant select, insert, update, delete on all tables in schema public to authenticated;')
+  await asServer(pb)
+
+  /* Eerst de dossiers, dan de inlogaccounts -- zie hoofdstuk 61. */
+  await pb.exec(`
+    insert into public.profiles (id, email, name, roles, active, werk_email, werk_mail_aan) values
+      ('p_jan',  'jan@prive.nl',  'Jan',     array['employee'],   true, 'jan@tw.nl',  true),
+      ('p_ans',  'ans@prive.nl',  'Ans',     array['employee'],   true, 'ans@tw.nl',  true),
+      ('p_baas', 'baas@prive.nl', 'De Baas', array['management'], true, 'baas@tw.nl', true);
+    insert into auth.users (id, email) values
+      ('00000000-0000-0000-0000-0000000000d1', 'jan@prive.nl'),
+      ('00000000-0000-0000-0000-0000000000d2', 'ans@prive.nl'),
+      ('00000000-0000-0000-0000-0000000000d3', 'baas@prive.nl');
+
+    insert into public.postbus (id, adres, naam) values ('pb_info', 'info@tw.nl', 'Info');
+    /* Jan mag lezen en sturen, Ans mag alleen meekijken. */
+    insert into public.postbus_lid (id, postbus_id, user_id, mag_sturen) values
+      ('pl_jan', 'pb_info', 'p_jan', true),
+      ('pl_ans', 'pb_info', 'p_ans', false);
+
+    insert into public.werkmail (id, postbus_id, richting, map, van, onderwerp, tekst)
+      values ('wm_info', 'pb_info', 'in', 'postvak', 'klant@bedrijf.nl',
+              'Offerte', 'Kunnen jullie dinsdag?');
+    insert into public.werkmail (id, user_id, richting, map, van, onderwerp, tekst)
+      values ('wm_jan', 'p_jan', 'in', 'postvak', 'oma@prive.nl',
+              'Verjaardag', 'Kom je zondag?');
+  `)
+
+  const JAN  = '00000000-0000-0000-0000-0000000000d1'
+  const ANS  = '00000000-0000-0000-0000-0000000000d2'
+  const BAAS = '00000000-0000-0000-0000-0000000000d3'
+
+  const telAls = async (uid, vraag) => {
+    await asUser(pb, uid)
+    await pb.exec('set role authenticated;')
+    const n = Number((await pb.query(vraag)).rows[0].n)
+    await pb.exec('reset role;')
+    return n
+  }
+  const botsAls = async (uid, sql) => {
+    await asUser(pb, uid)
+    await pb.exec('set role authenticated;')
+    let fout = null
+    try { await pb.exec(sql) } catch (e) { fout = String(e.message ?? e) }
+    await pb.exec('reset role;')
+    return fout
+  }
+
+  const ALLES = 'select count(*)::int as n from public.werkmail'
+
+  /* --- wie ziet wat --- */
+
+  check('een lid ziet de post van het gedeelde postvak én zijn eigen post',
+    await telAls(JAN, ALLES) === 2)
+  check('en wie alleen meekijkt ziet het gedeelde postvak',
+    await telAls(ANS, ALLES) === 1)
+
+  /*
+   * De regel waar 0082 een streep onder zette. Het management is geen lid van
+   * info@ en heeft geen werkmail van zichzelf, dus het ziet niets -- en dat
+   * hoort zo te blijven. Wie in info@ wil kijken zet zichzelf erbij als lid,
+   * en dan staat dat ergens opgeschreven.
+   */
+  check('het management ziet niets zonder lid te zijn',
+    await telAls(BAAS, ALLES) === 0)
+  check('en ook de persoonlijke post van een medewerker niet',
+    await telAls(BAAS, `${ALLES} where id = 'wm_jan'`) === 0)
+
+  /* --- wat er niet mag --- */
+
+  /*
+   * Een bericht uit info@ naar je eigen postvak verhuizen. Zonder de rem zou
+   * het uit het gedeelde postvak verdwijnen zonder dat de anderen weten
+   * waarheen -- en dat merk je pas als iemand ernaar vraagt.
+   */
+  await botsAls(JAN, "update public.werkmail set user_id = 'p_jan', postbus_id = null where id = 'wm_info'")
+  const nogSteeds = (await pb.query(
+    "select postbus_id, user_id from public.werkmail where id = 'wm_info'")).rows[0]
+  check('een bericht uit een gedeeld postvak blijft daar hangen',
+    nogSteeds.postbus_id === 'pb_info' && nogSteeds.user_id === null,
+    JSON.stringify(nogSteeds))
+
+  /* Verplaatsen tussen de vaste mappen mag wél -- daar zijn ze voor. */
+  await botsAls(JAN, "update public.werkmail set map = 'archief' where id = 'wm_info'")
+  check('maar naar het archief schuiven kan gewoon',
+    (await pb.query("select map from public.werkmail where id = 'wm_info'")).rows[0].map === 'archief')
+
+  const vanAns = await botsAls(ANS,
+    "insert into public.werkmail (id, user_id, richting, map, van) values ('wm_x', 'p_jan', 'uit', 'verzonden', 'ans@tw.nl')")
+  check('je zet geen bericht in het postvak van een ander',
+    vanAns?.includes('row-level security') === true, String(vanAns).slice(0, 80))
+
+  /*
+   * Een bericht zonder postvak. Voor een gebruiker slaat RLS de deur al dicht
+   * voordat de controle aan bod komt -- maar de serverfuncties schrijven met
+   * de servicesleutel en gaan daar langs. Juist die kant telt hier: een rij
+   * die niemand ooit ziet is post die in de database staat en nergens opduikt.
+   */
+  await asServer(pb)
+  let zonder = null
+  try {
+    await pb.exec(
+      "insert into public.werkmail (id, richting, map, van) values ('wm_zwevend', 'in', 'postvak', 'x@y.nl')")
+  } catch (e) { zonder = String(e.message ?? e) }
+  check('ook de server legt geen bericht zonder postvak neer',
+    zonder?.includes('werkmail_een_eigenaar') === true, String(zonder).slice(0, 80))
+
+  const allebei = await botsAls(JAN,
+    "insert into public.werkmail (id, user_id, postbus_id, richting, map, van) "
+    + "values ('wm_twee', 'p_jan', 'pb_info', 'in', 'postvak', 'x@y.nl')")
+  check('in twee postvakken tegelijk ook niet',
+    allebei?.includes('werkmail_een_eigenaar') === true, String(allebei).slice(0, 80))
+
+  /* --- de mappen --- */
+
+  await asUser(pb, JAN)
+  await pb.exec('set role authenticated;')
+  await pb.exec(`
+    insert into public.werkmail_map (id, user_id, naam) values ('map_jan', 'p_jan', 'Facturen');
+    insert into public.werkmail_map (id, postbus_id, naam) values ('map_info', 'pb_info', 'Afgehandeld');
+  `)
+  await pb.exec('reset role;')
+
+  check('je maakt een eigen map, en een map in het gedeelde postvak',
+    Number((await pb.query('select count(*)::int as n from public.werkmail_map')).rows[0].n) === 2)
+
+  const vanAnsMap = await botsAls(ANS,
+    "insert into public.werkmail_map (id, user_id, naam) values ('map_stiekem', 'p_jan', 'Van Jan')")
+  check('maar geen map in het postvak van iemand anders',
+    vanAnsMap?.includes('row-level security') === true, String(vanAnsMap).slice(0, 80))
+
+  const dubbel = await botsAls(JAN,
+    "insert into public.werkmail_map (id, user_id, naam) values ('map_2', 'p_jan', 'facturen')")
+  check('en niet twee mappen met dezelfde naam',
+    dubbel?.includes('werkmail_map_naam_uniek') === true, String(dubbel).slice(0, 80))
+
+  /*
+   * Een bericht in de map van een ánder postvak. Het scherm toont alleen je
+   * eigen mappen en komt hier dus nooit achter; de database is de enige die
+   * het kan zien.
+   */
+  const verkeerdeMap = await botsAls(JAN,
+    "update public.werkmail set map_id = 'map_info' where id = 'wm_jan'")
+  check('een bericht kan niet in de map van een ander postvak',
+    verkeerdeMap?.includes('ander postvak') === true, String(verkeerdeMap).slice(0, 90))
+
+  await botsAls(JAN, "update public.werkmail set map_id = 'map_jan' where id = 'wm_jan'")
+  check('in je eigen map kan het wel',
+    (await pb.query("select map_id from public.werkmail where id = 'wm_jan'")).rows[0].map_id === 'map_jan')
+
+  /*
+   * Een map weggooien laat de post staan. Post die verdwijnt omdat iemand een
+   * map opruimde is precies wat een postvak niet mag doen -- dezelfde
+   * afspraak als bij de documentmappen (0071).
+   */
+  await botsAls(JAN, "delete from public.werkmail_map where id = 'map_jan'")
+  const na = (await pb.query(
+    "select map, map_id from public.werkmail where id = 'wm_jan'")).rows[0]
+  check('een map weggooien laat de post staan',
+    na.map_id === null && na.map === 'postvak', JSON.stringify(na))
+
+  /* --- lezen is niet versturen --- */
+
+  const magSturen = async (uid, vak) => {
+    await asUser(pb, uid)
+    const r = (await pb.query(`select public.mag_postbus_sturen('${vak}') as m`)).rows[0].m
+    return r === true
+  }
+  const magLezen = async (uid, vak) => {
+    await asUser(pb, uid)
+    return (await pb.query(`select public.mag_postbus('${vak}') as m`)).rows[0].m === true
+  }
+
+  check('Jan mag namens info@ versturen', await magSturen(JAN, 'pb_info'))
+  check('Ans mag meekijken maar niet versturen',
+    await magLezen(ANS, 'pb_info') && !(await magSturen(ANS, 'pb_info')))
+  check('en wie geen lid is mag geen van beide',
+    !(await magLezen(BAAS, 'pb_info')) && !(await magSturen(BAAS, 'pb_info')))
+
+  /* Een postvak dat uit staat neemt niets meer aan en laat niemand meer
+     binnen -- het adres blijft alleen bezet. */
+  await asServer(pb)
+  await pb.exec("update public.postbus set actief = false where id = 'pb_info'")
+  check('een gesloten postvak laat ook zijn leden er niet meer in',
+    !(await magLezen(JAN, 'pb_info')))
+  check('en neemt geen post meer aan',
+    (await pb.query("select public.postbus_van('info@tw.nl') as p")).rows[0].p === null)
+
+  await asServer(pb)
+  await pb.exec("update public.postbus set actief = true where id = 'pb_info'")
+  check('weer aanzetten laat de post gewoon weer zien',
+    await telAls(JAN, ALLES) === 2)
+
+  /* --- de draad kijkt naar het postvak, niet naar de persoon --- */
+
+  const draad = async (vak, onderwerp) => (await pb.query(
+    `select public.werkmail_draad('${vak}', '${onderwerp}', null) as d`)).rows[0].d
+
+  check('Re: valt in een gedeeld postvak in dezelfde draad',
+    await draad('pb_info', 'Re: Offerte') === await draad('pb_info', 'Offerte'))
+
+  await pb.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

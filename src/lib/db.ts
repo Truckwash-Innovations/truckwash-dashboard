@@ -12,7 +12,7 @@ import type {
     DevPlan,
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, WerkMail,
+  AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, Postbus, PostbusLid, WerkMail, WerkMailMap,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
@@ -78,6 +78,9 @@ class TruckwashDB extends Dexie {
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
   werkmail!: Table<WerkMail, string>
+  postbussen!: Table<Postbus, string>
+  postbusLeden!: Table<PostbusLid, string>
+  werkmailMappen!: Table<WerkMailMap, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
   employers!: Table<Werkgever, string>
@@ -285,6 +288,19 @@ class TruckwashDB extends Dexie {
       docBestanden: 'id, mapId, locationId, toegewezenAan, bron, createdAt, updatedAt',
       docToegang: 'id, documentId, profileId, updatedAt',
       taakDocumenten: 'id, taakId, documentId, updatedAt',
+    })
+
+    /* v24: gedeelde postvakken en eigen mappen (0084).
+
+       werkmail krijgt er twee indexen bij. postbusId omdat een gedeeld
+       postvak precies zo wordt gelezen als een persoonlijk: dat vak, die
+       map, nieuwste bovenaan. En mapId omdat een eigen map dezelfde vraag
+       is. */
+    this.version(24).stores({
+      werkmail: 'id, map, mapId, postbusId, draad, at, updatedAt',
+      postbussen: 'id, adres, actief, updatedAt',
+      postbusLeden: 'id, postbusId, userId, updatedAt',
+      werkmailMappen: 'id, userId, postbusId, volgorde, updatedAt',
     })
   }
 }

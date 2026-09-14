@@ -150,6 +150,55 @@ Deno.serve(async (req) => {
     return json({ ok: false, reden: 'Onbekende actie.' }, 400)
   }
 
+  /*
+   * Vanaf welk adres?
+   *
+   * Standaard het eigen werkadres. Staat er een gedeeld postvak bij (0084),
+   * dan wordt dát de afzender -- maar alleen als de beller er lid van is én
+   * er mag versturen. Die vraag gaat naar de database en niet naar het
+   * verzoek: "vanaf" is een ID en nooit een adres, zodat er ook hier niets
+   * uit het verzoek in het from-veld terechtkomt. Zie de kop.
+   */
+  const vanafVak = typeof lijf.vanaf === 'string' && lijf.vanaf.trim()
+    ? lijf.vanaf.trim()
+    : null
+
+  let vanAdres = beller.werkEmail
+  let vanNaam: string | null = beller.naam || null
+  let postbusId: string | null = null
+
+  if (vanafVak) {
+    const { data: vak } = await admin
+      .from('postbus')
+      .select('id, adres, naam, actief')
+      .eq('id', vanafVak)
+      .maybeSingle()
+
+    const { data: lid } = await admin
+      .from('postbus_lid')
+      .select('mag_sturen')
+      .eq('postbus_id', vanafVak)
+      .eq('user_id', beller.id)
+      .maybeSingle()
+
+    if (!vak?.actief || !lid) {
+      return json({ ok: false, reden: 'Je hoort niet bij dat postvak.' }, 403)
+    }
+    if (lid.mag_sturen !== true) {
+      return json({
+        ok: false,
+        reden: 'Je mag in dit postvak meekijken maar niet versturen.',
+      }, 403)
+    }
+
+    postbusId = String(vak.id)
+    vanAdres = String(vak.adres)
+    /* De naam van het postvak, niet die van de beller. Wie namens info@
+       schrijft, schrijft namens het bedrijf -- en de ontvanger hoort te zien
+       waar zijn antwoord heen gaat. */
+    vanNaam = String(vak.naam ?? '') || null
+  }
+
   const aan = adressen(lijf.aan)
   const cc = adressen(lijf.cc)
 
@@ -176,9 +225,16 @@ Deno.serve(async (req) => {
     return json({ ok: false, reden: 'Een leeg bericht versturen heeft geen zin.' }, 400)
   }
 
-  /* De handtekening eronder, als die er is. Platte tekst, want dat is wat de
-     mail is -- zie de kop van 0082. */
-  const lijfTekst = beller.handtekening?.trim()
+  /*
+   * De handtekening eronder, als die er is. Platte tekst, want dat is wat de
+   * mail is -- zie de kop van 0082.
+   *
+   * Bij een gedeeld postvak niet. Die van de beller staat op zijn eigen naam
+   * en adres, en die onder een bericht van info@ zetten spreekt zichzelf
+   * tegen: bovenaan het bedrijf, onderaan een mens met een ander adres. Wie
+   * er een wil, typt hem erin.
+   */
+  const lijfTekst = !postbusId && beller.handtekening?.trim()
     ? `${tekst}\n\n--\n${beller.handtekening.trim()}`
     : tekst
 
@@ -204,10 +260,10 @@ Deno.serve(async (req) => {
          * Het adres van de beller, en niets anders. Hier staat met opzet geen
          * waarde uit het verzoek: zie de kop.
          */
-        from: beller.naam ? `${beller.naam} <${beller.werkEmail}>` : beller.werkEmail,
+        from: vanNaam ? `${vanNaam} <${vanAdres}>` : vanAdres,
         to: aan.goed,
         ...(cc.goed.length ? { cc: cc.goed } : {}),
-        reply_to: beller.werkEmail,
+        reply_to: vanAdres,
         subject: onderwerp || '(geen onderwerp)',
         text: lijfTekst,
       }),
@@ -230,18 +286,23 @@ Deno.serve(async (req) => {
    * dat iemand zijn tekst kwijt is aan een foutmelding.
    */
   const { data: draadData } = await admin.rpc('werkmail_draad', {
-    eigenaar: beller.id,
+    eigenaar: postbusId ?? beller.id,
     onderwerp_in: onderwerp,
     antwoord_op_in: typeof lijf.antwoordOp === 'string' ? lijf.antwoordOp : null,
   }).then((r: { data: unknown }) => r, () => ({ data: null }))
 
   const { error } = await admin.from('werkmail').insert({
     id,
-    user_id: beller.id,
+    /* In het postvak waaruit hij vertrok. Een bericht namens info@ hoort in
+       Verzonden van info@ te staan en niet in dat van degene die toevallig op
+       versturen drukte -- anders ziet de collega die morgen antwoordt niet wat
+       er al is gezegd. */
+    user_id: postbusId ? null : beller.id,
+    postbus_id: postbusId,
     richting: 'uit',
     map: 'verzonden',
-    van: beller.werkEmail,
-    van_naam: beller.naam || null,
+    van: vanAdres,
+    van_naam: vanNaam,
     aan: aan.goed,
     cc: cc.goed,
     onderwerp,

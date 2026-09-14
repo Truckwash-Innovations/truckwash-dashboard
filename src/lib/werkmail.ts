@@ -26,11 +26,11 @@
  *  Zie werkadres_voorstel() in migratie 0081.
  * ------------------------------------------------------------------ */
 
-import { db } from './db'
+import { db, uid } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import { handtekeningVoor } from './handtekening'
-import type { User } from './types'
+import type { Postbus, PostbusLid, User } from './types'
 
 /**
  * Welk adres zou deze persoon krijgen?
@@ -119,6 +119,94 @@ export async function zetHandtekening(gebruiker: User, tekst: string): Promise<U
   await db.users.put(nieuw)
   await enqueue('users', 'put', nieuw.id, nieuw)
   return nieuw
+}
+
+/* ------------------------------------------------------------------ *
+ *  Gedeelde postvakken (0084)
+ *
+ *  info@, verkoop@ -- een adres dat niet aan een mens hangt maar aan het
+ *  bedrijf, met een lijst van wie erbij mag. Aanmaken doet het management;
+ *  dat is hetzelfde soort besluit als een werkadres uitdelen, want het komt
+ *  op briefpapier terecht.
+ * ------------------------------------------------------------------ */
+
+/** Alleen het stuk vóór de @ hoeft ingevuld; het domein komt uit Beheer. */
+export function postbusAdres(voorvoegsel: string, domein: string): string {
+  return `${voorvoegsel.trim().toLowerCase().replace(/^@/, '')}@${domein.trim().toLowerCase()}`
+}
+
+export async function maakPostbus(input: {
+  adres: string
+  naam: string
+  omschrijving?: string
+  door: Pick<User, 'id' | 'name'>
+}): Promise<Postbus> {
+  const adres = input.adres.trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adres)) {
+    throw new Error('Dat is geen geldig adres.')
+  }
+
+  const al = (await db.postbussen.toArray())
+    .find((p) => p.adres.toLowerCase() === adres)
+  if (al) throw new Error(`${adres} bestaat al.`)
+
+  const vak: Postbus = {
+    id: uid('pb'),
+    adres,
+    naam: input.naam.trim() || adres,
+    omschrijving: input.omschrijving?.trim() || undefined,
+    actief: true,
+    door: input.door.id,
+    doorNaam: input.door.name,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  await db.postbussen.put(vak)
+  await enqueue('postbussen', 'put', vak.id, vak)
+  return vak
+}
+
+/**
+ * Een postvak sluiten of heropenen.
+ *
+ * Weggooien kan niet, ook niet door het management: er hangt post aan. Een
+ * gesloten postvak houdt zijn adres bezet en zijn post bewaard, en laat
+ * niemand meer binnen -- ook zijn eigen leden niet.
+ */
+export async function zetPostbusActief(vak: Postbus, actief: boolean): Promise<Postbus> {
+  const nieuw = { ...vak, actief, updatedAt: Date.now() }
+  await db.postbussen.put(nieuw)
+  await enqueue('postbussen', 'put', nieuw.id, nieuw)
+  return nieuw
+}
+
+/** Iemand toelaten, of bijstellen of hij ook mag versturen. */
+export async function zetLid(
+  postbusId: string, userId: string, magSturen: boolean, door?: string,
+): Promise<PostbusLid> {
+  const al = (await db.postbusLeden.toArray())
+    .find((l) => l.postbusId === postbusId && l.userId === userId)
+
+  const lid: PostbusLid = al
+    ? { ...al, magSturen, updatedAt: Date.now() }
+    : {
+      id: uid('plid'),
+      postbusId,
+      userId,
+      magSturen,
+      door,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+
+  await db.postbusLeden.put(lid)
+  await enqueue('postbusLeden', 'put', lid.id, lid)
+  return lid
+}
+
+export async function haalLidWeg(lid: PostbusLid): Promise<void> {
+  await db.postbusLeden.delete(lid.id)
+  await enqueue('postbusLeden', 'delete', lid.id, null)
 }
 
 /**

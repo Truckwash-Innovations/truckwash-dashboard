@@ -646,10 +646,35 @@ async function werkmailEigenaar(adres: string): Promise<string | null> {
   }
 }
 
+/** Is dit adres een gedeeld postvak? Leeg als het er geen is (0084). */
+async function gedeeldPostvak(adres: string): Promise<string | null> {
+  if (!adres) return null
+  try {
+    const { data, error } = await admin.rpc('postbus_van', { adres })
+    if (error) {
+      /* 0084 is nog niet gedraaid. Dan is er ook geen gedeeld postvak en gaat
+         de post gewoon de oude weg. Eerlijk melden, niet omvallen -- zelfde
+         redenering als bij werkmail_eigenaar hierboven. */
+      console.warn('[ontvang-mail] postbus_van: ' + error.message)
+      return null
+    }
+    return typeof data === 'string' && data ? data : null
+  } catch (e) {
+    console.warn('[ontvang-mail] postbus_van: ' + String(e))
+    return null
+  }
+}
+
 const WERKMAIL_EMMER = 'werkmail'
 
 async function naarPostvak(o: {
+  /*
+   * Het postvak waar dit heen gaat: het dossier-id van een mens, of het id
+   * van een gedeeld postvak (0084). Eén veld en geen twee, want het is er
+   * altijd precies één -- de database staat er ook op (werkmail_een_eigenaar).
+   */
   eigenaar: string
+  gedeeld: boolean
   berichtId: string
   van: { adres: string; naam?: string }
   aan: string
@@ -703,9 +728,10 @@ async function naarPostvak(o: {
       continue
     }
 
-    /* Het pad begint met het id van de eigenaar; daar hangt de leesregel op de
-       emmer aan (0082). Een bijlage van een collega is zo niet op te halen
-       door het pad te raden. */
+    /* Het pad begint met het id van het postvak -- van een mens of van een
+       gedeeld adres; daar hangt de leesregel op de emmer aan (0082, verruimd
+       in 0084). Een bijlage van een collega is zo niet op te halen door het
+       pad te raden. */
     const pad = `${o.eigenaar}/${id}/${i + 1}-${naam}`
     const { error } = await admin.storage.from(WERKMAIL_EMMER)
       .upload(pad, bytes, { contentType: mime, upsert: false })
@@ -742,7 +768,8 @@ async function naarPostvak(o: {
 
   const { error } = await admin.from('werkmail').insert({
     id,
-    user_id: o.eigenaar,
+    user_id: o.gedeeld ? null : o.eigenaar,
+    postbus_id: o.gedeeld ? o.eigenaar : null,
     richting: 'in',
     map: 'postvak',
     van: o.van.adres || 'onbekend',
@@ -833,15 +860,22 @@ Deno.serve(async (req) => {
   const eigenaar = await werkmailEigenaar(aan.adres)
   if (eigenaar) {
     return await naarPostvak({
-      eigenaar,
-      berichtId,
-      van,
-      aan: aan.adres,
-      onderwerp,
-      tekst,
-      html,
-      data,
-      providerId,
+      eigenaar, gedeeld: false,
+      berichtId, van, aan: aan.adres, onderwerp, tekst, html, data, providerId,
+    })
+  }
+
+  /*
+   * En anders: een gedeeld postvak (0084). Ná het persoonlijke adres, want
+   * die twee kunnen elkaar niet overlappen -- een adres is van een mens of
+   * van een postvak -- maar de volgorde staat vast zodat er bij een fout in
+   * de gegevens altijd hetzelfde gebeurt.
+   */
+  const vak = await gedeeldPostvak(aan.adres)
+  if (vak) {
+    return await naarPostvak({
+      eigenaar: vak, gedeeld: true,
+      berichtId, van, aan: aan.adres, onderwerp, tekst, html, data, providerId,
     })
   }
 

@@ -20,15 +20,21 @@
  *  Wie mag wat
  *  -----------
  *
- *  Alleen jijzelf, en dat zit in de database (0082). Dit bestand rekent daar
- *  niet op maar leunt erop: er is hier geen enkele controle op eigenaarschap,
- *  want de enige rijen die dit toestel heeft zijn die van deze gebruiker.
+ *  Je eigen post, en de post van een gedeeld postvak waar je lid van bent
+ *  (0084). Dat staat in de database en dit bestand rekent er niet op maar
+ *  leunt erop: er is hier geen enkele controle op eigenaarschap, want de
+ *  enige rijen die dit toestel heeft zijn die waar deze gebruiker bij mag.
+ *
+ *  Dat betekent ook: sleept iemand een bericht naar een postvak waar hij niet
+ *  hoort, dan gebeurt het lokaal wel en weigert de server het. Vandaar dat de
+ *  twee functies die dat zouden kunnen -- verplaatsen tussen postvakken --
+ *  hier niet bestaan. Wat er niet is, kan ook niet in de wachtrij vastlopen.
  * ------------------------------------------------------------------ */
 
-import { db } from './db'
+import { db, uid } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseUrl } from './api/supabaseApi'
-import type { MailMap, WerkMail } from './types'
+import type { MailMap, WerkMail, WerkMailMap } from './types'
 
 export const MAPPEN: { sleutel: MailMap; label: string; uitleg: string }[] = [
   { sleutel: 'postvak', label: 'Postvak IN', uitleg: 'Wat er binnenkwam.' },
@@ -37,6 +43,43 @@ export const MAPPEN: { sleutel: MailMap; label: string; uitleg: string }[] = [
   { sleutel: 'archief', label: 'Archief', uitleg: 'Afgehandeld, maar bewaard.' },
   { sleutel: 'prullenbak', label: 'Prullenbak', uitleg: 'Weggegooid.' },
 ]
+
+/* ------------------------------------------------------------------ *
+ *  In welk postvak kijk je
+ *
+ *  Je eigen post, of een gedeeld adres waar je lid van bent (0084). Eén type
+ *  voor allebei, want het scherm doet met de tweede precies hetzelfde als met
+ *  de eerste -- en zodra dat twee wegen worden, gaat er een van achterlopen.
+ * ------------------------------------------------------------------ */
+
+export type Vak = { soort: 'ik' } | { soort: 'gedeeld'; id: string }
+
+export const MIJN_VAK: Vak = { soort: 'ik' }
+
+/** De sleutel waarop een postvak zijn post en zijn mappen herkent. */
+export function sleutelVan(vak: Vak, ikId: string): string {
+  return vak.soort === 'ik' ? ikId : vak.id
+}
+
+/**
+ * De post van één postvak.
+ *
+ * Bij "ik" alles wat aan mij hangt, bij een gedeeld vak alles wat aan dat vak
+ * hangt. Een bericht hoort altijd bij precies één van de twee; de database
+ * staat daarop (werkmail_een_eigenaar, 0084).
+ */
+export function postVan(post: WerkMail[], vak: Vak): WerkMail[] {
+  return vak.soort === 'ik'
+    ? post.filter((m) => !m.postbusId)
+    : post.filter((m) => m.postbusId === vak.id)
+}
+
+/** De eigen mappen van dit postvak, in de volgorde waarin ze staan. */
+export function mappenVan(mappen: WerkMailMap[], vak: Vak): WerkMailMap[] {
+  return mappen
+    .filter((m) => (vak.soort === 'ik' ? !m.postbusId : m.postbusId === vak.id))
+    .sort((a, b) => a.volgorde - b.volgorde || a.naam.localeCompare(b.naam))
+}
 
 /* ------------------------------------------------------------------ *
  *  Versturen
@@ -49,6 +92,14 @@ export interface NieuwBericht {
   tekst: string
   /** De Message-ID waarop dit een antwoord is, zodat het in de draad valt. */
   antwoordOp?: string
+  /**
+   * Vanaf welk gedeeld postvak (0084). Leeg = vanaf je eigen werkadres.
+   *
+   * Een ID en geen adres. De server zoekt het adres erbij op en kijkt
+   * meteen of je er lid van bent -- zou hier een adres staan, dan is de
+   * afzender weer iets uit het verzoek, en dat is precies wat hier nooit mag.
+   */
+  vanaf?: string
 }
 
 /**
@@ -98,7 +149,26 @@ async function bewaar(mail: WerkMail, velden: Partial<WerkMail>): Promise<WerkMa
   return nieuw
 }
 
-export const naarMap = (mail: WerkMail, map: MailMap) => bewaar(mail, { map })
+/**
+ * Naar een vaste map.
+ *
+ * Haalt hem meteen uit een eigen map. Zou mapId blijven staan, dan verdwijnt
+ * een bericht dat je weggooit uit de prullenbak -- het staat dan nog steeds
+ * in "Facturen" en nergens anders, en dat is precies het soort verdwijning
+ * waar een postvak niet mee weg komt.
+ */
+export const naarMap = (mail: WerkMail, map: MailMap) =>
+  bewaar(mail, { map, mapId: undefined })
+
+/**
+ * Naar een eigen map, of eruit.
+ *
+ * De vaste map verandert niet mee: haal je hem eruit, dan is hij weer waar
+ * hij vandaan kwam in plaats van nergens.
+ */
+export const naarEigenMap = (mail: WerkMail, mapId: string | undefined) =>
+  bewaar(mail, { mapId })
+
 export const zetSter = (mail: WerkMail, ster: boolean) => bewaar(mail, { ster })
 
 /** Als gelezen melden. Doet niets als hij dat al is -- anders gaat er bij elk
@@ -124,7 +194,83 @@ export function ongelezen(post: WerkMail[]): number {
  * van een postvak verwachten.
  */
 export function inMap(post: WerkMail[], map: MailMap): WerkMail[] {
-  return post.filter((m) => m.map === map).sort((a, b) => b.at - a.at)
+  /* Wat in een eigen map ligt, staat daar en niet ook nog in Postvak IN. Een
+     bericht op twee plekken is een bericht dat je twee keer afhandelt. */
+  return post.filter((m) => m.map === map && !m.mapId).sort((a, b) => b.at - a.at)
+}
+
+/** De post in één eigen map, nieuwste bovenaan. */
+export function inEigenMap(post: WerkMail[], mapId: string): WerkMail[] {
+  return post.filter((m) => m.mapId === mapId).sort((a, b) => b.at - a.at)
+}
+
+/* ------------------------------------------------------------------ *
+ *  Eigen mappen beheren
+ *
+ *  0082 zette hier bewust een streep door ("geen vrije mappen"), en 0084
+ *  draait dat terug -- met de reden erbij. Wat blijft: de vaste mappen zijn
+ *  niet te hernoemen en niet weg te gooien. Een eigen map komt erbij, nooit
+ *  in de plaats.
+ * ------------------------------------------------------------------ */
+
+async function bewaarMap(map: WerkMailMap): Promise<WerkMailMap> {
+  const nieuw = { ...map, updatedAt: Date.now() }
+  await db.werkmailMappen.put(nieuw)
+  await enqueue('werkmailMappen', 'put', nieuw.id, nieuw)
+  return nieuw
+}
+
+export async function maakMap(vak: Vak, ikId: string, naam: string): Promise<WerkMailMap> {
+  const schoon = naam.trim()
+  if (!schoon) throw new Error('Een map zonder naam is niet terug te vinden.')
+
+  const bestaand = mappenVan(await db.werkmailMappen.toArray(), vak)
+  const botst = bestaand.find((m) => m.naam.toLowerCase() === schoon.toLowerCase())
+  if (botst) {
+    /*
+     * De database houdt dit ook tegen (werkmail_map_naam_uniek). Hier staat
+     * het om de melding: een botsing die pas bij het synchroniseren opvalt,
+     * is een map die je denkt te hebben.
+     *
+     * En de melding noemt de map die er AL staat, niet wat je net typte. Wie
+     * "facturen" intikt terwijl er "Facturen" staat, moet die kunnen vinden;
+     * zijn eigen tekst teruglezen helpt hem daar niet bij.
+     */
+    throw new Error(`Er is al een map die "${botst.naam}" heet.`)
+  }
+
+  return bewaarMap({
+    id: uid('wmap'),
+    userId: vak.soort === 'ik' ? ikId : undefined,
+    postbusId: vak.soort === 'gedeeld' ? vak.id : undefined,
+    naam: schoon,
+    volgorde: bestaand.reduce((m, x) => Math.max(m, x.volgorde), -1) + 1,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  })
+}
+
+export async function hernoemMap(map: WerkMailMap, naam: string): Promise<WerkMailMap> {
+  const schoon = naam.trim()
+  if (!schoon) throw new Error('Een map zonder naam is niet terug te vinden.')
+  return bewaarMap({ ...map, naam: schoon })
+}
+
+/**
+ * Een map weggooien laat de post staan.
+ *
+ * De database zet mapId op null (on delete set null, 0084) en dan valt alles
+ * terug naar de vaste map waar het vandaan kwam. Hier gebeurt hetzelfde in de
+ * plaatselijke kopie, zodat het scherm niet eerst een map vol post laat
+ * verdwijnen en hem een synchronisatie later terugtovert.
+ */
+export async function verwijderMap(map: WerkMailMap): Promise<number> {
+  const erin = (await db.werkmail.toArray()).filter((m) => m.mapId === map.id)
+  for (const mail of erin) await bewaar(mail, { mapId: undefined })
+
+  await db.werkmailMappen.delete(map.id)
+  await enqueue('werkmailMappen', 'delete', map.id, null)
+  return erin.length
 }
 
 /**

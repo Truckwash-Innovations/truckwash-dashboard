@@ -5943,3 +5943,12 @@ table.data tr.aan td { font-weight: 600; }
   margin: 6px 0 0; font: inherit; white-space: pre-wrap;
   color: var(--text-2); font-size: .84rem;
 }
+
+/* De keuze tussen je eigen postvak en een gedeeld adres (0084). */
+.postvak-keuze { margin-bottom: 10px; }
+.postvak-keuze .map { gap: 8px; }
+
+/* Een map die sleepbaar bezoek krijgt, en de knop om er een te maken. */
+.postvak-mappen .map.nieuw { color: var(--text-3); }
+.postvak-mappen .map.nieuw:hover { color: var(--brand); }
+.postvak-lijst .bericht { cursor: pointer; }

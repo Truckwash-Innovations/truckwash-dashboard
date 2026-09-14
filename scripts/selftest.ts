@@ -8505,10 +8505,32 @@ console.log('\n67. Je verstuurt vanaf je eigen adres')
   const server = readFileSync('supabase/functions/werkmail/index.ts', 'utf8')
   const client = readFileSync('src/lib/werkpost.ts', 'utf8')
 
+  /*
+   * Sinds 0084 kan er ook namens een gedeeld postvak verstuurd worden, en
+   * daarmee is de afzender niet meer één regel maar een keuze. De regel
+   * eronder is niet veranderd en wordt hier op de nieuwe vorm nagerekend:
+   * het adres komt uit het dossier of uit de database, nooit uit het verzoek.
+   */
   check('de afzender komt uit het dossier van de beller',
-    server.includes('from: beller.naam'))
-  check('en niet uit het verzoek',
-    !/from:\s*(String\()?lijf\./.test(server) && !server.includes('lijf.van'))
+    /let vanAdres = beller\.werkEmail/.test(server))
+  check('of uit het gedeelde postvak dat de server zelf opzoekt',
+    server.includes('vanAdres = String(vak.adres)'))
+  check('en nooit uit het verzoek',
+    !/from:\s*(String\()?lijf\./.test(server)
+    && !server.split('\n').some((r) =>
+      /van(Adres|Naam)\s*=/.test(r) && r.includes('lijf.')))
+
+  /*
+   * Wat het verzoek WEL mag meegeven is een id. Dat is het hele verschil:
+   * een id moet eerst in de database worden teruggevonden, en daar wordt
+   * meteen gekeken of de beller er lid van is. Een adres zou zo het
+   * from-veld in lopen.
+   */
+  check('wat het verzoek meegeeft is een id en geen adres',
+    server.includes(".eq('id', vanafVak)"))
+  check('en het lidmaatschap wordt nagekeken vóór het adres wordt overgenomen',
+    server.indexOf("from('postbus_lid')") > 0
+    && server.indexOf("from('postbus_lid')") < server.indexOf('vanAdres = String(vak.adres)'))
   /*
    * En de vorm die de deur uit gaat kent geen afzender. Op het commentaar
    * zoeken zou hier geen controle zijn -- het woord "afzender" staat er drie
@@ -8904,6 +8926,151 @@ console.log('\n69. De handtekening onder een mail')
     meldadresVan(aan) === 'proef@prive.nl')
 
   await db.users.delete('u_handtekening')
+}
+
+/* ==================================================================== *
+ *  70. Gedeelde postvakken en eigen mappen
+ *
+ *  Twee dingen die pas misgaan als er post zoekraakt, en dan niet meer te
+ *  reconstrueren zijn.
+ *
+ *  1. Een bericht staat op precies één plek. Zodra iets zowel in "Facturen"
+ *     als in Postvak IN staat, handelt iemand het twee keer af -- of denkt de
+ *     tweede dat de eerste het al deed.
+ *
+ *  2. Een map weggooien mag nooit post meenemen. Dat is dezelfde afspraak als
+ *     bij de documentmappen (0071), en het is de fout die je pas ontdekt als
+ *     iemand naar een bericht vraagt dat er niet meer is.
+ * ==================================================================== */
+
+console.log('\n70. Gedeelde postvakken en eigen mappen')
+
+{
+  const {
+    MIJN_VAK, inEigenMap, inMap, maakMap, mappenVan, naarEigenMap, naarMap,
+    postVan, verwijderMap,
+  } = await import('../src/lib/werkpost')
+  const { db } = await import('../src/lib/db')
+
+  const mail = (extra: Record<string, unknown> = {}) => ({
+    id: 'wm_' + Math.round(Math.random() * 1e9),
+    richting: 'in' as const,
+    map: 'postvak' as const,
+    van: 'klant@bedrijf.nl',
+    aan: ['jan@tw.nl'],
+    cc: [] as string[],
+    onderwerp: 'Offerte',
+    tekst: 'Kunnen jullie dinsdag?',
+    at: Date.now(),
+    bijlagen: [],
+    updatedAt: Date.now(),
+    ...extra,
+  })
+
+  /* ---- welk postvak ---- */
+
+  const post = [
+    mail({ id: 'a', userId: 'p_jan' }),
+    mail({ id: 'b', postbusId: 'pb_info' }),
+    mail({ id: 'c', postbusId: 'pb_verkoop' }),
+  ] as never[]
+
+  check('mijn eigen post is wat niet in een gedeeld postvak hangt',
+    postVan(post, MIJN_VAK).map((m) => m.id).join() === 'a')
+  check('en een gedeeld postvak toont alleen zijn eigen post',
+    postVan(post, { soort: 'gedeeld', id: 'pb_info' }).map((m) => m.id).join() === 'b')
+
+  const mappen = [
+    { id: 'm1', userId: 'p_jan', naam: 'Facturen', volgorde: 1, createdAt: 0, updatedAt: 0 },
+    { id: 'm2', userId: 'p_jan', naam: 'Aanvragen', volgorde: 0, createdAt: 0, updatedAt: 0 },
+    { id: 'm3', postbusId: 'pb_info', naam: 'Afgehandeld', volgorde: 0, createdAt: 0, updatedAt: 0 },
+  ]
+  check('mappen horen bij hun eigen postvak',
+    mappenVan(mappen, MIJN_VAK).map((m) => m.id).join() === 'm2,m1')
+  check('en die van een gedeeld postvak staan daar',
+    mappenVan(mappen, { soort: 'gedeeld', id: 'pb_info' }).map((m) => m.id).join() === 'm3')
+
+  /* ---- op precies één plek ---- */
+
+  const gesorteerd = [
+    mail({ id: 'x', userId: 'p_jan' }),
+    mail({ id: 'y', userId: 'p_jan', mapId: 'm1' }),
+  ] as never[]
+
+  check('wat in een eigen map ligt staat niet ook in Postvak IN',
+    inMap(gesorteerd, 'postvak').map((m) => m.id).join() === 'x')
+  check('maar wel in zijn eigen map',
+    inEigenMap(gesorteerd, 'm1').map((m) => m.id).join() === 'y')
+
+  /* ---- verplaatsen ---- */
+
+  await db.werkmail.clear()
+  await db.werkmailMappen.clear()
+  await db.outbox.clear()
+
+  const eentje = mail({ id: 'wm_proef', userId: 'p_jan', mapId: 'm1' }) as never
+  await db.werkmail.put(eentje)
+
+  /*
+   * Weggooien haalt hem uit de eigen map. Zou mapId blijven staan, dan is het
+   * bericht uit de prullenbak verdwenen -- het staat dan nog in "Facturen" en
+   * nergens anders, en dat is precies het soort verdwijning waar een postvak
+   * niet mee weg komt.
+   */
+  const weg = await naarMap(eentje, 'prullenbak')
+  check('naar de prullenbak haalt hem uit zijn eigen map',
+    weg.map === 'prullenbak' && weg.mapId === undefined,
+    JSON.stringify({ map: weg.map, mapId: weg.mapId }))
+
+  const terug = await naarEigenMap(weg, 'm1')
+  check('en in een map zetten laat de vaste map staan',
+    terug.mapId === 'm1' && terug.map === 'prullenbak')
+
+  /* ---- een map maken en weggooien ---- */
+
+  await db.werkmail.clear()
+  await db.werkmailMappen.clear()
+
+  const gemaakt = await maakMap(MIJN_VAK, 'p_jan', '  Facturen ')
+  check('een nieuwe map krijgt zijn naam opgeschoond', gemaakt.naam === 'Facturen')
+  check('en hangt aan de persoon, niet aan een postvak',
+    gemaakt.userId === 'p_jan' && gemaakt.postbusId === undefined)
+
+  let dubbel: string | null = null
+  try { await maakMap(MIJN_VAK, 'p_jan', 'facturen') } catch (e) {
+    dubbel = e instanceof Error ? e.message : String(e)
+  }
+  check('twee mappen met dezelfde naam gaat niet',
+    dubbel?.includes('Facturen') === true, String(dubbel))
+
+  let leeg: string | null = null
+  try { await maakMap(MIJN_VAK, 'p_jan', '   ') } catch (e) {
+    leeg = e instanceof Error ? e.message : String(e)
+  }
+  check('en een map zonder naam ook niet', Boolean(leeg))
+
+  const tweede = await maakMap(MIJN_VAK, 'p_jan', 'Aanvragen')
+  check('de tweede map komt erachter', tweede.volgorde > gemaakt.volgorde)
+
+  /*
+   * En dan de belangrijkste: een map weggooien laat de post staan. De
+   * database doet hetzelfde (on delete set null, 0084); hier gebeurt het ook
+   * lokaal, zodat het scherm niet eerst een map vol post laat verdwijnen en
+   * hem een synchronisatie later terugtovert.
+   */
+  await db.werkmail.put(mail({ id: 'wm_1', userId: 'p_jan', mapId: gemaakt.id }) as never)
+  await db.werkmail.put(mail({ id: 'wm_2', userId: 'p_jan', mapId: gemaakt.id }) as never)
+
+  const hoeveel = await verwijderMap(gemaakt)
+  check('een map weggooien meldt hoeveel post er stond', hoeveel === 2, String(hoeveel))
+  check('en die post staat er nog', (await db.werkmail.count()) === 2)
+  check('terug in zijn vaste map',
+    (await db.werkmail.toArray()).every((m) => !m.mapId && m.map === 'postvak'))
+  check('de map zelf is weg', (await db.werkmailMappen.get(gemaakt.id)) === undefined)
+
+  await db.werkmail.clear()
+  await db.werkmailMappen.clear()
+  await db.outbox.clear()
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

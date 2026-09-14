@@ -5,7 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
-  PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, WerkMail, DossierWijziging, AgendaItem,
+  PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, WerkMail, WerkMailMap, Postbus, PostbusLid, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
   DocMap, DocBestand, DocToegang, TaakDocument,
@@ -69,6 +69,9 @@ class MockServerDB extends Dexie {
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
   werkmail!: Table<WerkMail, string>
+  postbussen!: Table<Postbus, string>
+  postbusLeden!: Table<PostbusLid, string>
+  werkmailMappen!: Table<WerkMailMap, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
   employers!: Table<Werkgever, string>
@@ -135,6 +138,9 @@ class MockServerDB extends Dexie {
       documents: 'id, userId, updatedAt',
       mailbox: 'id, updatedAt',
       werkmail: 'id, updatedAt',
+      postbussen: 'id, updatedAt',
+      postbusLeden: 'id, updatedAt',
+      werkmailMappen: 'id, updatedAt',
       changeRequests: 'id, updatedAt',
       agendaItems: 'id, updatedAt',
       employers: 'id, updatedAt',
@@ -204,6 +210,9 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   documents: () => server.documents,
   mailbox: () => server.mailbox,
   werkmail: () => server.werkmail,
+  postbussen: () => server.postbussen,
+  postbusLeden: () => server.postbusLeden,
+  werkmailMappen: () => server.werkmailMappen,
   changeRequests: () => server.changeRequests,
   agendaItems: () => server.agendaItems,
   employers: () => server.employers,
