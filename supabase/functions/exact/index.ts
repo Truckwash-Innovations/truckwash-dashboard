@@ -2056,6 +2056,30 @@ async function facturenStand() {
     .from('exact_relatie').select('exact_id', { count: 'exact', head: true })
     .eq('is_leverancier', true)
 
+  /*
+   * De koppelingen zelf, en niet alleen wat er nog mist.
+   *
+   * Het scherm liet tot nu toe alleen zien welke leverancier NOG GEEN
+   * crediteur had. Stond er eenmaal een koppeling, dan verdween hij uit
+   * beeld -- ook een verkeerde. En een verkeerde koppeling is niet zichtbaar
+   * aan de factuur: die ziet er compleet uit en gaat gewoon mee.
+   *
+   * Casper liep er tegenaan. Exact weigerde een factuur van "Van der Velden
+   * Amsterdam B.V." met de melding dat "Vrienden van De Hoop" geen
+   * betalingsconditie had -- die naam kwam uit Exact, opgehaald met het
+   * crediteurnummer dat wij bij Van der Velden hadden staan. De koppeling
+   * wees naar de verkeerde relatie, en er was geen scherm om dat te zien of
+   * terug te draaien.
+   *
+   * Dat de boeking hier strandde was geluk. Was de betalingsconditie er wel
+   * geweest, dan was de factuur op de rekening van een andere crediteur
+   * geboekt en had niemand het gemerkt.
+   */
+  const { data: koppels } = await admin.from('exact_leverancier')
+    .select('zoeknaam, administratie, gezien_als, exact_id, exact_naam, bron, door, updated_at')
+    .order('zoeknaam')
+    .limit(500)
+
   return {
     aan: inst.aan,
     dagboek: inst.dagboek,
@@ -2070,6 +2094,19 @@ async function facturenStand() {
     verstuurd: gedaan.count ?? 0,
     mislukt: mislukt.count ?? 0,
     crediteuren: crediteuren ?? 0,
+    koppelingen: (koppels ?? []).map((r) => ({
+      zoeknaam: String(r.zoeknaam ?? ''),
+      administratie: String(r.administratie ?? ''),
+      /* De naam zoals hij op de bon stond. Daarmee is na te rekenen waar de
+         zoeknaam vandaan komt, en het is de naam waar een mens hem aan
+         herkent -- "van der velden amsterdam" is niet wat op de factuur staat. */
+      gezienAls: (r.gezien_als as string) ?? '',
+      exactId: String(r.exact_id ?? ''),
+      exactNaam: String(r.exact_naam ?? ''),
+      bron: String(r.bron ?? ''),
+      door: (r.door as string) ?? '',
+      at: Number(r.updated_at) || 0,
+    })),
     ...await administraties(),
     laatstAt: sync.data?.laatst_at ?? null,
     laatsteFout: sync.data?.laatste_fout ?? null,

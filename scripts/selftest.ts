@@ -9896,5 +9896,88 @@ console.log('\n77. Wat Exact van een inkoopboeking eist')
     && m89.includes('grant  execute on function public.exact_facturen_wachtend() to service_role'))
 }
 
+/* ==================================================================== *
+ *  78. Een koppeling die verkeerd staat
+ *
+ *  Exact weigerde een factuur van "Van der Velden Amsterdam B.V." met de
+ *  melding dat "Vrienden van De Hoop" geen betalingsconditie had. Die naam
+ *  kwam uit Exact, opgehaald met het crediteurnummer dat wij bij Van der
+ *  Velden hadden staan: de koppeling wees naar een andere relatie.
+ *
+ *  Erger dan de verkeerde koppeling was dat er geen scherm voor was. De knop
+ *  "Koppelen" stond alleen bij facturen die nog GEEN crediteur hadden; zodra
+ *  er een koppeling stond, ook een verkeerde, was hij nergens meer te zien of
+ *  te wijzigen. En een verkeerde koppeling ziet er aan de factuur compleet
+ *  uit -- hij gaat gewoon mee, naar de rekening van iemand anders.
+ *
+ *  Dat het hier strandde was toeval. Deze controle houdt vast dat de
+ *  koppelingen zichtbaar en terug te draaien blijven.
+ * ==================================================================== */
+
+console.log('\n78. Een koppeling die verkeerd staat')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const api = readFileSync('src/lib/trucksupply.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+
+  /* --- 1. de server geeft ze mee --- */
+
+  check('de koppelingen komen mee met de stand',
+    /from\('exact_leverancier'\)[\s\S]{0,200}gezien_als/.test(fn)
+    && fn.includes('koppelingen: (koppels ?? [])'),
+    'facturen-stand stuurt de bestaande koppelingen niet mee')
+
+  check('met de naam zoals hij op de bon stond',
+    fn.includes('gezienAls: (r.gezien_als as string)'),
+    'gezien_als gaat niet mee -- dan staat er alleen een kale zoeknaam')
+
+  check('en de client kent het veld',
+    api.includes('koppelingen: ExactKoppeling[]')
+    && api.includes('koppelingen: uit.koppelingen ?? []'),
+    'FacturenStand heeft geen koppelingen')
+
+  /* --- 2. het scherm toont ze, en allebei de namen --- */
+
+  check('er is een kaart met de koppelingen',
+    scherm.includes('function Koppelingen(') && scherm.includes('<Koppelingen'),
+    'de kaart bestaat niet of hangt nergens in')
+
+  /*
+   * De twee namen naast elkaar is de hele truc. Alleen "gekoppeld: ja" zegt
+   * niets -- de koppeling van Casper stond op ja.
+   */
+  check('beide namen staan naast elkaar',
+    scherm.includes('Leverancier op de bon') && scherm.includes('Wordt geboekt op'),
+    'het scherm toont niet aan welke crediteur er geboekt wordt')
+
+  check('een koppeling is te wijzigen en los te maken',
+    /koppel\(k\.naam, k\.administratie\)/.test(scherm)
+    && /exactKoppelLeverancier\(k\.naam, null,/.test(scherm),
+    'een bestaande koppeling is niet te wijzigen of terug te draaien')
+
+  /* --- 3. het vlaggetje is een aanwijzing, geen oordeel --- */
+
+  check('namen die niet op elkaar lijken komen bovenaan',
+    scherm.includes('function lijktOp(') && scherm.includes('vreemd'),
+    'er is niets dat een vreemde combinatie laat opvallen')
+
+  /*
+   * Korte woorden tellen niet mee. "de", "van" en "b v" staan in half
+   * Nederland; zouden die meetellen, dan lijkt alles op elkaar en wijst het
+   * vlaggetje nergens meer naar.
+   */
+  check('korte woorden tellen niet mee bij dat vergelijken',
+    /w\.length > 3/.test(scherm),
+    'lijktOp() telt woorden van drie letters of korter mee')
+
+  /* Niets wordt hierop geweigerd: een bv mag haar crediteuren noemen zoals
+     ze wil, en Shell heet in Exact geregeld anders dan op de bon. */
+  check('maar er wordt niets op geblokkeerd',
+    !/vreemd[\s\S]{0,80}disabled/.test(scherm),
+    'een vreemd ogende naam zet een knop uit -- dat is een oordeel te ver')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

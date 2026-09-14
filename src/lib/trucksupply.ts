@@ -1307,6 +1307,28 @@ function alsAdministratie(r: Partial<ExactAdministratie>): ExactAdministratie {
   }
 }
 
+/**
+ * Een leverancier die aan een crediteur in Exact hangt.
+ *
+ * Staat er niet omdat het mooi is: tot nu toe was een koppeling alleen te
+ * zien zolang hij er NIET was. Eenmaal gelegd verdween hij uit beeld, ook als
+ * hij naar de verkeerde relatie wees -- en dan ziet de factuur er compleet
+ * uit en gaat hij mee naar de boekhouding van iemand anders.
+ */
+export interface ExactKoppeling {
+  /** De kale naam waarop exact_facturen_wachtend() zoekt. */
+  zoeknaam: string
+  administratie: string
+  /** De naam zoals hij op de bon stond; hieraan herken je hem terug. */
+  gezienAls: string
+  exactId: string
+  /** Hoe de crediteur in Exact heet. Vergelijk deze met gezienAls. */
+  exactNaam: string
+  bron: string
+  door: string
+  at: number
+}
+
 export interface FacturenStand {
   administraties: ExactAdministratie[]
   aan: boolean
@@ -1318,6 +1340,8 @@ export interface FacturenStand {
   verstuurd: number
   mislukt: number
   crediteuren: number
+  /** Alles wat al gekoppeld is, om na te kunnen kijken en terug te draaien. */
+  koppelingen: ExactKoppeling[]
   laatstAt: number | null
   laatsteFout: string | null
 }
@@ -1333,6 +1357,7 @@ function alsFacturen(uit: Partial<FacturenStand>): FacturenStand {
     verstuurd: uit.verstuurd ?? 0,
     mislukt: uit.mislukt ?? 0,
     crediteuren: uit.crediteuren ?? 0,
+    koppelingen: uit.koppelingen ?? [],
     laatstAt: uit.laatstAt ?? null,
     laatsteFout: uit.laatsteFout ?? null,
   }

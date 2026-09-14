@@ -26,10 +26,18 @@
  *
  *    1. wat er blokkeert, met per bon de reden en wat je eraan doet
  *    2. de leveranciers die nog aan een crediteur moeten -- hier, niet elders
- *    3. wat er is doorgekomen, mislukt of blijven liggen
+ *    3. de koppelingen die er al staan, om na te kijken en terug te draaien
+ *    4. wat er is doorgekomen, mislukt of blijven liggen
  *
- *  Dat derde staat er niet voor de sier. Zolang niemand telt wat er ligt, ligt
- *  het er over een maand nog.
+ *  Dat laatste staat er niet voor de sier. Zolang niemand telt wat er ligt,
+ *  ligt het er over een maand nog.
+ *
+ *  Het derde kwam er later bij, en om een vervelende reden. Een koppeling was
+ *  alleen te zien zolang hij er NIET was; eenmaal gelegd verdween hij, ook als
+ *  hij naar de verkeerde relatie wees. Casper kreeg van Exact terug dat
+ *  "Vrienden van De Hoop" geen betalingsconditie had, op een factuur van "Van
+ *  der Velden Amsterdam B.V." -- de koppeling wees naar een andere crediteur,
+ *  en er was geen scherm om dat te zien of te herstellen.
  * ==================================================================== */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -526,6 +534,209 @@ function Koppelen({
 }
 
 /* ------------------------------------------------------------------ *
+ *  3b. De koppelingen die er al staan
+ *
+ *  Een verkeerde koppeling is niet zichtbaar aan de factuur. Die ziet er
+ *  compleet uit -- leverancier bekend, crediteur bekend -- en gaat mee. Pas
+ *  in Exact blijkt het, als het al blijkt: Casper zag het doordat de boeking
+ *  toevallig op iets anders strandde en de melding een vreemde naam noemde.
+ *
+ *  Dus twee namen naast elkaar, altijd: hoe de leverancier op de bon heet en
+ *  hoe de crediteur in Exact heet. Lijken ze niet op elkaar, dan staat er een
+ *  vlaggetje bij en komt hij bovenaan. Dat is een aanwijzing om te kijken,
+ *  geen oordeel -- "Shell Nederland Verkoopmaatschappij" en "Shell" horen bij
+ *  elkaar en delen geen hele naam, en een bv mag haar crediteuren noemen zoals
+ *  ze wil. Er wordt hier dus niets geweigerd of stilgezet.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Delen deze twee namen een woord dat ergens op slaat?
+ *
+ * Woorden van drie letters of korter tellen niet mee: "de", "van", "b.v." en
+ * "nv" staan in half Nederland en zouden alles op elkaar laten lijken. Het
+ * omgekeerde -- geen enkel gedeeld woord -- is wat we zoeken.
+ */
+function lijktOp(a: string, b: string): boolean {
+  const woorden = (t: string) => new Set(
+    t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 3))
+  const links = woorden(a)
+  if (links.size === 0) return true
+  for (const w of woorden(b)) if (links.has(w)) return true
+  return false
+}
+
+function Koppelingen({ sleutel, koppel }: {
+  sleutel: number
+  koppel: (leverancier: string, bv: string) => void
+}) {
+  const [stand, setStand] = useState<FacturenStand | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [zoek, setZoek] = useState('')
+
+  async function laad() {
+    setBezig(true)
+    try {
+      setStand(await exactFacturenStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De koppelingen zijn niet op te halen.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  useEffect(() => { void laad() }, [sleutel])
+
+  const lijst = useMemo(() => {
+    const alle = stand?.koppelingen ?? []
+    const t = zoek.trim().toLowerCase()
+    return alle
+      .filter((k) => !t
+        || (k.gezienAls || k.zoeknaam).toLowerCase().includes(t)
+        || k.exactNaam.toLowerCase().includes(t)
+        || k.administratie.toLowerCase().includes(t))
+      .map((k) => ({ ...k, naam: k.gezienAls || k.zoeknaam }))
+      .map((k) => ({ ...k, vreemd: !lijktOp(k.naam, k.exactNaam) }))
+      /* De vreemde bovenaan: dat is waar je naar op zoek bent. */
+      .sort((a, b) => Number(b.vreemd) - Number(a.vreemd)
+        || a.naam.localeCompare(b.naam, 'nl')
+        || a.administratie.localeCompare(b.administratie))
+  }, [stand, zoek])
+
+  const vreemd = lijst.filter((k) => k.vreemd).length
+
+  async function los(k: { naam: string; administratie: string; exactNaam: string }) {
+    setBezig(true)
+    try {
+      /* Loskoppelen is exactId leeg meesturen, en alleen in deze bv. */
+      await exactKoppelLeverancier(k.naam, null, k.administratie, k.naam)
+      toast.ok(`${k.naam} is in ${k.administratie} losgekoppeld van ${k.exactNaam}.`)
+      await laad()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Loskoppelen lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Card
+      title="Wie aan wie hangt"
+      hint="Welke leverancier op welke crediteur in Exact wordt geboekt"
+      className="mb"
+      action={
+        <button className="btn ghost sm" disabled={bezig} onClick={() => void laad()}>
+          <RefreshCw size={14} /> Nakijken
+        </button>
+      }
+    >
+      {fout && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={15} /><span>{fout}</span>
+        </div>
+      )}
+
+      {!stand && !fout && (
+        <p className="help" style={{ margin: 0 }}>
+          <Loader2 size={14} className="spin" /> Ophalen...
+        </p>
+      )}
+
+      {stand && stand.koppelingen.length === 0 && (
+        <Empty text="Er is nog geen enkele leverancier aan een crediteur gekoppeld." />
+      )}
+
+      {stand && stand.koppelingen.length > 0 && (
+        <>
+          {vreemd > 0 && (
+            <div className="waarschuwing mb">
+              <AlertTriangle size={15} />
+              <span>
+                Bij {vreemd} koppeling{vreemd === 1 ? '' : 'en'} lijkt de naam van de
+                crediteur in Exact niet op die van de leverancier. Dat hoeft niet
+                fout te zijn, maar het is wel waar een verkeerde koppeling op lijkt --
+                en die boekt de factuur bij een ander op de rekening. Ze staan bovenaan.
+              </span>
+            </div>
+          )}
+
+          <Field label="Zoeken">
+            <input
+              className="input"
+              placeholder="Leverancier, crediteur of bv"
+              value={zoek}
+              onChange={(e) => setZoek(e.target.value)}
+            />
+          </Field>
+
+          <div className="table-wrap" style={{ marginTop: 10 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Leverancier op de bon</th>
+                  <th style={{ width: 80 }}>Bv</th>
+                  <th>Wordt geboekt op</th>
+                  <th style={{ width: 210 }}>Wijzigen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lijst.slice(0, 60).map((k) => (
+                  <tr key={`${k.administratie}-${k.zoeknaam}`}>
+                    <td className="afgekapt">
+                      {k.vreemd && (
+                        <AlertTriangle
+                          size={13}
+                          style={{ verticalAlign: -2, marginRight: 4, color: 'var(--warn)' }}
+                        />
+                      )}
+                      {k.naam || '—'}
+                    </td>
+                    <td className="mono">{k.administratie}</td>
+                    <td className="afgekapt">
+                      {k.exactNaam || '—'}
+                      <div className="ts-sub">
+                        {k.bron === 'handmatig' ? 'met de hand' : 'automatisch'}
+                        {k.door ? ` · ${k.door}` : ''}
+                        {k.at ? ` · ${relative(k.at)}` : ''}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button
+                          className="btn ghost sm"
+                          disabled={bezig}
+                          onClick={() => koppel(k.naam, k.administratie)}
+                        >
+                          <Link2 size={13} /> Andere
+                        </button>
+                        <button
+                          className="btn ghost sm"
+                          disabled={bezig}
+                          onClick={() => void los(k)}
+                        >
+                          <X size={13} /> Los
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {lijst.length > 60 && (
+            <p className="ts-sub" style={{ marginTop: 6 }}>
+              en nog {lijst.length - 60}. Typ een deel van de naam om te zoeken.
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
  *  4. Wat er is gebeurd
  * ------------------------------------------------------------------ */
 
@@ -669,6 +880,9 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
   const [bezig, setBezig] = useState(false)
   const [fout, setFout] = useState<string | null>(null)
   const [koppel, setKoppel] = useState<{ leverancier: string; bv: string } | null>(null)
+  /* Gaat omhoog na elke koppeling, zodat de lijst met koppelingen zichzelf
+     opnieuw ophaalt zonder dat die kaart iets van deze hoeft te weten. */
+  const [ronde, setRonde] = useState(0)
 
   async function haal() {
     setBezig(true)
@@ -719,6 +933,11 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
         koppel={(leverancier, bv) => setKoppel({ leverancier, bv })}
       />
 
+      <Koppelingen
+        sleutel={ronde}
+        koppel={(leverancier, bv) => setKoppel({ leverancier, bv })}
+      />
+
       <Geschiedenis historie={historie} bezig={bezig} opnieuw={() => void haal()} />
 
       <Koppelen
@@ -726,7 +945,7 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
         leverancier={koppel?.leverancier ?? ''}
         bv={koppel?.bv ?? ''}
         sluit={() => setKoppel(null)}
-        klaar={() => void haal()}
+        klaar={() => { setRonde((n) => n + 1); void haal() }}
       />
     </>
   )
