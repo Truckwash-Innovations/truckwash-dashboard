@@ -109,12 +109,44 @@ tekstlaag 17 s, PDF als plaatje 13 s, foto van 37 kB 10 s. Alle drie gaven
 subtotaal 194.50, btw 40.85 en totaal 235.35; alleen de kleine foto las
 IBAN, KvK en btw-nummer een cijfer verkeerd.
 
+## Welk model leest het best?
+
+Daar is geen zinnig antwoord op te geven zonder te meten, en meten kan alleen
+als je vooraf weet wat eruit hoort te komen. Van de zeven proeffacturen weten
+we dat precies -- die maken we zelf, dus elk bedrag en elk nummer staat vast.
+
+Neerzetten, vanuit de dashboard-map:
+
+    npm run proefset
+
+Dat schrijft `proeffacturen/` met de zeven PDF's en een `waarheid.json`.
+Daarna, in deze map:
+
+    node meet.mjs --map ../proeffacturen
+    node meet.mjs --map ../proeffacturen --modellen gemma4:26b,qwen3.6:35b-a3b
+
+Wat je daarmee te weten komt, en dat is de hele bedoeling: deze zeven zijn
+**makkelijk** -- nette PDF's met een schone tekstlaag. Gaat het model hierop
+al de mist in, dan ligt het niet aan de scankwaliteit en niet aan de bijlage,
+maar leest het model onze facturen gewoon niet goed genoeg. Gaan ze allemaal
+goed, dan weet je het andere net zo hard: dan zit het in wat er binnenkomt en
+heeft een groter model geen zin.
+
+Leg er gerust eigen facturen bij waarvan je het antwoord kent; `waarheid.json`
+mag je met de hand aanvullen. Tien facturen met de vier velden die ertoe doen
+zijn meer waard dan honderd zonder waarheid.
+
 ## Hoe het leest
 
 - **PDF met tekstlaag** (digitaal aangemaakt): de tekst gaat naar het model.
-  Snelst en het preciest, ook voor IBAN, KvK en btw-nummer.
-- **PDF zonder tekstlaag** (scan) en **foto's**: de eerste drie pagina's
-  worden op 1600 pixels breed gerenderd en als plaatje aangeboden. Daar leest
+  Snelst en het preciest, ook voor IBAN, KvK en btw-nummer. Een tekstlaag telt
+  pas als tekstlaag met minstens 200 tekens *en* een bedrag met centen erin --
+  anders is het de OCR-laag die een multifunctional eronder plakt, en dan is
+  het beeld beter. Zie `keuze.mjs`.
+- **PDF zonder tekstlaag** (scan) en **foto's**: hoogstens drie bladzijden
+  worden op 1600 pixels breed gerenderd en als plaatje aangeboden. Bij meer
+  dan drie gaan de eerste twee mee en de LAATSTE -- daar staat het totaal, en
+  dat is het veld dat in een betaalbatch terechtkomt. Daar leest
   het model bedragen en namen goed, maar op een kleine of onscherpe foto gaan
   lange cijferreeksen (IBAN, KvK, btw-nummer) weleens een cijfer mis. Daar is
   de terugval voor; en een foto op ware grootte helpt meer dan een kleinere.

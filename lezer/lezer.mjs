@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { createCanvas } from '@napi-rs/canvas'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
+import { alsTekst, welkeBladzijden } from './keuze.mjs'
 
 const HIER = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -136,10 +137,12 @@ const modelVoor = (modus) => modus === 'tekst' ? INSTELLING.modelTekst : INSTELL
 
 /** Tien minuten per stuk. Langer betekent dat er iets anders mis is. */
 const OLLAMA_TIMEOUT = 10 * 60 * 1000
-/** Onder dit aantal tekens is de tekstlaag geen tekstlaag maar wat losse letters. */
-const MIN_TEKST = 200
-/** Meer pagina's kost meer tijd en geeft zelden meer factuur. */
-const MAX_PAGINAS = 3
+/*
+ * De twee oordelen over WAT het model te zien krijgt staan in keuze.mjs.
+ * Apart, omdat ze de uitkomst van het hele lezen bepalen en allebei een keer
+ * fout zijn geweest -- en omdat dit bestand bij het importeren meteen gaat
+ * draaien, en een oordeel dat je niet kunt aanroepen niemand kan narekenen.
+ */
 /** Breedte van het plaatje dat het model krijgt. Scherp genoeg voor kleine lettertjes. */
 const PLAATJE_BREEDTE = 1600
 /** num_ctx is 16384 tokens; ruim onder blijven zodat prompt + antwoord ook passen. */
@@ -344,7 +347,7 @@ async function tekstUit(doc) {
 /** De eerste pagina's als PNG (base64), ongeveer PLAATJE_BREEDTE breed. */
 async function plaatjesUit(doc) {
   const uit = []
-  for (let p = 1; p <= Math.min(doc.numPages, MAX_PAGINAS); p++) {
+  for (const p of welkeBladzijden(doc.numPages)) {
     const pagina = await doc.getPage(p)
     const basis = pagina.getViewport({ scale: 1 })
     const viewport = pagina.getViewport({ scale: PLAATJE_BREEDTE / basis.width })
@@ -375,7 +378,7 @@ async function maakInvoer(bytes, soort, alleenPlaatje = false) {
   try {
     const doc = await taak.promise
     const tekst = alleenPlaatje ? '' : await tekstUit(doc)
-    if (tekst.length >= MIN_TEKST) return { modus: 'tekst', tekst, paginas: doc.numPages }
+    if (alsTekst(tekst)) return { modus: 'tekst', tekst, paginas: doc.numPages }
     const images = await plaatjesUit(doc)
     return { modus: 'plaatje', images, paginas: doc.numPages }
   } finally {

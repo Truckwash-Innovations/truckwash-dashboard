@@ -56,3 +56,6 @@ sitebouw/vestigingen.json
 # Testfacturen. Uitvoer van scripts/testfacturen.mjs, en er staan nummers van
 # Truckwash zelf op zodra die in dat script worden ingevuld.
 testfacturen/
+
+# De meetset voor de factuurlezer: gemaakt met "npm run proefset".
+proeffacturen/
