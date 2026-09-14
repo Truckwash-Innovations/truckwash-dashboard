@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, CalendarClock, Check, CreditCard, Download, Eye, EyeOff,
   FileSignature, FileText, Fingerprint, Heart, Loader2, Lock, PenLine, ScanLine,
-  ShieldCheck, Trash2, Upload, X,
+  Mail, MailX, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
@@ -19,6 +19,7 @@ import {
   type ContractGegevens,
 } from '../lib/contractLezen'
 import { users as userRepo } from '../lib/repo'
+import { werkadresVoorstel, zetWerkmail } from '../lib/werkmail'
 import { WijzigingenVan } from './Wijzigingen'
 import {
   DOCUMENT_KINDS, type DocumentKind, type PersonnelDocument,
@@ -92,6 +93,10 @@ export default function Dossier({ person }: { person: User }) {
           ))}
         </div>
       )}
+
+      {/* ------------------------- Het werkadres ---------------------- */}
+
+      {magBeheren && <Werkmail person={person} />}
 
       {/* --------------------- Afgeschermde gegevens ------------------ */}
 
@@ -1507,4 +1512,97 @@ function toonVoorstel(sleutel: string, waarde: unknown): string {
     })
   }
   return String(waarde)
+}
+
+/* ------------------------------------------------------------------ *
+ *  Het werkadres
+ *
+ *  Casper: "voor werknemers moet ik een soort microsoft 365 kunnen
+ *  aanklikken, dan krijgen ze automatisch een mail, met hun voornaam@domein."
+ *
+ *  Dit is die knop. Wat erachter komt -- het postvak, het mailprogramma, de
+ *  documenten -- is nog in aanbouw; wat hier gebeurt is het adres uitdelen, en
+ *  dat is het enige deel dat je later niet meer kunt rechtzetten.
+ *
+ *  Het adres staat er met zoveel woorden bij dat het NAAST het privéadres
+ *  komt. Dat is de vraag die anders meteen gesteld wordt ("krijgt hij zijn
+ *  meldingen dan daar?"), en het antwoord hoort op het scherm te staan en niet
+ *  in een migratie.
+ * ------------------------------------------------------------------ */
+
+function Werkmail({ person }: { person: User }) {
+  const [bezig, setBezig] = useState(false)
+  const [voorstel, setVoorstel] = useState<string | null>(null)
+
+  /* Wat hij zou krijgen, als hij er nog geen heeft. Zo staat het adres er al
+     voordat je klikt -- een naam die een raar adres oplevert zie je dan, in
+     plaats van erachter te komen als het is uitgedeeld. */
+  useEffect(() => {
+    if (person.werkEmail) return
+    let weg = false
+    void werkadresVoorstel(person.id)
+      .then((a) => { if (!weg) setVoorstel(a) })
+      .catch(() => { /* geen domein of geen rechten; de tekst zegt het */ })
+    return () => { weg = true }
+  }, [person.id, person.werkEmail])
+
+  async function zet(aan: boolean) {
+    setBezig(true)
+    try {
+      const uit = await zetWerkmail(person, aan)
+      toast.ok(aan
+        ? `Werkadres aangezet: ${uit.werkEmail}`
+        : 'Het postvak staat uit. Het adres blijft gereserveerd.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  const adres = person.werkEmail ?? voorstel
+
+  return (
+    <Card title="Werkadres" hint="Een eigen mailadres op het bedrijfsdomein">
+      <div className="person-fields">
+        <Regel
+          label="Werkadres"
+          value={adres ?? 'nog geen domein ingesteld'}
+          icon={<Mail size={13} />}
+        />
+        <Regel
+          label="Postvak"
+          value={person.werkMailAan ? 'staat open' : 'staat uit'}
+        />
+        <Regel label="Privéadres (meldingen)" value={person.email} />
+      </div>
+
+      <p className="help" style={{ marginTop: 12 }}>
+        Meldingen, uitnodigingen en het herstellen van een wachtwoord blijven
+        naar het privéadres gaan. Dat is met opzet: anders komt de uitnodiging
+        om dit postvak te openen in dit postvak terecht, en daar kun je pas bij
+        als je hem gelezen hebt.
+      </p>
+
+      <div className="row" style={{ marginTop: 12 }}>
+        <button
+          className={`btn sm ${person.werkMailAan ? '' : 'primary'}`}
+          disabled={bezig || (!adres && !person.werkEmail)}
+          onClick={() => void zet(!person.werkMailAan)}
+        >
+          {bezig
+            ? <><Loader2 size={14} className="spin" /> Bezig…</>
+            : person.werkMailAan
+              ? <><MailX size={14} /> Postvak sluiten</>
+              : <><Mail size={14} /> Werkadres aanzetten</>}
+        </button>
+        {person.werkEmail && !person.werkMailAan && (
+          <span className="ts-sub">
+            Het adres blijft van deze persoon. Post die er nog op binnenkomt
+            hoort niet bij een naamgenoot terecht te komen.
+          </span>
+        )}
+      </div>
+    </Card>
+  )
 }

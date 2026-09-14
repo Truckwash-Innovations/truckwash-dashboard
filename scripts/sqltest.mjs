@@ -7402,5 +7402,137 @@ console.log('\n59. Schone lei')
   await schoon.close()
 }
 
+/* ==================================================================== *
+ *  60. Een eigen werkadres
+ *
+ *  Casper wil per medewerker een knop die hem voornaam@domein geeft, en
+ *  tegelijk dat de meldingen naar zijn privéadres blijven gaan.
+ *
+ *  Dat tweede is de reden dat dit een eigen hoofdstuk heeft. Zonder die
+ *  splitsing zou het aanzetten van een postvak betekenen dat de uitnodiging
+ *  om dat postvak te openen ín dat postvak terechtkomt -- een kring waar
+ *  niemand in komt.
+ *
+ *  En het adres zelf: twee mensen die Jan heten mogen niet hetzelfde adres
+ *  krijgen, en niemand mag dat van een ander overnemen.
+ * ==================================================================== */
+
+console.log('\n60. Een eigen werkadres')
+
+{
+  const werk = await fresh()
+  await werk.exec(sqlFile('supabase/setup.sql'))
+  await asServer(werk)
+
+  await werk.exec(`
+    update public.instellingen set waarde = 'truckwash1group.nl'
+     where sleutel = 'werk_domein';
+    insert into public.profiles (id, email, name, roles, active) values
+      ('w_jan',   'jan.prive@gmail.com',   'Jan de Vries',   array['employee'], true),
+      ('w_jan2',  'jan2.prive@gmail.com',  'Jan Bakker',     array['employee'], true),
+      ('w_jan3',  'jan3.prive@gmail.com',  'Jan de Vries',   array['employee'], true),
+      ('w_josee', 'josee@gmail.com',       'Josée Müller',   array['employee'], true);
+  `)
+
+  const voorstel = async (wie) => (await werk.query(
+    `select public.werkadres_voorstel('${wie}') as a`)).rows[0].a
+
+  /* --- de eerste krijgt zijn voornaam --- */
+  const eerste = await voorstel('w_jan')
+  check('de eerste Jan krijgt jan@', eerste === 'jan@truckwash1group.nl', String(eerste))
+
+  await werk.exec(`update public.profiles set werk_email = '${eerste}',
+                      werk_mail_aan = true where id = 'w_jan'`)
+
+  /* --- de tweede krijgt voornaam.achternaam --- */
+  const tweede = await voorstel('w_jan2')
+  check('de tweede Jan krijgt er zijn achternaam bij',
+    tweede === 'jan.bakker@truckwash1group.nl', String(tweede))
+
+  await werk.exec(`update public.profiles set werk_email = '${tweede}' where id = 'w_jan2'`)
+
+  /*
+   * Een derde Jan die óók De Vries heet. Dan is voornaam bezet en
+   * voornaam.achternaam ook nog vrij -- die krijgt hij.
+   */
+  const derde = await voorstel('w_jan3')
+  check('een naamgenoot krijgt zijn volledige naam',
+    derde === 'jan.devries@truckwash1group.nl', String(derde))
+  await werk.exec(`update public.profiles set werk_email = '${derde}' where id = 'w_jan3'`)
+
+  /*
+   * Het tussenvoegsel blijft eraan vast. "jan.devries" en "jan.vries" zijn
+   * twee verschillende mensen, en een adres dat een tussenvoegsel weglaat
+   * botst met de volgende meneer Vries.
+   */
+  check('het tussenvoegsel hoort bij de achternaam',
+    String(derde).includes('devries'))
+
+  /* --- accenten horen niet in een mailadres --- */
+  const josee = await voorstel('w_josee')
+  check('accenten gaan eruit', josee === 'josee@truckwash1group.nl', String(josee))
+
+  /* --- wie er al een heeft, houdt hem --- */
+  check('een tweede voorstel voor dezelfde persoon geeft hetzelfde adres',
+    await voorstel('w_jan') === eerste)
+
+  /* --- zonder domein gebeurt er niets --- */
+  await werk.exec("update public.instellingen set waarde = '' where sleutel = 'werk_domein'")
+  check('zonder domein komt er geen adres uit',
+    await voorstel('w_josee') === null)
+  await werk.exec(`update public.instellingen set waarde = 'truckwash1group.nl'
+                    where sleutel = 'werk_domein'`)
+
+  /* --- twee keer hetzelfde adres kan niet --- */
+  let botst = false
+  try {
+    await werk.exec(`update public.profiles set werk_email = '${eerste}' where id = 'w_josee'`)
+  } catch (e) {
+    botst = String(e.message).includes('werk_email') || String(e.message).includes('uniek')
+  }
+  check('hetzelfde adres bij twee mensen wordt geweigerd', botst)
+
+  /* --- en je zet het niet zelf --- */
+
+  /*
+   * Dezelfde val als in 0021 en 0023, voor de derde keer: een nieuwe kolom op
+   * profiles die niet in de rem staat, is een kolom die een medewerker over
+   * zichzelf kan zetten. Hier is dat erger dan bij de meeste: hij kan er het
+   * adres van een collega mee overnemen.
+   */
+  await werk.exec(`
+    insert into auth.users (id, email) values
+      ('00000000-0000-0000-0000-0000000000a1', 'jan.prive@gmail.com');
+    update public.profiles set auth_id = '00000000-0000-0000-0000-0000000000a1'
+     where id = 'w_jan';
+  `)
+  await asUser(werk, '00000000-0000-0000-0000-0000000000a1')
+  await werk.exec("update public.profiles set werk_email = 'baas@truckwash1group.nl' where id = 'w_jan'")
+  await asServer(werk)
+
+  const na = (await werk.query("select werk_email from public.profiles where id = 'w_jan'"))
+    .rows[0].werk_email
+  check('je eigen werkadres omzetten heeft geen effect', na === eerste, String(na))
+
+  /* --- en de meldingen blijven naar privé gaan --- */
+
+  /*
+   * Dit is waar het Casper om ging. taken_voor_mail() (0070) hoort p.email te
+   * lezen -- het privéadres -- en niet het werkadres. Anders komt de
+   * uitnodiging voor een postvak in dat postvak terecht.
+   */
+  await werk.exec(`
+    insert into public.taak (id, titel, status, toegewezen_aan)
+      values ('t_werk', 'Iets doen', 'te_doen', 'w_jan');
+  `)
+  const mail = (await werk.query('select * from public.taken_voor_mail()')).rows
+  const regel = mail.find((r) => r.profile_id === 'w_jan')
+  check('de takenmail gaat naar het privéadres',
+    regel?.email === 'jan.prive@gmail.com', String(regel?.email))
+  check('en niet naar het werkadres', regel?.email !== eerste)
+
+  await werk.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -60,6 +60,21 @@ export interface User {
    */
   authId?: string
 
+  /* --- het werkadres (0081) --- */
+
+  /**
+   * voornaam@<werk_domein>, als die is uitgedeeld.
+   *
+   * Staat NAAST email en vervangt het niet. email is het adres waarmee iemand
+   * inlogt en waar zijn meldingen heen gaan -- meestal een privéadres, en dat
+   * blijft zo. Anders komt de uitnodiging voor een postvak in dat postvak
+   * terecht, en daar kun je pas bij als je hem hebt gelezen.
+   */
+  werkEmail?: string
+  /** Of het postvak openstaat. Uit = het adres is gereserveerd, verder niets. */
+  werkMailAan?: boolean
+  werkMailSinds?: number
+
   /**
    * Afwijkingen op wat de rollen standaard toestaan. Hiermee stel je per
    * persoon precies bij wat wel en niet mag -- ook bij een leidinggevende,

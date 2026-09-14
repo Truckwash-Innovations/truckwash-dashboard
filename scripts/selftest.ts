@@ -8409,5 +8409,78 @@ console.log('\n65. Waar de foto van een paspoort heen mag')
     client.includes('staat NAAST scannen.ts'))
 }
 
+/* ==================================================================== *
+ *  66. Het werkadres komt ernaast, niet ervoor in de plaats
+ *
+ *  Casper: "voor werknemers moet ik een soort microsoft 365 kunnen
+ *  aanklikken (...) De communicatie moet wel nog naar hun persoonlijke mail."
+ *
+ *  Die tweede zin is een eis en geen bijzin. Zou een melding naar het
+ *  werkadres gaan, dan komt de uitnodiging om dat postvak te openen ín dat
+ *  postvak terecht -- en het wachtwoord om erbij te komen ook. Een kring waar
+ *  niemand in komt, en die pas opvalt bij de eerste medewerker die hem nodig
+ *  heeft.
+ *
+ *  De verleiding om dit "netjes" te maken zodra de postvakken werken is groot.
+ *  Dit hoofdstuk staat er om dat tegen te houden.
+ * ==================================================================== */
+
+console.log('\n66. Het werkadres komt ernaast, niet ervoor in de plaats')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  /*
+   * De drie plekken die een mens aanschrijven over iets waar hij nog niet bij
+   * kan: de takenmail, de uitnodiging en het wachtwoord. Alle drie horen het
+   * privéadres te nemen.
+   */
+  const bijwerken = readFileSync('supabase/bijwerken.sql', 'utf8')
+  const takenmail = bijwerken.slice(bijwerken.indexOf('function public.taken_voor_mail'))
+    .slice(0, 4000)
+  check('de takenmail leest het privéadres',
+    takenmail.includes('p.email'))
+  check('en niet het werkadres', !takenmail.includes('werk_email'))
+
+  for (const functie of ['nodig-uit', 'wachtwoord-vergeten']) {
+    const bron = readFileSync(`supabase/functions/${functie}/index.ts`, 'utf8')
+    check(`${functie} kijkt niet naar het werkadres`, !bron.includes('werk_email'))
+  }
+
+  /* --- en aan de kant van de app --- */
+
+  const werkmail = readFileSync('src/lib/werkmail.ts', 'utf8')
+  check('er is één plek die zegt waar een melding heen gaat',
+    werkmail.includes('export function meldadresVan'))
+  check('en die geeft het privéadres', /return gebruiker\.email/.test(werkmail))
+
+  const { meldadresVan } = await import('../src/lib/werkmail')
+  check('ook als er een werkadres is',
+    meldadresVan({ email: 'prive@gmail.com' } as never) === 'prive@gmail.com')
+
+  /*
+   * Het adres wordt door de server bedacht en niet door het scherm. Twee
+   * schermen die tegelijk een Jan aanzetten stellen allebei jan@ voor; de
+   * database kijkt in dezelfde transactie wat vrij is.
+   */
+  check('het adres komt van de database',
+    werkmail.includes("rpc('werkadres_voorstel'"))
+  check('en het scherm verzint er zelf geen',
+    !werkmail.includes("'@' +") && !werkmail.includes('`@${'))
+
+  /*
+   * Een uitgedeeld adres blijft van die persoon, ook als het postvak dichtgaat.
+   * Post die daarna nog binnenkomt hoort niet bij de volgende Jan te belanden.
+   */
+  check('het adres blijft staan als het postvak uit gaat',
+    werkmail.includes('werkEmail: adres'))
+
+  /* En de rem op profiles kent de nieuwe kolommen -- dezelfde val als 0021. */
+  check('je eigen werkadres staat in de rem',
+    /new\.werk_email\s*:=\s*old\.werk_email/.test(bijwerken))
+  check('en het aan-uitvinkje ook',
+    /new\.werk_mail_aan\s*:=\s*old\.werk_mail_aan/.test(bijwerken))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
