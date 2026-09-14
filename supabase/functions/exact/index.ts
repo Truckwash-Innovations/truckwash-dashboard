@@ -2139,8 +2139,45 @@ async function btwCodes(): Promise<Response> {
  * relatie.
  */
 async function koppelLeverancier(body: Record<string, unknown>, beller: Beller): Promise<Response> {
-  const zoeknaam = String(body.zoeknaam ?? '').trim()
-  if (!zoeknaam) return json({ ok: false, reden: 'Geen leverancier meegestuurd.' }, 400)
+  const ruw = String(body.gezienAls ?? body.zoeknaam ?? '').trim()
+  if (!ruw) return json({ ok: false, reden: 'Geen leverancier meegestuurd.' }, 400)
+
+  /*
+   * De zoeknaam komt uit de database en niet uit het scherm.
+   *
+   * Casper: "Ik koppel hem steeds, hij geeft aan dat hij gekoppeld is en
+   * vervolgens blijft hij erop staan dat die niet gekoppeld is."
+   *
+   * Dat was geen koppeling die niet opsloeg maar een naam die niet paste. Het
+   * scherm rekende de zoeknaam zelf uit met een nagebouwde kaal_bedrijf(), en
+   * die twee gaven bij elke B.V. iets anders:
+   *
+   *   database  "Van der Velden Amsterdam B.V." -> van der velden amsterdam
+   *   scherm                                    -> van der velden amsterdam b v
+   *
+   * 0058 zegt er zelfs bij waarom de database 'b\s*v' schrijft: na het
+   * weghalen van de punten is "B.V." veranderd in "b v". De nabouw had die
+   * regel niet. De koppeling werd dus keurig opgeslagen onder een naam waar
+   * exact_facturen_wachtend() nooit naar zoekt -- opslaan lukte, terugvinden
+   * niet, en het scherm bleef zeggen dat er geen crediteur was.
+   *
+   * Eén plek waar staat wat "dezelfde naam" betekent, en dat is de database:
+   * daar staat ook de join die het antwoord moet vinden. Wat er binnenkomt
+   * gaat er altijd doorheen -- ook een naam die al kaal is, want kaal_bedrijf()
+   * van iets kaals is hetzelfde. Daarmee herstelt een tweede poging op een
+   * oude, scheef opgeslagen koppeling zichzelf.
+   */
+  const { data: kaal, error: kaalFout } = await admin.rpc('kaal_bedrijf', { naam: ruw })
+  if (kaalFout) return json({ ok: false, reden: kaalFout.message }, 502)
+
+  const zoeknaam = String(kaal ?? '').trim()
+  if (!zoeknaam) {
+    return json({
+      ok: false,
+      reden: `"${ruw}" houdt na het weghalen van leestekens en rechtsvorm niets `
+        + 'over om op te zoeken.',
+    }, 400)
+  }
 
   const bv = String(body.administratie ?? '').trim()
   if (!bv) {
@@ -2179,7 +2216,7 @@ async function koppelLeverancier(body: Record<string, unknown>, beller: Beller):
   const { error } = await admin.from('exact_leverancier').upsert({
     zoeknaam,
     administratie: bv,
-    gezien_als: String(body.gezienAls ?? ''),
+    gezien_als: ruw,
     exact_id: exactId,
     exact_naam: cred.naam,
     bron: 'handmatig',
@@ -2214,7 +2251,8 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
   if (!inst.aan) {
     return json({
       ok: false,
-      reden: 'Facturen naar Exact staat uit. Zet hem aan bij Ontwikkeling, Exact.',
+      reden: 'Facturen naar Exact staat uit. Zet hem aan bij Administratie, '
+        + 'Boekhouding -- onder "Naar Exact sturen".',
     }, 409)
   }
   /*

@@ -9714,5 +9714,108 @@ console.log('\n75. Het factuurscherm')
     bron ? bron[1] : 'de iframe-bron is niet gevonden')
 }
 
+/* ==================================================================== *
+ *  76. De knop om te versturen staat waar je hem zoekt
+ *
+ *  Casper: "Hij geeft aan dat je moet boeken? maar ik kan niks vinden."
+ *
+ *  Er viel niets te vinden: versturen kon alleen bij Ontwikkeling, Exact --
+ *  een scherm waar de administratie niet komt. Op de plek waar staat dat er
+ *  iets blijft liggen stond geen enkele handeling.
+ *
+ *  Dat is de klasse fout die deze controle vasthoudt: een melding die zegt
+ *  dat er nog iets moet gebeuren, zonder dat er iets te doen valt.
+ * ==================================================================== */
+
+console.log('\n76. Versturen naar Exact')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const scherm = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+  const dash = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
+
+  check('de administratie kan zelf versturen',
+    scherm.includes('exactStuurFacturen'),
+    'versturen kan alleen nog bij Ontwikkeling')
+
+  /* En de schakelaar erbij. Zonder dat ziet de administratie een knop die
+     niets doet en kan ze nergens zien waarom -- precies het raadsel dat we
+     aan het oplossen zijn. exact_facturen staat sinds 0072 in
+     is_boekhoud_instelling(), dus de database laat het toe. */
+  check('en de schakelaar staat op hetzelfde scherm',
+    scherm.includes("zetInstelling('exact_facturen'"))
+
+  check('het scherm hangt in het boekhoudingsdashboard',
+    dash.includes('<NaarExact'))
+
+  /*
+   * De zin die Casper op pad stuurde. Die las als een opdracht om ergens te
+   * gaan boeken, terwijl het omgekeerde bedoeld was: er ontbreekt iets, en
+   * drukken helpt niet.
+   *
+   * Alleen wat er op het SCHERM komt, want de uitleg eromheen citeert de
+   * oude zin -- dat hoort ook, anders zet iemand hem over een half jaar
+   * terug. De eerste versie van deze controle zocht in het hele bestand en
+   * sloeg aan op zijn eigen toelichting.
+   */
+  const jsx = scherm.replace(/\/\*[\s\S]*?\*\//g, '')
+  check('de melding leest niet meer als een opdracht',
+    !jsx.includes('klaarstaan om op te boeken'),
+    'de oude zin staat er nog')
+  check('en zegt wat er dan wel aan de hand is',
+    jsx.includes('omdat er iets ontbreekt dat Exact nodig heeft'))
+
+  /* Geen stille bovengrens: de server pakt er 25 per keer, en dat hoort op
+     het scherm te staan -- anders lijkt de rest overgeslagen. */
+  const exactFn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  check('de server pakt er hoogstens 25 per keer',
+    exactFn.includes('klaar.slice(0, 25)'))
+  check('en dat staat ook op het scherm',
+    scherm.includes('klaar.length > 25'),
+    'de bovengrens staat nergens')
+
+  /* ------------------------------------------------------------------ *
+   *  Wat "dezelfde naam" is, bepaalt de database
+   *
+   *  Casper: "Ik koppel hem steeds, hij geeft aan dat hij gekoppeld is en
+   *  vervolgens blijft hij erop staan dat die niet gekoppeld is."
+   *
+   *  Het scherm rekende de zoeknaam zelf uit met een nagebouwde
+   *  kaal_bedrijf(). Bij elke B.V. gaf die iets anders dan de database:
+   *
+   *    database  "Van der Velden Amsterdam B.V." -> van der velden amsterdam
+   *    scherm                                    -> ... amsterdam b v
+   *
+   *  De koppeling werd dus opgeslagen onder een naam waar de join nooit naar
+   *  zoekt. Opslaan lukte, terugvinden niet, en het scherm bleef zeggen dat
+   *  er geen crediteur was.
+   *
+   *  Twee implementaties van dezelfde regel lopen uit elkaar; dat is geen
+   *  vermoeden meer maar wat hier gebeurd is. Deze controle houdt vast dat er
+   *  nog maar één is.
+   * ------------------------------------------------------------------ */
+
+  check('het scherm bouwt kaal_bedrijf niet na',
+    !/\(bvba\|bv\|nv\|vof\|cv\|/.test(scherm),
+    'er staat weer een eigen kaalmaker in het scherm')
+
+  check('de serverfunctie haalt de naam door de database',
+    exactFn.includes("admin.rpc('kaal_bedrijf'"),
+    'de zoeknaam komt nog van de aanroeper')
+
+  /* En de sleutel waarop de join zoekt is dezelfde functie. Zou dat ooit
+     uiteenlopen, dan is de reparatie hierboven zinloos. */
+  const m88 = readFileSync('supabase/migrations/0086_alles_per_bv.sql', 'utf8')
+  check('en de join zoekt op precies die uitkomst',
+    m88.includes('l.zoeknaam = public.kaal_bedrijf(b.supplier)'))
+
+  /* De scheve rijen die er al staan worden rechtgezet, want Casper heeft er
+     een paar gemaakt voordat dit gevonden werd. */
+  const herstel = readFileSync(
+    'supabase/migrations/0088_de_koppeling_die_niemand_terugvond.sql', 'utf8')
+  check('en wat er scheef staat wordt rechtgezet',
+    herstel.includes('set zoeknaam   = public.kaal_bedrijf(l.gezien_als)'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

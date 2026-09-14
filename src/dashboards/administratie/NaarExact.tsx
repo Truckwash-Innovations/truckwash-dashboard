@@ -34,19 +34,248 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Check, ChevronDown, Clock, Link2, Loader2, RefreshCw, Search, X,
+  AlertTriangle, Check, ChevronDown, Clock, Link2, Loader2, RefreshCw, Search,
+  Send, X,
 } from 'lucide-react'
 
 import { Card, Empty, Field, Knop, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 import { money, dateShort, relative } from '../../lib/format'
 import {
-  exactCrediteuren, exactGeschiedenis, exactKoppelLeverancier, exactNietBoekbaar,
-  type ExactCrediteur, type ExactHistorie, type NietBoekbaar,
+  exactCrediteuren, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
+  exactNietBoekbaar, exactStuurFacturen,
+  type ExactCrediteur, type ExactHistorie, type FacturenStand, type NietBoekbaar,
 } from '../../lib/trucksupply'
+import { zetInstelling } from '../../lib/instellingen'
 
 /* ------------------------------------------------------------------ *
- *  1. Wat er niet weg kan
+ *  1. De knop
+ *
+ *  Casper: "Hij geeft aan dat je moet boeken? maar ik kan niks vinden."
+ *
+ *  Terecht, want er viel niets te vinden. Versturen kon op precies een plek
+ *  -- Ontwikkeling, Exact -- en daar komt de administratie niet. Op het
+ *  scherm waar je goedkeurt en waar staat wat er blijft liggen, stond geen
+ *  enkele knop die er iets mee deed.
+ *
+ *  Zo wordt een melding als "er moet nog iets gebeuren" een raadsel: hij
+ *  heeft gelijk, en er is nergens een handeling die erbij hoort.
+ *
+ *  De schakelaar staat erbij en niet elders
+ *  ----------------------------------------
+ *
+ *  Versturen staat standaard uit (0058), en dat blijft zo -- hier gaan
+ *  boekingen de deur uit. Maar hem alleen bij Ontwikkeling kunnen aanzetten
+ *  betekent dat de administratie een knop ziet die niets doet en niet kan
+ *  zien waarom. De instelling exact_facturen staat sinds 0072 in
+ *  is_boekhoud_instelling(), dus de database laat dit toe; het scherm liep
+ *  daarop achter.
+ * ------------------------------------------------------------------ */
+
+function Versturen({ na }: { na: () => void }) {
+  const [stand, setStand] = useState<FacturenStand | null>(null)
+  const [bezig, setBezig] = useState<'' | 'laden' | 'sturen' | 'schakelen'>('')
+  const [fout, setFout] = useState<string | null>(null)
+  const [aanzetten, setAanzetten] = useState(false)
+
+  async function laad() {
+    setBezig('laden')
+    try {
+      setStand(await exactFacturenStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De stand is niet op te halen.')
+    } finally {
+      setBezig('')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  /* Klaar = alles compleet. Wat er mist staat per bon in de kaart hieronder;
+     hier gaat het alleen om het aantal dat werkelijk weg kan. */
+  const klaar = (stand?.wachtend ?? []).filter((b) => b.mist.length === 0)
+  const stuk = (stand?.wachtend ?? []).filter((b) => b.mist.length > 0)
+
+  async function stuur() {
+    setBezig('sturen')
+    try {
+      const uit = await exactStuurFacturen()
+      setStand(uit)
+      if (uit.mislukt2.length > 0) {
+        toast.error(`${uit.gelukt} verstuurd, ${uit.mislukt2.length} vastgelopen. `
+          + 'De reden staat hieronder bij de factuur.')
+      } else if (uit.gelukt === 0) {
+        toast.info('Er ging niets weg.')
+      } else {
+        toast.ok(`${uit.gelukt} factuur${uit.gelukt === 1 ? '' : 'en'} naar Exact.`)
+      }
+      na()
+    } catch (e) {
+      const t = e instanceof Error ? e.message : 'Versturen lukte niet.'
+      setFout(t)
+      toast.error(t)
+    } finally {
+      setBezig('')
+    }
+  }
+
+  async function schakel(aan: boolean) {
+    setBezig('schakelen')
+    try {
+      await zetInstelling('exact_facturen', aan ? 'aan' : 'uit')
+      setAanzetten(false)
+      await laad()
+      toast.ok(aan
+        ? 'Aan. Wat compleet is kan nu naar Exact.'
+        : 'Uit. Er gaat niets meer naar Exact.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
+    } finally {
+      setBezig('')
+    }
+  }
+
+  return (
+    <>
+      <Card
+        title="Naar Exact sturen"
+        hint="Goedkeuren zet een factuur klaar; hier gaat hij weg"
+        className="mb"
+        action={
+          <button className="btn ghost sm" disabled={bezig !== ''} onClick={() => void laad()}>
+            <RefreshCw size={14} /> Nakijken
+          </button>
+        }
+      >
+        {fout && (
+          <div className="waarschuwing mb">
+            <AlertTriangle size={15} /><span>{fout}</span>
+          </div>
+        )}
+
+        {!stand && !fout && (
+          <p className="help" style={{ margin: 0 }}>
+            <Loader2 size={14} className="spin" /> Ophalen...
+          </p>
+        )}
+
+        {stand && !stand.aan && (
+          <div className="waarschuwing mb">
+            <AlertTriangle size={15} />
+            <span style={{ flex: 1 }}>
+              Het versturen staat uit. Er gaat niets naar Exact, ook niet wat
+              compleet is. Alles eromheen werkt wel: goedkeuren, koppelen en
+              indelen kunnen gewoon door.
+            </span>
+          </div>
+        )}
+
+        {stand && (
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+            <button
+              className="btn primary sm"
+              disabled={bezig !== '' || !stand.aan || klaar.length === 0}
+              onClick={() => void stuur()}
+              title={!stand.aan
+                ? 'Zet het versturen eerst aan'
+                : klaar.length === 0
+                  ? 'Er staat niets compleet klaar'
+                  : undefined}
+            >
+              {bezig === 'sturen'
+                ? <Loader2 size={14} className="spin" />
+                : <Send size={14} />}
+              {' '}Nu versturen ({klaar.length})
+            </button>
+
+            {stand.aan ? (
+              <button
+                className="btn ghost sm"
+                disabled={bezig !== ''}
+                onClick={() => void schakel(false)}
+              >
+                Versturen uitzetten
+              </button>
+            ) : (
+              <button
+                className="btn sm"
+                disabled={bezig !== ''}
+                onClick={() => setAanzetten(true)}
+              >
+                Versturen aanzetten
+              </button>
+            )}
+
+            <span className="ts-sub" style={{ flex: 1, textAlign: 'right' }}>
+              {klaar.length} klaar &middot; {stuk.length} blokkeert &middot; {stand.verstuurd} eerder doorgekomen
+            </span>
+          </div>
+        )}
+
+        {/*
+          Geen stille bovengrens. De serverfunctie pakt er hoogstens 25 per
+          keer -- anders loopt hij tegen zijn tijdslimiet aan en breekt hij
+          halverwege af. Dat hoort hier te staan, want anders lijkt het alsof
+          de rest is overgeslagen.
+        */}
+        {stand?.aan && klaar.length > 25 && (
+          <p className="ts-sub" style={{ marginTop: 8 }}>
+            Er gaan er 25 per keer. Druk daarna nog eens voor de volgende.
+          </p>
+        )}
+
+        {stand?.aan && klaar.length === 0 && stuk.length > 0 && (
+          <p className="ts-sub" style={{ marginTop: 8 }}>
+            Er staat niets compleet klaar. Hieronder staat per factuur wat
+            eraan ontbreekt.
+          </p>
+        )}
+
+        {stand?.aan && klaar.length === 0 && stuk.length === 0 && (
+          <p className="ts-sub" style={{ marginTop: 8 }}>
+            Er is niets goedgekeurd dat nog niet in Exact staat.
+          </p>
+        )}
+      </Card>
+
+      {/*
+        Aanzetten met een tussenstap. Dit is het enige punt in de boekhouding
+        waar iets onomkeerbaars begint -- een boeking in Exact haal je niet
+        terug met een knop hier.
+      */}
+      <Modal
+        open={aanzetten}
+        title="Versturen aanzetten"
+        onClose={() => setAanzetten(false)}
+        width={520}
+      >
+        <p className="help" style={{ marginTop: 0 }}>
+          Vanaf nu gaat elke goedgekeurde factuur waar niets aan ontbreekt naar
+          Exact zodra je op versturen drukt. Een boeking die daar eenmaal staat
+          haal je niet met een knop hier terug -- dat doe je in Exact zelf.
+        </p>
+        <p className="help">
+          Er gaat nog steeds niets vanzelf: je drukt zelf. Uitzetten kan op
+          dezelfde plek.
+        </p>
+        <div className="row" style={{ gap: 8, marginTop: 14 }}>
+          <Knop soort="gewoon" onClick={() => setAanzetten(false)}>Laat maar</Knop>
+          <button
+            className="btn primary sm"
+            disabled={bezig !== ''}
+            onClick={() => void schakel(true)}
+          >
+            Ja, aanzetten
+          </button>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  2. Wat er niet weg kan
  * ------------------------------------------------------------------ */
 
 /**
@@ -102,9 +331,16 @@ function Blokkades({
     >
       <div className="waarschuwing mb">
         <AlertTriangle size={15} />
+        {/*
+          Hier stond "er moet ook iets klaarstaan om op te boeken", en dat las
+          als een opdracht: ga ergens boeken. Casper zocht zich er suf naar.
+          Het ging om het omgekeerde -- er ontbreekt iets waar Exact om
+          vraagt, en zolang dat er niet is helpt drukken niet.
+        */}
         <span>
-          Deze zijn goedgekeurd en blijven liggen. Goedkeuren is niet de laatste
-          stap — er moet ook iets klaarstaan om op te boeken.
+          Deze zijn goedgekeurd en blijven liggen. Niet omdat er nog iemand op
+          moet drukken, maar omdat er iets ontbreekt dat Exact nodig heeft.
+          Hieronder staat per factuur wat.
         </span>
       </div>
 
@@ -160,7 +396,7 @@ function Blokkades({
 }
 
 /* ------------------------------------------------------------------ *
- *  2. Een leverancier aan een crediteur koppelen
+ *  3. Een leverancier aan een crediteur koppelen
  * ------------------------------------------------------------------ */
 
 /**
@@ -214,7 +450,12 @@ function Koppelen({
     setBezig(true)
     setFout(null)
     try {
-      await exactKoppelLeverancier(kaal(leverancier), c.exactId, bv, leverancier)
+      /* De naam zoals hij op de bon staat. Kaalmaken doet de database, want
+         daar staat ook de join die hem straks moet terugvinden -- zie de
+         serverfunctie. Hier stond een nagebouwde kaal_bedrijf() die bij elke
+         B.V. een andere uitkomst gaf, en dan koppel je iets wat niemand meer
+         opzoekt. */
+      await exactKoppelLeverancier(leverancier, c.exactId, bv, leverancier)
       toast.ok(`${leverancier} is in ${bv} gekoppeld aan ${c.naam}.`)
       klaar()
       sluit()
@@ -284,18 +525,8 @@ function Koppelen({
   )
 }
 
-/** "Shell Nederland B.V." -> "shell nederland", zoals kaal_bedrijf() in de database. */
-function kaal(naam: string): string {
-  return naam
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+(bvba|bv|nv|vof|cv|gmbh|ltd|inc|sa)$/, '')
-    .trim()
-}
-
 /* ------------------------------------------------------------------ *
- *  3. Wat er is gebeurd
+ *  4. Wat er is gebeurd
  * ------------------------------------------------------------------ */
 
 const STAND_TEKST: Record<string, string> = {
@@ -478,6 +709,8 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
           <Knop soort="gewoon" onClick={() => void haal()}>Opnieuw</Knop>
         </div>
       )}
+
+      <Versturen na={() => void haal()} />
 
       <Blokkades
         bonnen={blokkades}

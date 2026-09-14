@@ -1382,10 +1382,21 @@ export async function exactStuurFacturen(): Promise<
  * Exact de boeking weigert omdat hij de relatie daar niet kent.
  */
 export async function exactKoppelLeverancier(
-  zoeknaam: string, exactId: string | null, administratie: string, gezienAls: string,
+  leverancier: string, exactId: string | null, administratie: string, gezienAls: string,
 ): Promise<FacturenStand> {
+  /*
+   * De naam gaat er ruw in, zoals hij op de bon staat.
+   *
+   * Hier stond een kaalgemaakte zoeknaam, uitgerekend door het scherm. Die
+   * moest woordelijk overeenkomen met wat kaal_bedrijf() in de database ervan
+   * maakt, en dat deed hij niet: bij elke B.V. hield het scherm er een "b v"
+   * aan over. De koppeling werd dan opgeslagen onder een naam waar niemand
+   * naar zoekt -- opslaan lukte, terugvinden niet. De serverfunctie haalt hem
+   * nu zelf door kaal_bedrijf(), op de plek waar ook de join staat.
+   */
   return alsFacturen(await roepFunctie<FacturenStand>(
-    'exact', { actie: 'koppel-leverancier', zoeknaam, exactId, administratie, gezienAls }))
+    'exact',
+    { actie: 'koppel-leverancier', zoeknaam: leverancier, exactId, administratie, gezienAls }))
 }
 
 /* ------------------------------------------------------------------ *
