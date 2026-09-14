@@ -12,7 +12,7 @@ import type {
     DevPlan,
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
-  AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord,
+  AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, WerkMail,
   TruckyContact, TruckyVraag, Grootboek, KostenTag,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
@@ -77,6 +77,7 @@ class TruckwashDB extends Dexie {
   expenseRegels!: Table<ExpenseRegel, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
+  werkmail!: Table<WerkMail, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
   employers!: Table<Werkgever, string>
@@ -168,6 +169,9 @@ class TruckwashDB extends Dexie {
     // v9: de postbus
     this.version(9).stores({
       mailbox: 'id, richting, status, at, updatedAt',
+      /* Op map en tijd, want zo wordt hij altijd gelezen: één postvak,
+         nieuwste bovenaan. En op draad, voor het tonen van een gesprek. */
+      werkmail: 'id, map, draad, at, updatedAt',
     })
 
     // v10: wijzigingsverzoeken op een dossier

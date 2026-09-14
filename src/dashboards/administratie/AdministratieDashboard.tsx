@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bot, Building2, ClipboardCheck, Clock, Inbox, LayoutDashboard, MessageSquare, Receipt,
   ScrollText, Settings, ShoppingCart, Store, Truck, UserPlus, Users, Wallet,
+  Mail,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { Start, type Tegel } from '../../components/Tegels'
@@ -19,6 +20,7 @@ import Aanmeldingen from '../management/Aanmeldingen'
 import Postbus from '../../components/Postbus'
 import Inkoopinstellingen from '../developer/Inkoop'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import MijnPostvak from '../../components/Postvak'
 import {
   Administraties, Betalen, Facturen, Grootboek, Relaties, Verkoop,
 } from '../developer/Exact'
@@ -72,6 +74,7 @@ const TITELS: Record<string, { title: string; subtitle: string }> = {
   dossiers: { title: 'Dossierwijzigingen', subtitle: 'Wat medewerkers zelf willen aanpassen' },
   aanmeldingen: { title: 'Aanmeldingen', subtitle: 'Wie zich via de app heeft gemeld' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
 }
 
 export default function AdministratieDashboard() {
@@ -190,6 +193,10 @@ export default function AdministratieDashboard() {
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
+    /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
+       een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
+       zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
     ...(magBoekhouden
       ? [{ key: 'boekhouding', label: 'Boekhouding', icon: Settings }]
       : []),
@@ -380,6 +387,7 @@ export default function AdministratieDashboard() {
       {page === 'dossiers' && <OpenWijzigingen />}
       {page === 'aanmeldingen' && <Aanmeldingen />}
       {page === 'overleg' && <Overleg />}
+      {page === 'mijnpost' && <MijnPostvak />}
     </Shell>
   )
 }

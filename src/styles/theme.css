@@ -5759,3 +5759,132 @@ table.data tr.aan td { font-weight: 600; }
   .verkenner { grid-template-columns: minmax(0, 1fr); }
   .verkenner-zij { max-height: 240px; }
 }
+
+/* ------------------------- Het postvak ---------------------------- */
+
+/*
+ * Drie kolommen zoals iedereen ze kent: mappen, lijst, bericht. Geen
+ * verrassingen -- dit is het enige scherm in de app waarvan mensen al weten
+ * hoe het werkt, en dat is precies wat je wilt als je Outlook vervangt.
+ *
+ * Onder de 1100 pixels vouwt het naar één kolom: de mappen als rij bovenaan,
+ * en de lijst boven het bericht. Naast elkaar is daaronder niets meer dan
+ * drie kolommen die geen van alle passen.
+ */
+.postvak {
+  display: grid;
+  grid-template-columns: 190px minmax(280px, 380px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.postvak-mappen { display: flex; flex-direction: column; gap: 10px; }
+.postvak-mappen .mappen-lijst { display: flex; flex-direction: column; gap: 2px; }
+
+.postvak-mappen .map {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit; font-size: .86rem; color: var(--text-2);
+  cursor: pointer; text-align: left;
+}
+.postvak-mappen .map:hover { background: var(--bg-2); color: var(--text-1); }
+.postvak-mappen .map.aan {
+  background: var(--bg-2); border-color: var(--line-soft); color: var(--text-1);
+  font-weight: 600;
+}
+
+.postvak-lijst, .postvak-bericht {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.postvak-lijst { display: flex; flex-direction: column; max-height: 72vh; }
+.postvak-lijst .filterbalk { padding: 10px; border-bottom: 1px solid var(--line-soft); }
+.postvak-lijst .berichten { overflow-y: auto; }
+
+.postvak-lijst .bericht {
+  display: block; width: 100%;
+  padding: 11px 13px;
+  border: none; border-bottom: 1px solid var(--line-soft); border-left: 3px solid transparent;
+  background: none; font: inherit; text-align: left; cursor: pointer;
+}
+.postvak-lijst .bericht:hover { background: var(--bg-2); }
+.postvak-lijst .bericht.aan { background: var(--bg-2); border-left-color: var(--brand); }
+
+/* Ongelezen is vet. Niet een kleur en niet een bolletje: vet is wat elk
+   mailprogramma doet, en het werkt ook voor wie kleuren slecht ziet. */
+.postvak-lijst .bericht.ongelezen .wie,
+.postvak-lijst .bericht.ongelezen .onderwerp { font-weight: 700; color: var(--text-1); }
+
+.postvak-lijst .bericht .regel {
+  display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+}
+.postvak-lijst .bericht .wie {
+  font-size: .84rem; color: var(--text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.postvak-lijst .bericht .wanneer { font-size: .75rem; color: var(--text-3); flex: none; }
+.postvak-lijst .bericht .onderwerp {
+  font-size: .83rem; color: var(--text-2); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.postvak-lijst .bericht .flard {
+  display: flex; align-items: center; gap: 5px;
+  font-size: .76rem; color: var(--text-3); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.postvak-lijst .bericht .flard svg { flex: none; }
+
+.postvak-bericht { padding: 16px 18px; min-height: 320px; max-height: 72vh; overflow-y: auto; }
+.bericht-blad .kop {
+  display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
+  flex-wrap: wrap;
+}
+.bericht-blad .kop h3 { margin: 0; font-size: 1.05rem; }
+.bericht-blad .kop .acties { display: flex; gap: 5px; flex-wrap: wrap; }
+.bericht-blad .afzender {
+  margin: 12px 0 14px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: .86rem;
+}
+
+/*
+ * De tekst staat in een <pre>. Dat is met opzet: een mail is platte tekst, en
+ * regeleindes die iemand zelf heeft gezet horen te blijven staan. Wel
+ * afbreken, want een plakker met een lange url hoort het scherm niet breed te
+ * maken.
+ */
+.mail-tekst {
+  margin: 0; font: inherit; font-size: .88rem; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+}
+.mail-tekst.klein { font-size: .82rem; color: var(--text-2); }
+
+.bericht-blad .bijlagen { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.bericht-blad .bijlagen h4,
+.bericht-blad .draad h4 { margin: 0 0 8px; font-size: .82rem; color: var(--text-2); }
+.bericht-blad .bijlage {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 0; font-size: .84rem;
+}
+.bericht-blad .bijlage .naam { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+.bericht-blad .draad { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.bericht-blad .draad-regel {
+  padding: 9px 11px; margin-bottom: 8px;
+  border-left: 2px solid var(--line-soft); background: var(--bg-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.ster { color: var(--warn); fill: var(--warn); }
+
+@media (max-width: 1100px) {
+  .postvak { grid-template-columns: minmax(0, 1fr); }
+  .postvak-mappen { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .postvak-mappen .mappen-lijst { flex-direction: row; flex-wrap: wrap; }
+  .postvak-lijst { max-height: 40vh; }
+}

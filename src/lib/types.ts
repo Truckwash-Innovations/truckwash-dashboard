@@ -2453,6 +2453,45 @@ export interface TaakDocument {
  *  Sync
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  Persoonlijke post (0082)
+ *
+ *  Het postvak van één medewerker. Van hem: de beveiliging in de database
+ *  laat niemand anders erbij, ook het management niet. Zie de kop van 0082
+ *  voor waarom dat een besluit is en geen omissie.
+ * ------------------------------------------------------------------ */
+
+export type MailMap = 'postvak' | 'verzonden' | 'concept' | 'archief' | 'prullenbak'
+
+export interface WerkMail {
+  id: string
+  userId: string
+  richting: 'in' | 'uit'
+  map: MailMap
+  van: string
+  vanNaam?: string
+  aan: string[]
+  cc: string[]
+  onderwerp: string
+  tekst: string
+  hadHtml?: boolean
+  /** Wat bij elkaar hoort heeft dezelfde waarde. */
+  draad?: string
+  antwoordOp?: string
+  berichtId?: string
+  at: number
+  gelezenAt?: number
+  ster?: boolean
+  /* Dezelfde vorm als bij de inkooppostbus -- naam, soort, grootte, pad en
+     de uitkomst van de controle. Een tweede vorm verzinnen zou betekenen
+     dat de bijlagenweergave twee keer bestaat. */
+  bijlagen: MailBijlage[]
+  providerId?: string
+  /** Alleen bij uitgaande post die niet verstuurd kon worden. */
+  fout?: string
+  updatedAt: number
+}
+
 export type EntityName =
   | 'locations' | 'users' | 'companies' | 'washJobs' | 'inventory'
   | 'stockMovements' | 'expenses' | 'timeEntries' | 'shifts'
@@ -2472,6 +2511,7 @@ export type EntityName =
   | 'taken' | 'taakProjecten' | 'taakReacties'
   | 'vacatures' | 'sollicitaties'
   | 'docMappen' | 'docBestanden' | 'docToegang' | 'taakDocumenten'
+  | 'werkmail'
 
 export type SyncOp = 'put' | 'delete'
 

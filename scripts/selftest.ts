@@ -8482,5 +8482,109 @@ console.log('\n66. Het werkadres komt ernaast, niet ervoor in de plaats')
     /new\.werk_mail_aan\s*:=\s*old\.werk_mail_aan/.test(bijwerken))
 }
 
+/* ==================================================================== *
+ *  67. Je verstuurt vanaf je eigen adres
+ *
+ *  Dit is de enige controle in dit hoofdstuk die er echt toe doet, en hij is
+ *  met het oog niet te zien in een diff.
+ *
+ *  Een functie die de afzender uit het verzoek overneemt, is een functie
+ *  waarmee iedere ingelogde medewerker post kan sturen namens de directeur --
+ *  op het echte bedrijfsdomein, met een geldige handtekening eronder, want
+ *  SPF en DKIM kloppen gewoon. De ontvanger kan er niets aan zien. Dat is
+ *  geen foutje maar een gereedschap voor fraude.
+ *
+ *  Het adres komt daarom uit het dossier van degene die belt, en er is geen
+ *  manier om het mee te geven.
+ * ==================================================================== */
+
+console.log('\n67. Je verstuurt vanaf je eigen adres')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const server = readFileSync('supabase/functions/werkmail/index.ts', 'utf8')
+  const client = readFileSync('src/lib/werkpost.ts', 'utf8')
+
+  check('de afzender komt uit het dossier van de beller',
+    server.includes('from: beller.naam'))
+  check('en niet uit het verzoek',
+    !/from:\s*(String\()?lijf\./.test(server) && !server.includes('lijf.van'))
+  /*
+   * En de vorm die de deur uit gaat kent geen afzender. Op het commentaar
+   * zoeken zou hier geen controle zijn -- het woord "afzender" staat er drie
+   * keer in, in uitleg. Dit kijkt naar het enige dat telt: wat NieuwBericht
+   * mag bevatten.
+   */
+  const vorm = client.slice(client.indexOf('export interface NieuwBericht'),
+    client.indexOf('}', client.indexOf('export interface NieuwBericht')))
+  check('de vorm van een nieuw bericht kent geen afzender',
+    !/(van|from|afzender)\??:/.test(vorm), vorm.replace(/\s+/g, ' ').slice(0, 120))
+
+  /*
+   * Een postvak dat dicht staat verstuurt niets. Anders is "sluiten" alleen
+   * het stoppen van de inkomende post, en kan iemand die weg is nog steeds
+   * namens het bedrijf mailen.
+   */
+  check('een gesloten postvak mag niet versturen',
+    server.includes("profiel.werk_mail_aan !== true"))
+  check('en wie geen adres heeft ook niet',
+    server.includes('!profiel.werk_email'))
+
+  /* Een uitgeschreven medewerker al helemaal niet. */
+  check('een uitgeschreven medewerker komt er niet langs',
+    server.includes('profiel.archived_at'))
+
+  /* ---- ordenen en antwoorden ---- */
+
+  const { antwoordOp, doorsturen, inMap, zoekIn } =
+    await import('../src/lib/werkpost')
+
+  const mail = (extra: Record<string, unknown> = {}) => ({
+    id: 'wm1', userId: 'u1', richting: 'in', map: 'postvak',
+    van: 'klant@bedrijf.nl', vanNaam: 'Van Dijk',
+    aan: ['jan@truckwash1group.nl'], cc: [],
+    onderwerp: 'Offerte', tekst: 'Kan dat dinsdag?',
+    at: 1_700_000_000_000, bijlagen: [], updatedAt: 1,
+    ...extra,
+  } as never)
+
+  const antwoord = antwoordOp(mail())
+  check('antwoorden gaat naar de afzender',
+    antwoord.aan.join() === 'klant@bedrijf.nl')
+  check('en het onderwerp krijgt Re: ervoor', antwoord.onderwerp === 'Re: Offerte')
+  check('maar niet twee keer',
+    antwoordOp(mail({ onderwerp: 'Re: Offerte' })).onderwerp === 'Re: Offerte')
+  check('de oorspronkelijke tekst staat eronder, aangehaald',
+    antwoord.tekst.includes('> Kan dat dinsdag?'))
+
+  /*
+   * Antwoorden op iets dat JIJ hebt verstuurd gaat naar de ontvanger en niet
+   * naar jezelf. Kleine zaak, maar een postvak waarin "antwoorden" je eigen
+   * adres invult is een postvak waar niemand op vertrouwt.
+   */
+  const eigen = antwoordOp(mail({
+    richting: 'uit', van: 'jan@truckwash1group.nl', aan: ['klant@bedrijf.nl'],
+  }))
+  check('antwoorden op eigen post gaat naar de ontvanger',
+    eigen.aan.join() === 'klant@bedrijf.nl')
+
+  check('doorsturen laat de ontvanger leeg',
+    doorsturen(mail()).aan.length === 0)
+  check('en zet de oorspronkelijke gegevens erboven',
+    doorsturen(mail()).tekst.includes('Doorgestuurd bericht'))
+
+  /* ---- zoeken en mappen ---- */
+
+  const post = [
+    mail({ id: 'a', onderwerp: 'Offerte', map: 'postvak' }),
+    mail({ id: 'b', onderwerp: 'Factuur', map: 'archief' }),
+    mail({ id: 'c', onderwerp: 'Vraag', map: 'postvak', tekst: 'over de offerte' }),
+  ]
+  check('een map toont alleen zijn eigen post', inMap(post, 'postvak').length === 2)
+  check('zoeken kijkt in het onderwerp én in de tekst',
+    zoekIn(post, 'offerte').length === 2, String(zoekIn(post, 'offerte').length))
+  check('en in de afzender', zoekIn(post, 'van dijk').length === 3)
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

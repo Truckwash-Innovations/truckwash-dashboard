@@ -38,6 +38,7 @@ import TruckyScherm from '../administratie/Trucky'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import MijnPostvak from '../../components/Postvak'
 import Postbus from '../../components/Postbus'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
@@ -70,6 +71,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   techniek: { title: 'Techniek', subtitle: 'Storingen, onderhoud en werkbonnen' },
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van iedereen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
   postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
   werkgevers: { title: 'Klanten', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
@@ -179,6 +181,10 @@ export default function ManagementDashboard() {
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
+    /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
+       een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
+       zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
     ...(perms.can('employer.view')
       ? [{ key: 'werkgevers', label: 'Klanten', icon: Briefcase,
            badge: cijfers.nieuweWerkgevers || undefined }]
@@ -461,6 +467,7 @@ export default function ManagementDashboard() {
       {page === 'techniek' && <Techniek days={days} />}
       {page === 'opleiding' && <OpleidingOverzicht />}
       {page === 'overleg' && <Overleg />}
+      {page === 'mijnpost' && <MijnPostvak />}
       {page === 'werk' && <Werk />}
       {page === 'werving' && <Werving />}
       {page === 'documenten' && <Documenten />}

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap, LayoutGrid,
   MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users, ListTodo, BriefcaseBusiness, FolderOpen,
+  Mail,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db, alleMensen } from '../../lib/db'
@@ -15,6 +16,7 @@ import BerichtVersturen from '../../components/BerichtVersturen'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import MijnPostvak from '../../components/Postvak'
 import Personeel from '../management/Personeel'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
@@ -40,6 +42,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   opleiding: { title: 'Opleiding', subtitle: 'Voortgang van je team' },
   mijn: { title: 'Mijn opleiding', subtitle: 'Cursussen die jij moet doen' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
+  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
   personeel: { title: 'Dossiers', subtitle: 'Gegevens inzien en wijzigingen aanvragen' },
   agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
 }
@@ -97,6 +100,10 @@ export default function SupervisorDashboard() {
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
+    /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
+       een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
+       zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
   ]
 
   useNavTarget(items.map((i) => i.key), (p) => setPage(p))
@@ -221,6 +228,7 @@ export default function SupervisorDashboard() {
       {page === 'opleiding' && <OpleidingOverzicht team={team} />}
       {page === 'mijn' && <Opleiding />}
       {page === 'overleg' && <Overleg />}
+      {page === 'mijnpost' && <MijnPostvak />}
       {page === 'personeel' && <Personeel days={30} />}
       {page === 'agenda' && <Agenda />}
 

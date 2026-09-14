@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarCheck, CalendarDays, CalendarRange, FolderLock, GraduationCap,
   LayoutGrid, MessageSquare, Package, Receipt, Timer, Wallet,
+  Mail,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import { db } from '../../lib/db'
@@ -15,6 +16,7 @@ import KostenIndienen from './KostenIndienen'
 import MijnRooster from './MijnRooster'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
+import MijnPostvak from '../../components/Postvak'
 import Dossier from '../../components/Dossier'
 import Koppelverzoek from '../../components/Koppelverzoek'
 import Agenda from '../../components/Agenda'
@@ -39,6 +41,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   kosten: { title: 'Mijn zaken', subtitle: 'Loonstroken, uren, kilometers en bonnen' },
   opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
   overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken met collega’s' },
+  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
   dossier: { title: 'Mijn dossier', subtitle: 'Je gegevens, contracten en documenten' },
   agenda: { title: 'Agenda', subtitle: 'Wat er aankomt op je vestiging' },
 }
@@ -126,6 +129,10 @@ export default function EmployeeDashboard() {
     ...(perms.can('chat.use')
       ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
       : []),
+    /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
+       een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
+       zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
   ]
 
   useNavTarget(items.map((i) => i.key), (p) => setPage(p))
@@ -248,6 +255,7 @@ export default function EmployeeDashboard() {
       {page === 'dossier' && <Dossier person={me} />}
       {page === 'agenda' && <Agenda />}
       {page === 'overleg' && <Overleg />}
+      {page === 'mijnpost' && <MijnPostvak />}
     </Shell>
   )
 }

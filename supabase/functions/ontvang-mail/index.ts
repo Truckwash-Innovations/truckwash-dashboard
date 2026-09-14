@@ -613,6 +613,170 @@ async function boekAutomatisch(
  *  Het verzoek
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  Persoonlijke post
+ *
+ *  Sinds 0081 heeft een medewerker een eigen adres en sinds 0082 een postvak.
+ *  Komt er post binnen op zo'n adres, dan is het van hem -- en gaat het langs
+ *  alles heen wat deze functie verder doet.
+ *
+ *  Dat "langs alles heen" is het punt. De inkooppostbus maakt van een bijlage
+ *  een kostenpost en meldt hem bij het management; het documentenpostvak zet
+ *  hem in het algemene postvak. Allebei zouden ze de mail van een collega op
+ *  het scherm van iemand anders zetten, en dat mag niet -- zie de kop van
+ *  0082.
+ * ------------------------------------------------------------------ */
+
+/** Van wie is dit adres? Leeg als het geen openstaand werkadres is. */
+async function werkmailEigenaar(adres: string): Promise<string | null> {
+  if (!adres) return null
+  try {
+    const { data, error } = await admin.rpc('werkmail_eigenaar', { adres })
+    if (error) {
+      /* De functie bestaat niet: 0082 is nog niet gedraaid. Dan is er ook geen
+         postvak, en gaat de post gewoon de oude weg. Eerlijk melden, niet
+         omvallen. */
+      console.warn('[ontvang-mail] werkmail_eigenaar: ' + error.message)
+      return null
+    }
+    return typeof data === 'string' && data ? data : null
+  } catch (e) {
+    console.warn('[ontvang-mail] werkmail_eigenaar: ' + String(e))
+    return null
+  }
+}
+
+const WERKMAIL_EMMER = 'werkmail'
+
+async function naarPostvak(o: {
+  eigenaar: string
+  berichtId: string
+  van: { adres: string; naam?: string }
+  aan: string
+  onderwerp: string
+  tekst: string
+  html: string
+  data: Willekeurig
+  providerId: string | null
+}): Promise<Response> {
+  const id = 'wm_' + o.berichtId.slice(3)
+
+  /* ---- de bijlagen ---- */
+
+  const binnen = (pak(o.data, 'attachments', 'attachment', 'files') ?? []) as Willekeurig[]
+  const lijst = Array.isArray(binnen) ? binnen : []
+  const viaResend = lijst.length ? await haalBijlagenLijst(o.providerId) : []
+  const bijlagen: Bijlage[] = []
+  const geweigerd: string[] = []
+
+  for (const [i, a] of lijst.entries()) {
+    const naam = veiligeNaam(String(a.filename ?? a.name ?? a.file_name ?? `bijlage-${i + 1}`))
+    const bijResend = zoekBijResend(a, viaResend, i)
+    const mime = String(
+      a.content_type ?? a.contentType ?? a.type ?? a.mime_type ??
+      bijResend?.content_type ?? 'application/octet-stream')
+
+    if (!TOEGESTAAN.has(mime)) {
+      geweigerd.push(`${naam} — dit soort bestand nemen we niet aan (${mime})`)
+      continue
+    }
+
+    const { bytes } = await haalInhoud(a, bijResend, mime)
+    if (!bytes || bytes.byteLength > MAX_BIJLAGE) {
+      geweigerd.push(`${naam} — niet opgehaald of te groot`)
+      continue
+    }
+
+    /*
+     * Dezelfde controle als bij de inkooppost. Persoonlijke post is eerder
+     * een reden om strenger te zijn dan losser: hier komt de rommel binnen
+     * die op een inkoopadres nooit langskomt.
+     */
+    const uit = await controleerBijlage(bytes, naam, mime)
+    if (uit.uitkomst === 'verdacht') {
+      geweigerd.push(`${naam} — ${uit.reden}`)
+      bijlagen.push({
+        naam, mime, size: bytes.byteLength, path: '',
+        controle: 'verdacht', controleReden: uit.reden, controleOp: nu(),
+        scanner: uit.scanner,
+      })
+      continue
+    }
+
+    /* Het pad begint met het id van de eigenaar; daar hangt de leesregel op de
+       emmer aan (0082). Een bijlage van een collega is zo niet op te halen
+       door het pad te raden. */
+    const pad = `${o.eigenaar}/${id}/${i + 1}-${naam}`
+    const { error } = await admin.storage.from(WERKMAIL_EMMER)
+      .upload(pad, bytes, { contentType: mime, upsert: false })
+    if (error) {
+      geweigerd.push(`${naam} — opslaan lukte niet: ${error.message}`)
+      continue
+    }
+
+    bijlagen.push({
+      naam, mime, size: bytes.byteLength, path: pad,
+      controle: uit.uitkomst, controleReden: uit.reden, controleOp: nu(),
+      scanner: uit.scanner,
+    })
+  }
+
+  /* ---- bij welke draad hoort dit ---- */
+
+  const antwoordOp = String(
+    pak(o.data, 'in_reply_to', 'inReplyTo', 'headers.in-reply-to') ?? '').slice(0, 300) || null
+  const berichtKop = String(
+    pak(o.data, 'message_id', 'messageId', 'headers.message-id') ?? '').slice(0, 300) || null
+
+  let draad: string | null = null
+  try {
+    const { data } = await admin.rpc('werkmail_draad', {
+      eigenaar: o.eigenaar,
+      onderwerp_in: o.onderwerp,
+      antwoord_op_in: antwoordOp,
+    })
+    draad = typeof data === 'string' ? data : null
+  } catch { /* dan staat hij los; dat is geen reden om de post te laten vallen */ }
+
+  /* ---- wegschrijven ---- */
+
+  const { error } = await admin.from('werkmail').insert({
+    id,
+    user_id: o.eigenaar,
+    richting: 'in',
+    map: 'postvak',
+    van: o.van.adres || 'onbekend',
+    van_naam: o.van.naam ?? null,
+    aan: [o.aan],
+    onderwerp: o.onderwerp,
+    tekst: geweigerd.length
+      ? o.tekst + '
+
+---
+Tegengehouden bijlagen:
+' + geweigerd.map((g) => '· ' + g).join('
+')
+      : o.tekst,
+    had_html: Boolean(o.html),
+    draad,
+    antwoord_op: antwoordOp,
+    bericht_id: berichtKop,
+    at: nu(),
+    bijlagen,
+    provider_id: o.providerId,
+  })
+
+  if (error) {
+    console.error('[ontvang-mail] postvak: ' + error.message)
+    return json({ ok: false, reden: error.message }, 500)
+  }
+
+  console.log(`[ontvang-mail] ${id} in het postvak van ${o.eigenaar}`)
+  return json({ ok: true, postvak: true, id })
+}
+
+/* ------------------------------------------------------------------ */
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Alleen POST' }, 405)
 
@@ -655,6 +819,35 @@ Deno.serve(async (req) => {
     pak(data, 'email_id', 'id', 'message_id') ?? payload.id ?? '') || null
 
   const berichtId = 'mb_' + crypto.randomUUID().replace(/-/g, '')
+
+  /* ---- is dit persoonlijke post? ---- */
+
+  /*
+   * Voor de inkooppostbus, voor de documenten en voor alles wat hierna komt,
+   * gaat er één vraag vooraf: hoort dit adres bij een medewerker?
+   *
+   * Zo ja, dan is dit zijn post en gaat het nergens anders heen. Geen
+   * kostenpost, geen documentenpostvak, geen melding aan het management --
+   * dat zou betekenen dat de mail van een collega bij de administratie op het
+   * scherm verschijnt.
+   *
+   * Deze vraag staat vóór alle andere, en dat is met opzet: een medewerker
+   * die toevallig "inkoop" in zijn adres heeft is nog steeds een medewerker.
+   */
+  const eigenaar = await werkmailEigenaar(aan.adres)
+  if (eigenaar) {
+    return await naarPostvak({
+      eigenaar,
+      berichtId,
+      van,
+      aan: aan.adres,
+      onderwerp,
+      tekst,
+      html,
+      data,
+      providerId,
+    })
+  }
 
   /* ---- bijlagen ---- */
 

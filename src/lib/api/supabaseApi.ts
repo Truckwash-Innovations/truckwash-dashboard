@@ -140,6 +140,7 @@ const TABLES: Record<EntityName, string> = {
   expenseRegels: 'expense_regel',
   documents: 'documents',
   mailbox: 'mailbox',
+  werkmail: 'werkmail',
   changeRequests: 'change_requests',
   agendaItems: 'agenda_items',
   employers: 'employers',

@@ -5,7 +5,7 @@ import type {
   InventoryItem, Location, Shift, StockMovement, TimeEntry, User, WashJob,
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
-  PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, DossierWijziging, AgendaItem,
+  PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, WerkMail, DossierWijziging, AgendaItem,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
   DocMap, DocBestand, DocToegang, TaakDocument,
@@ -68,6 +68,7 @@ class MockServerDB extends Dexie {
   expenseRegels!: Table<ExpenseRegel, string>
   documents!: Table<PersonnelDocument, string>
   mailbox!: Table<MailBericht, string>
+  werkmail!: Table<WerkMail, string>
   changeRequests!: Table<DossierWijziging, string>
   agendaItems!: Table<AgendaItem, string>
   employers!: Table<Werkgever, string>
@@ -133,6 +134,7 @@ class MockServerDB extends Dexie {
       expenseRegels: 'id, updatedAt',
       documents: 'id, userId, updatedAt',
       mailbox: 'id, updatedAt',
+      werkmail: 'id, updatedAt',
       changeRequests: 'id, updatedAt',
       agendaItems: 'id, updatedAt',
       employers: 'id, updatedAt',
@@ -201,6 +203,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   expenseRegels: () => server.expenseRegels,
   documents: () => server.documents,
   mailbox: () => server.mailbox,
+  werkmail: () => server.werkmail,
   changeRequests: () => server.changeRequests,
   agendaItems: () => server.agendaItems,
   employers: () => server.employers,

@@ -7534,5 +7534,135 @@ console.log('\n60. Een eigen werkadres')
   await werk.close()
 }
 
+/* ==================================================================== *
+ *  61. Het postvak is van de medewerker
+ *
+ *  0082 zet er met zoveel woorden bij dat er geen regel in staat die het
+ *  management toegang geeft, ook niet "voor het geval dat". Dat is een
+ *  juridische keuze -- een werkgever mag niet zomaar in de mail van een
+ *  werknemer kijken -- en het soort keuze dat een half jaar later wordt
+ *  teruggedraaid met "handig voor als iemand uitvalt".
+ *
+ *  Verder: post die binnenkomt op een gesloten postvak hoort nergens te
+ *  belanden, en de inhoud van een ontvangen bericht ligt vast.
+ * ==================================================================== */
+
+console.log('\n61. Het postvak is van de medewerker')
+
+{
+  const pv = await fresh()
+  await pv.exec(sqlFile('supabase/setup.sql'))
+  /* Supabase deelt tabelrechten uit met een standaardregel; in deze opstelling
+     gebeurt dat niet, dus hier met de hand. Zonder dit is elke controle op RLS
+     een controle op een ontbrekend recht. */
+  await pv.exec('grant select, insert, update, delete on all tables in schema public to authenticated;')
+  await asServer(pv)
+
+  await pv.exec(`
+    update public.instellingen set waarde = 'truckwash1group.nl'
+     where sleutel = 'werk_domein';
+    /*
+     * Eerst het dossier, dan het inlogaccount. Andersom maakt handle_new_user()
+     * (0028) er zelf een aan en botst de tweede op auth_id -- dat is de trigger
+     * die doet wat hij hoort te doen, en hier de goede volgorde afdwingt.
+     */
+    insert into public.profiles (id, email, name, roles, active,
+                                 werk_email, werk_mail_aan) values
+      ('p_jan',  'jan@prive.nl',  'Jan',       array['employee'],   true,
+       'jan@truckwash1group.nl', true),
+      ('p_baas', 'baas@prive.nl', 'De Baas',   array['management'], true,
+       'baas@truckwash1group.nl', true),
+      ('p_weg',  'weg@prive.nl',  'Weggegaan', array['employee'],   true,
+       'weg@truckwash1group.nl', false);
+    insert into auth.users (id, email) values
+      ('00000000-0000-0000-0000-0000000000b1', 'jan@prive.nl'),
+      ('00000000-0000-0000-0000-0000000000b2', 'baas@prive.nl');
+
+    insert into public.werkmail (id, user_id, richting, map, van, onderwerp, tekst)
+      values ('wm_1', 'p_jan', 'in', 'postvak', 'klant@bedrijf.nl',
+              'Offerte', 'Kunnen jullie dinsdag?');
+  `)
+
+  /* --- wie ziet wat --- */
+
+  await asUser(pv, '00000000-0000-0000-0000-0000000000b1')
+  await pv.exec('set role authenticated;')
+  const vanJan = Number((await pv.query(
+    'select count(*)::int as n from public.werkmail')).rows[0].n)
+  await pv.exec('reset role;')
+  check('Jan ziet zijn eigen post', vanJan === 1)
+
+  await asUser(pv, '00000000-0000-0000-0000-0000000000b2')
+  await pv.exec('set role authenticated;')
+  const vanBaas = Number((await pv.query(
+    'select count(*)::int as n from public.werkmail')).rows[0].n)
+  await pv.exec('reset role;')
+
+  /*
+   * Dit is de controle die ertoe doet. Het management ziet in deze app bijna
+   * alles -- dossiers, uurlonen, bonnen -- en juist hier niet.
+   */
+  check('het management ziet de post van een medewerker NIET', vanBaas === 0,
+    `${vanBaas} rij(en)`)
+
+  /* --- wat je aan je eigen post mag veranderen --- */
+
+  await asUser(pv, '00000000-0000-0000-0000-0000000000b1')
+  await pv.exec('set role authenticated;')
+  await pv.exec(`update public.werkmail
+                    set map = 'archief', gelezen_at = 1, ster = true,
+                        tekst = 'iets heel anders', van = 'vervalst@bedrijf.nl'
+                  where id = 'wm_1'`)
+  await pv.exec('reset role;')
+  await asServer(pv)
+
+  const na = (await pv.query(
+    "select map, ster, tekst, van from public.werkmail where id = 'wm_1'")).rows[0]
+  check('verplaatsen mag', na.map === 'archief')
+  check('een ster ook', na.ster === true)
+  /*
+   * Maar de inhoud niet. Een postvak waarin je de tekst van een binnengekomen
+   * mail kunt herschrijven is geen postvak maar een kladblok -- en dan is er
+   * later niets meer mee aan te tonen.
+   */
+  check('maar de tekst van een ontvangen bericht ligt vast',
+    na.tekst === 'Kunnen jullie dinsdag?', String(na.tekst))
+  check('en de afzender ook', na.van === 'klant@bedrijf.nl', String(na.van))
+
+  /* --- waar komt binnenkomende post terecht --- */
+
+  const eigenaar = async (adres) => (await pv.query(
+    `select public.werkmail_eigenaar('${adres}') as w`)).rows[0].w
+
+  check('post op een openstaand adres gaat naar die persoon',
+    await eigenaar('jan@truckwash1group.nl') === 'p_jan')
+  check('hoofdletters maken niet uit',
+    await eigenaar('Jan@Truckwash1Group.nl') === 'p_jan')
+
+  /*
+   * Een adres dat gereserveerd is maar uit staat neemt geen post aan. Dat is
+   * het verschil tussen "dit adres is van Jan" en "Jan werkt hier nog".
+   */
+  check('een gesloten postvak neemt niets aan',
+    await eigenaar('weg@truckwash1group.nl') === null)
+  check('en een onbekend adres ook niet',
+    await eigenaar('niemand@truckwash1group.nl') === null)
+
+  /* --- de draad --- */
+
+  const draad = async (onderwerp, antwoordOp) => (await pv.query(
+    `select public.werkmail_draad('p_jan', ${onderwerp === null ? 'null' : `'${onderwerp}'`},
+       ${antwoordOp === null ? 'null' : `'${antwoordOp}'`}) as d`)).rows[0].d
+
+  check('Re: valt in dezelfde draad als het origineel',
+    await draad('Re: Offerte', null) === await draad('Offerte', null))
+  check('en Fwd: ook',
+    await draad('Fwd: Offerte', null) === await draad('Offerte', null))
+  check('een ander onderwerp is een andere draad',
+    await draad('Iets anders', null) !== await draad('Offerte', null))
+
+  await pv.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
