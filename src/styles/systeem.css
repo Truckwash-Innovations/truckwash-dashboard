@@ -722,17 +722,29 @@
 :root[data-beweging="rustig"] .k .draai { animation: none; }
 
 /* ==================================================================
-   10. Het tweeluik: document links, gegevens rechts
+   10. Het tweeluik: invoer links, document rechts
    ==================================================================
 
-   Casper: "links: document / PDF-preview, rechts: administratieve gegevens
-   ... Op grote schermen moet dit naast elkaar kunnen. Op kleinere schermen
-   mag het onder elkaar."
+   Casper, eerst: "links: document / PDF-preview, rechts: administratieve
+   gegevens ... Op grote schermen moet dit naast elkaar kunnen. Op kleinere
+   schermen mag het onder elkaar."
 
-   Dit is de kern van de Blue10-manier van werken. Wie een factuur
-   controleert kijkt heen en weer tussen het papier en de velden. Staan die
-   op twee schermen, dan moet hij onthouden wat er stond -- en dat is precies
-   waar een bedrag verkeerd wordt overgetypt.
+   En later, na ermee gewerkt te hebben: "bij de facturen bekijken de pdf aan
+   de rechterkant hebben, en de invoer en check links, fijner maken qua
+   kijken."
+
+   Dus omgedraaid. Dat staat hier met beide citaten omdat het anders een
+   vergissing lijkt die iemand terugdraait.
+
+   Waarom rechts beter blijkt te werken: je leest van links naar rechts, en
+   wat je aan het DOEN bent zijn de velden. Je kijkt naar wat er ingevuld moet
+   worden en pakt het papier erbij ter controle -- niet andersom. Stond het
+   document links, dan begon je blik elke keer bij iets wat je al gezien had.
+
+   Dat het naast elkaar staat blijft de kern van de Blue10-manier van werken.
+   Wie een factuur controleert kijkt heen en weer tussen het papier en de
+   velden. Staan die op twee schermen, dan moet hij onthouden wat er stond --
+   en dat is precies waar een bedrag verkeerd wordt overgetypt.
 
    Het document krijgt de meeste ruimte maar niet alles: de gegevenskolom
    heeft een vaste, comfortabele breedte, want daar staan formuliervelden en
@@ -741,7 +753,10 @@
 
 .tweeluik {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
+  /* De invoer eerst, het document daarna. In de HTML staat het ook in die
+     volgorde -- niet met "order" omgedraaid, want dan loopt de tabvolgorde
+     andersom dan het oog en springt de cursor over het scherm. */
+  grid-template-columns: 420px minmax(0, 1fr);
   gap: var(--s4);
   align-items: start;
 }
@@ -780,6 +795,8 @@
 .tweeluik-zij { min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
 
 @media (max-width: 1180px) {
+  /* Onder elkaar. De invoer komt dan bovenaan, want dat is waar je moet
+     zijn; het papier staat eronder om erbij te pakken. */
   .tweeluik { grid-template-columns: minmax(0, 1fr); }
   /* Onder elkaar: dan hoort het document niet meer te plakken, en niet meer
      het hele scherm hoog te zijn. */

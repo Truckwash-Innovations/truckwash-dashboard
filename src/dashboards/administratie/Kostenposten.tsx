@@ -966,10 +966,18 @@ function BonDetail({
       {fout && <p className="waarschuwing">{fout}</p>}
 
       <div className="tweeluik">
-        {/* Links: het papier. */}
-        <Documentpaneel bestanden={bijlagen} />
-
-        {/* Rechts: wat er van gemaakt is. */}
+        {/*
+         * Links: wat je moet nakijken en invullen.
+         *
+         * Dit stond andersom -- het papier links. Casper na ermee gewerkt te
+         * hebben: "de pdf aan de rechterkant hebben, en de invoer en check
+         * links". Je leest van links naar rechts, en wat je aan het DOEN bent
+         * zijn de velden; het papier pak je erbij ter controle.
+         *
+         * De volgorde staat hier en niet met "order" in de CSS: anders loopt
+         * de tabvolgorde andersom dan het oog en springt de cursor over het
+         * scherm.
+         */}
         <div className="tweeluik-zij">
           <VanzelfAkkoord bon={bon} />
           <LeesStatus bon={bon} />
@@ -995,6 +1003,10 @@ function BonDetail({
           <Historie bon={bon} />
           <Verloop bon={bon} />
         </div>
+
+        {/* Rechts: het papier. Blijft staan terwijl je links naar beneden
+            werkt -- zie .tweeluik-doc in systeem.css. */}
+        <Documentpaneel bestanden={bijlagen} />
       </div>
     </>
   )

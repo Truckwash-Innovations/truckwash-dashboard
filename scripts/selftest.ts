@@ -9589,5 +9589,73 @@ console.log('\n74. Eén factuur, meerdere posten')
     exact.includes("|| kortVoorExact(bon.factuurnummer ?? bon.leverancier)"))
 }
 
+/* ==================================================================== *
+ *  75. Het factuurscherm: invoer links, papier rechts
+ *
+ *  Casper, eerst: "links: document / PDF-preview, rechts: administratieve
+ *  gegevens." En later, na ermee gewerkt te hebben: "bij de facturen
+ *  bekijken de pdf aan de rechterkant hebben, en de invoer en check links."
+ *
+ *  Die twee staan hier allebei vastgelegd, want zonder de tweede lijkt de
+ *  omdraaiing een vergissing die iemand terugzet -- de CSS zei letterlijk
+ *  "document links" met het eerste citaat eronder.
+ * ==================================================================== */
+
+console.log('\n75. Het factuurscherm')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const css = readFileSync('src/styles/systeem.css', 'utf8')
+
+  const blok = scherm.slice(scherm.indexOf('<div className="tweeluik">'),
+    scherm.indexOf('<div className="tweeluik">') + 1800)
+
+  check('de invoer staat vóór het papier in de HTML',
+    blok.indexOf('tweeluik-zij') < blok.indexOf('<Documentpaneel'),
+    'het documentpaneel staat nog eerst')
+
+  /*
+   * En de kolombreedtes moeten meedraaien. Blijft de vaste 420px links
+   * staan terwijl de HTML is omgedraaid, dan krijgt de PDF de smalle kolom
+   * -- dat is erger dan het was.
+   */
+  const grid = /\.tweeluik\s*\{[^}]*grid-template-columns:\s*([^;]+);/.exec(css)
+  check('de smalle kolom staat links, bij de invoer',
+    Boolean(grid) && /^420px\s+minmax/.test(grid[1].trim()),
+    grid ? grid[1].trim() : 'grid-template-columns niet gevonden')
+
+  /*
+   * Niet met "order" omgedraaid. Dat zou de tabvolgorde andersom laten lopen
+   * dan het oog, en dan springt de cursor over het scherm bij elke tab.
+   *
+   * Alleen in het .tweeluik-blok zelf kijken, en met een grens ervoor: de
+   * eerste versie van deze controle zocht "order:" in alles wat met .tweeluik
+   * begint, en vond "border:" in .tweeluik-doc. Een test die aanslaat op een
+   * rand is geen test.
+   */
+  const tweeluikBlok = /\n\.tweeluik \{([^}]*)\}/.exec(css)
+  check('en niet met order, zodat de tabvolgorde het oog volgt',
+    Boolean(tweeluikBlok) && !/(^|[^a-z-])order\s*:/m.test(tweeluikBlok[1]),
+    tweeluikBlok ? 'er staat een order in .tweeluik' : '.tweeluik-blok niet gevonden')
+
+  /* Op een smal scherm blijft het onder elkaar; anders staat een PDF van
+     420px naast een formulier van 420px op een telefoon. */
+  check('op een smal scherm staat het nog steeds onder elkaar',
+    /@media \(max-width: 1180px\)[\s\S]{0,240}\.tweeluik \{ grid-template-columns: minmax\(0, 1fr\); \}/.test(css))
+
+  /*
+   * Allebei de wensen staan in de uitleg, met de tweede als de geldende.
+   *
+   * Witruimte platslaan vóór het zoeken: een citaat in een commentaarblok
+   * breekt over regels af, en dan vindt includes() het niet terwijl het er
+   * gewoon staat.
+   */
+  const plat = css.replace(/\s+/g, ' ')
+  check('de uitleg noemt waarom het is omgedraaid',
+    plat.includes('de pdf aan de rechterkant hebben')
+    && plat.includes('invoer links, document rechts'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
