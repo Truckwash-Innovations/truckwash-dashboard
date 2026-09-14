@@ -8791,5 +8791,120 @@ console.log('\n68. Een document schrijven, en er een PDF van maken')
     bestandsnaam('///') === 'document.pdf')
 }
 
+/* ==================================================================== *
+ *  69. De handtekening onder een mail
+ *
+ *  Twee dingen worden hier vastgelegd, en het tweede is het belangrijkste.
+ *
+ *  1. Wat er niet bekend is, laat geen gat achter. Een handtekening met een
+ *     losse " · " erachter of een lege regel middenin is precies het soort
+ *     slordigheid waar een klant naar kijkt en wij niet.
+ *
+ *  2. De handtekening wordt ÉÉN keer voorgesteld en is daarna van die
+ *     persoon. De verleiding om hem bij elke mail opnieuw uit te rekenen is
+ *     groot -- dan staat er altijd de laatste functie in -- en dan kan
+ *     niemand hem meer aanpassen. Dat is geen smaakkwestie: wie hem niet mag
+ *     wijzigen typt zijn eigen groet erboven, en dan staat er twee keer een
+ *     afsluiting onder elke mail.
+ * ==================================================================== */
+
+console.log('\n69. De handtekening onder een mail')
+
+{
+  const { standaardHandtekening } = await import('../src/lib/handtekening')
+  const { zetWerkmail, zetHandtekening } = await import('../src/lib/werkmail')
+  const { BEDRIJF } = await import('../src/lib/types')
+
+  /* ---- de tekst ---- */
+
+  const vol = standaardHandtekening({
+    naam: 'Jan van Dijk',
+    functie: 'Vestigingsmanager',
+    vestiging: 'Truckwash Venlo',
+    werkEmail: 'jan@truckwash1group.nl',
+    telefoon: '06 12345678',
+  })
+
+  check('hij begint met de groet', vol.startsWith('Met vriendelijke groet,\n\n'))
+  check('daarna de naam', vol.split('\n')[2] === 'Jan van Dijk')
+  check('de functie en de vestiging staan op één regel',
+    vol.includes('Vestigingsmanager · Truckwash Venlo'))
+  check('en het bedrijf eronder', vol.includes(BEDRIJF))
+  check('met het adres en het nummer erbij',
+    vol.includes('jan@truckwash1group.nl') && vol.includes('06 12345678'))
+
+  /*
+   * Een tussenvoegsel blijft staan. Elke poging om uit één naamveld een
+   * voor- en achternaam te halen gaat hier de mist in -- "Jan Dijk" is een
+   * andere meneer.
+   */
+  check('een tussenvoegsel blijft in de naam',
+    standaardHandtekening({ naam: 'Jan van Dijk' }).includes('Jan van Dijk'))
+  check('en dubbele spaties worden opgeruimd',
+    standaardHandtekening({ naam: '  Jan   van  Dijk ' }).includes('\nJan van Dijk\n'))
+
+  /* ---- wat er niet is, laat geen gat achter ---- */
+
+  const kaal = standaardHandtekening({ naam: 'Piet' })
+  check('zonder functie en vestiging staat er geen scheidingsteken',
+    !kaal.includes('·'), kaal.replace(/\n/g, ' | '))
+  check('en zonder adres geen lege regel onderaan',
+    !kaal.endsWith('\n') && kaal.split('\n').filter((r) => r === '').length === 1,
+    JSON.stringify(kaal))
+  check('het eindigt dan op de bedrijfsnaam', kaal.endsWith(BEDRIJF))
+
+  const alleenVestiging = standaardHandtekening({ naam: 'Piet', vestiging: 'Truckwash Ede' })
+  check('alleen een vestiging geeft ook geen los scheidingsteken',
+    alleenVestiging.includes('Truckwash Ede') && !alleenVestiging.includes('·'))
+
+  const alleenTelefoon = standaardHandtekening({ naam: 'Piet', telefoon: '0612' })
+  check('alleen een telefoonnummer krijgt wel zijn eigen blok',
+    alleenTelefoon.endsWith('\n\n0612'))
+
+  /* ---- hij wordt één keer gezet en daarna met rust gelaten ---- */
+
+  const { db } = await import('../src/lib/db')
+
+  const proef = {
+    id: 'u_handtekening', email: 'proef@prive.nl', password: '', name: 'Sanne de Wit',
+    roles: ['employee'], active: true, updatedAt: Date.now(),
+    function: 'Wasmedewerker', werkEmail: 'sanne@truckwash1group.nl',
+  }
+  await db.users.put(proef as never)
+
+  const aan = await zetWerkmail(proef as never, true)
+  check('bij het aanzetten komt er een handtekening',
+    (aan.mailHandtekening ?? '').includes('Sanne de Wit'),
+    String(aan.mailHandtekening).slice(0, 40))
+  check('met de functie uit het dossier erin',
+    (aan.mailHandtekening ?? '').includes('Wasmedewerker'))
+
+  /*
+   * En dan de regel waar het om gaat. Wie zijn handtekening aanpast en zijn
+   * postvak daarna uit- en weer aanzet, hoort zijn eigen tekst terug te
+   * krijgen. Zou hij hier overschreven worden, dan is elke aanpassing er een
+   * die je zomaar kwijt bent -- en dat merk je pas nadat de mail weg is.
+   */
+  const eigen = await zetHandtekening(aan, 'Groet, Sanne')
+  check('je kunt hem zelf wijzigen', eigen.mailHandtekening === 'Groet, Sanne')
+
+  const uit = await zetWerkmail(eigen, false)
+  const weerAan = await zetWerkmail(uit, true)
+  check('uit- en weer aanzetten laat je eigen tekst staan',
+    weerAan.mailHandtekening === 'Groet, Sanne', String(weerAan.mailHandtekening))
+
+  /* Leeg bewaren is een geldige keuze: dan komt er niets onder je mail. */
+  const leeg = await zetHandtekening(weerAan, '   ')
+  check('leeg bewaren betekent geen handtekening', leeg.mailHandtekening === undefined)
+
+  /* ---- en het adres blijft het privéadres ---- */
+
+  const { meldadresVan } = await import('../src/lib/werkmail')
+  check('een melding gaat naar het privéadres, niet naar het werkadres',
+    meldadresVan(aan) === 'proef@prive.nl')
+
+  await db.users.delete('u_handtekening')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

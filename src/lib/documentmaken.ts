@@ -30,24 +30,25 @@
  * ------------------------------------------------------------------ */
 
 import { maakPdf, nummering } from './pdfmaken'
+import { bewaarBestand } from './download'
+import { uid } from './db'
+import { BEDRIJF } from './types'
+import type { DocBestand, DocBlok, DocBlokSoort } from './types'
 
 /* De nummering van een genummerde lijst hoort bij de opmaak en staat daarom
    in pdfmaken.ts. Het scherm heeft hem ook nodig om een document te tonen;
    hier weer naar buiten, zodat er niet een tweede telling ontstaat die er net
    naast zit. */
 export { nummering }
-import { bewaarBestand } from './download'
-import { uid } from './db'
-import type { DocBestand, DocBlok, DocBlokSoort } from './types'
 
 /**
  * Wat er onderaan elke bladzijde komt.
  *
- * Een vaste waarde en geen instelling: het staat al op vier andere plekken in
- * de app zo, en van één regel onder een brief een beheerscherm maken levert
- * een veld op dat niemand ooit invult.
+ * Geen instelling: van één regel onder een brief een beheerscherm maken
+ * levert een veld op dat niemand ooit invult. Wel uit één plek, zodat een
+ * naamswijziging niet half blijft hangen.
  */
-export const VOET = 'Truckwash 1 Group'
+export const VOET = BEDRIJF
 
 /* ------------------------------------------------------------------ *
  *  De blokken

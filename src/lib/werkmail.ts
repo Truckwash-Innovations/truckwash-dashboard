@@ -29,6 +29,7 @@
 import { db } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
+import { handtekeningVoor } from './handtekening'
 import type { User } from './types'
 
 /**
@@ -66,16 +67,55 @@ export async function zetWerkmail(gebruiker: User, aan: boolean): Promise<User> 
     }
   }
 
+  /*
+   * En meteen een handtekening, als hij er nog geen heeft.
+   *
+   * Hier en niet bij het eerste bericht: dan staat hij er al voordat iemand
+   * zijn eerste mail typt, en kan hij hem rustig bijstellen in plaats van te
+   * ontdekken dat er iets onder zijn verstuurde bericht stond.
+   *
+   * Alleen als het veld leeg is. Iemand die hem heeft aangepast en zijn
+   * postvak even uit- en weer aanzet, hoort zijn eigen tekst terug te
+   * krijgen -- niet die van ons.
+   */
+  const handtekening = aan && !gebruiker.mailHandtekening?.trim()
+    ? handtekeningVoor({ ...gebruiker, werkEmail: adres },
+        (await db.locations.get(gebruiker.locationId ?? ''))?.name)
+    : gebruiker.mailHandtekening
+
   const nieuw: User = {
     ...gebruiker,
     werkEmail: adres,
     werkMailAan: aan,
+    mailHandtekening: handtekening,
     /* Wanneer het voor het eerst aanging. Blijft staan als het later uit
        gaat -- dat is het antwoord op "sinds wanneer had hij dit adres". */
     werkMailSinds: gebruiker.werkMailSinds ?? (aan ? Date.now() : undefined),
     updatedAt: Date.now(),
   }
 
+  await db.users.put(nieuw)
+  await enqueue('users', 'put', nieuw.id, nieuw)
+  return nieuw
+}
+
+/**
+ * Je eigen handtekening bijstellen.
+ *
+ * Dit mag je zelf: het is je eigen naam eronder, en 0082 laat de kolom met
+ * zoveel woorden buiten de rem op profiles (profiel_bewaak_wijziging) die de
+ * rest van het dossier vasthoudt.
+ *
+ * Leeg bewaren mag ook -- dan komt er niets onder je mail. Dat is een geldige
+ * keuze en geen reden om de standaard terug te zetten; wie hem terug wil,
+ * drukt op de knop die hem opnieuw voorstelt.
+ */
+export async function zetHandtekening(gebruiker: User, tekst: string): Promise<User> {
+  const nieuw: User = {
+    ...gebruiker,
+    mailHandtekening: tekst.trim() ? tekst : undefined,
+    updatedAt: Date.now(),
+  }
   await db.users.put(nieuw)
   await enqueue('users', 'put', nieuw.id, nieuw)
   return nieuw

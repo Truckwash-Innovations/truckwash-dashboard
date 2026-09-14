@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Archive, Loader2, Mail, MailOpen, Paperclip, Reply, ReplyAll, Send,
-  Star, Trash2, Undo2, Forward,
+  Archive, Loader2, Mail, MailOpen, Paperclip, PenLine, Reply, ReplyAll,
+  RotateCcw, Send, Star, Trash2, Undo2, Forward,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import {
   MAPPEN, antwoordOp, bijlageAdres, doorsturen, draadVan, inMap, markeerGelezen,
   naarMap, versturen, zetSter, zoekIn, type NieuwBericht,
 } from '../lib/werkpost'
+import { handtekeningVoor } from '../lib/handtekening'
+import { zetHandtekening } from '../lib/werkmail'
 import type { MailMap, WerkMail } from '../lib/types'
 import { dateTime, relative } from '../lib/format'
 import { useAuth } from '../store/useAuth'
@@ -48,6 +50,7 @@ export default function Postvak() {
   const [zoek, setZoek] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [opstellen, setOpstellen] = useState<NieuwBericht | null>(null)
+  const [handtekening, setHandtekening] = useState(false)
 
   const lijst = useMemo(() => zoekIn(inMap(post, map), zoek), [post, map, zoek])
   const gekozen = open ? post.find((m) => m.id === open) ?? null : null
@@ -110,6 +113,15 @@ export default function Postvak() {
         <div className="ts-sub" style={{ marginTop: 14, wordBreak: 'break-all' }}>
           {ik.werkEmail}
         </div>
+
+        <button
+          className="btn ghost sm"
+          style={{ marginTop: 8 }}
+          onClick={() => setHandtekening(true)}
+          title="Wat er onder elk bericht komt dat je verstuurt"
+        >
+          <PenLine size={14} /> Handtekening
+        </button>
       </div>
 
       {/* ------------------------- de lijst -------------------------- */}
@@ -186,6 +198,8 @@ export default function Postvak() {
           sluit={() => setOpstellen(null)}
         />
       )}
+
+      {handtekening && <Handtekening sluit={() => setHandtekening(false)} />}
     </div>
   )
 }
@@ -361,6 +375,10 @@ function Opstellen({ begin, sluit }: { begin: NieuwBericht; sluit: () => void })
   const [tekst, setTekst] = useState(begin.tekst)
   const [bezig, setBezig] = useState(false)
 
+  /* Wat er straks onder het bericht komt. De serverfunctie plakt hem eronder
+     (zie werkmail/index.ts); hier staat hij alleen om te laten zien. */
+  const handtekening = useAuth((s) => s.user?.mailHandtekening)
+
   const splits = (ruw: string) =>
     ruw.split(/[,;]/).map((a) => a.trim()).filter(Boolean)
 
@@ -429,6 +447,15 @@ function Opstellen({ begin, sluit }: { begin: NieuwBericht; sluit: () => void })
         />
       </Field>
 
+      {/* Zeg dat de handtekening eronder komt. Zonder dit typt iemand zijn
+          eigen groet eronder en staat er twee keer een afsluiting. */}
+      {handtekening?.trim() && (
+        <div className="mail-handtekening">
+          <span className="ts-sub">Hieronder komt automatisch:</span>
+          <pre>{handtekening.trim()}</pre>
+        </div>
+      )}
+
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
         <button className="btn ghost" onClick={sluit} disabled={bezig}>Annuleren</button>
         <button
@@ -437,6 +464,82 @@ function Opstellen({ begin, sluit }: { begin: NieuwBericht; sluit: () => void })
           disabled={bezig || splits(aan).length === 0}
         >
           {bezig ? <><Loader2 size={15} className="spin" /> Bezig…</> : <><Send size={15} /> Versturen</>}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Je handtekening
+ *
+ *  Casper: "zorg dat het als tekst er komt te staan zodat je het zelf kan
+ *  aanpassen."
+ *
+ *  Dus een tekstvak en geen velden. Wie zijn doorkiesnummer erbij wil, of
+ *  "p/a Rotterdam" omdat hij daar vier dagen staat, typt het er gewoon in.
+ *  Een formulier met vaste vakjes zou precies dat onmogelijk maken -- en dan
+ *  gaan mensen hun eigen afsluiting bóven de handtekening typen en staat er
+ *  twee keer een groet onder elke mail.
+ *
+ *  De knop "Standaard" zet het voorstel terug. Dat is de uitweg voor wie iets
+ *  heeft weggegooid en het niet meer weet.
+ * ------------------------------------------------------------------ */
+
+function Handtekening({ sluit }: { sluit: () => void }) {
+  const ik = useAuth((s) => s.user)!
+  const herlaadProfiel = useAuth((s) => s.herlaadProfiel)
+  const vestiging = useLiveQuery(
+    () => (ik.locationId ? db.locations.get(ik.locationId) : undefined),
+    [ik.locationId])
+
+  const [tekst, setTekst] = useState(ik.mailHandtekening ?? '')
+  const [bezig, setBezig] = useState(false)
+
+  async function bewaar() {
+    setBezig(true)
+    try {
+      await zetHandtekening(ik, tekst)
+      /* Ook de sessie bijwerken, anders staat hier bij het volgende bezoek
+         nog de oude tekst en lijkt het alsof het niet is opgeslagen. */
+      await herlaadProfiel()
+      toast.ok(tekst.trim() ? 'Handtekening bewaard' : 'Geen handtekening meer')
+      sluit()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Bewaren lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Modal open title="Je handtekening" onClose={sluit} width={560}>
+      <p className="help" style={{ marginTop: 0 }}>
+        Komt onder elk bericht dat je verstuurt, met een streepje ertussen.
+        Pas hem gerust aan -- wat hier staat blijft staan.
+      </p>
+
+      <Field label="Tekst">
+        <textarea
+          className="input"
+          rows={9}
+          value={tekst}
+          placeholder="Met vriendelijke groet,"
+          onChange={(e) => setTekst(e.target.value)}
+        />
+      </Field>
+
+      <div className="row" style={{ marginTop: 14 }}>
+        <button
+          className="btn ghost"
+          onClick={() => setTekst(handtekeningVoor(ik, vestiging?.name))}
+        >
+          <RotateCcw size={14} /> Standaard
+        </button>
+        <span className="spacer" />
+        <button className="btn ghost" onClick={sluit}>Annuleren</button>
+        <button className="btn primary" disabled={bezig} onClick={() => void bewaar()}>
+          {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Bewaren'}
         </button>
       </div>
     </Modal>

@@ -2,6 +2,15 @@
  *  Domeinmodel Truckwash1 Group
  * ------------------------------------------------------------------ */
 
+/**
+ * Hoe het bedrijf heet, waar het naar buiten komt.
+ *
+ * Onder een mail, onderaan een document. Stond op vier plekken los in de
+ * code; hier één keer, zodat een naamswijziging niet op drie plekken blijft
+ * hangen.
+ */
+export const BEDRIJF = 'Truckwash 1 Group'
+
 export type Role =
   | 'employee' | 'supervisor' | 'technician' | 'customer' | 'management'
   | 'developer' | 'employer' | 'administratie' | 'trucksupply'
@@ -74,6 +83,14 @@ export interface User {
   /** Of het postvak openstaat. Uit = het adres is gereserveerd, verder niets. */
   werkMailAan?: boolean
   werkMailSinds?: number
+  /**
+   * Wat er onder een uitgaande mail komt (0082).
+   *
+   * Wordt bij het aanzetten van het postvak eenmalig gevuld met een voorstel
+   * (src/lib/handtekening.ts) en is daarna van die persoon: hij past hem aan
+   * en wij laten hem met rust. Platte tekst -- de mail is dat ook.
+   */
+  mailHandtekening?: string
 
   /**
    * Afwijkingen op wat de rollen standaard toestaan. Hiermee stel je per

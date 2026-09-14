@@ -5932,3 +5932,14 @@ table.data tr.aan td { font-weight: 600; }
   .doc-blok { grid-template-columns: minmax(0, 1fr) auto; }
   .doc-blok-soort { grid-column: 1 / -1; }
 }
+
+/* De handtekening zoals hij onder een bericht komt, in het opstelvenster. */
+.mail-handtekening {
+  margin-top: 12px; padding: 10px 12px;
+  border: 1px dashed var(--line-soft); border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.mail-handtekening pre {
+  margin: 6px 0 0; font: inherit; white-space: pre-wrap;
+  color: var(--text-2); font-size: .84rem;
+}
