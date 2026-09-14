@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bell, Database, Download, HardDrive, KeyRound, RefreshCw, ServerCog,
@@ -16,6 +16,7 @@ import { money, relative } from '../../lib/format'
 import { Badge, Card, Empty, Stat } from '../../components/ui'
 import { notifyPermissionState, requestNotifyPermission } from '../../lib/notify'
 import { toast } from '../../store/useToasts'
+import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 
 /* ------------------------------------------------------------------ *
  *  Beheerderspaneel
@@ -229,6 +230,8 @@ export default function Beheer() {
             </div>
           </div>
         </Card>
+
+        <Werkadressen />
       </div>
 
       <Card title="Rechtenoverzicht" hint="Wat iedereen daadwerkelijk mag" flush className="mb">
@@ -336,5 +339,99 @@ export default function Beheer() {
         </Card>
       </div>
     </>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Werkadressen
+ *
+ *  Het adres zelf deel je per persoon uit, in zijn dossier. Maar het stuk
+ *  achter de @ is er één voor het hele bedrijf, en dat stond tot nu toe
+ *  alleen in de database -- zonder scherm om het te zetten.
+ *
+ *  Gevolg: de knop "Werkadres aanzetten" in een dossier stond er wel en kon
+ *  niets, want hij wist niet wat hij achter de voornaam moest zetten. Een
+ *  knop die niets doet omdat er elders iets ontbreekt is erger dan een knop
+ *  die er niet is: je gaat zoeken in het verkeerde scherm.
+ * ------------------------------------------------------------------ */
+
+function Werkadressen() {
+  const [domein, setDomein] = useState('')
+  const [geladen, setGeladen] = useState(false)
+  const [bezig, setBezig] = useState(false)
+
+  useEffect(() => {
+    let levend = true
+    void leesInstelling(SLEUTELS.werkDomein).then((waarde) => {
+      if (!levend) return
+      setDomein(waarde ?? '')
+      setGeladen(true)
+    })
+    return () => { levend = false }
+  }, [])
+
+  /*
+   * Een domein en geen mailadres. Wie hier "jan@truckwash1group.nl" intikt
+   * krijgt straks "piet@jan@truckwash1group.nl", en dat valt pas op als er
+   * post niet aankomt.
+   */
+  const kaal = domein.trim().toLowerCase().replace(/^@/, '')
+  const fout = !geladen || kaal === ''
+    ? null
+    : kaal.includes('@') ? 'Alleen het stuk ná de @.'
+    : !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(kaal) ? 'Dat lijkt geen domein.'
+    : null
+
+  async function bewaar() {
+    if (fout) return
+    setBezig(true)
+    try {
+      await zetInstelling(SLEUTELS.werkDomein, kaal)
+      toast.ok(kaal
+        ? `Werkadressen worden voornaam@${kaal}`
+        : 'Uitgezet. Er kunnen geen werkadressen meer bij.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Opslaan mislukte.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Card title="Werkadressen" hint="Het domein achter de @">
+      <div className="setting-row" style={{ borderBottom: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="setting-label">Domein</div>
+          <div className="setting-hint">
+            Iemand met de voornaam Jan krijgt jan@{kaal || 'domein.nl'}. Het
+            adres zelf deel je uit in het dossier van die persoon, onder
+            “Werkadres”.
+          </div>
+        </div>
+      </div>
+
+      <div className="row" style={{ gap: 8, marginTop: 4 }}>
+        <input
+          className="input"
+          value={domein}
+          placeholder="truckwash1group.nl"
+          onChange={(e) => setDomein(e.target.value)}
+          style={{ flex: 1, minWidth: 0 }}
+        />
+        <button className="btn sm primary" disabled={bezig || !!fout} onClick={() => void bewaar()}>
+          Opslaan
+        </button>
+      </div>
+      {fout && (
+        <span className="help danger" style={{ color: 'var(--text-danger)' }}>{fout}</span>
+      )}
+
+      <p className="help" style={{ marginTop: 12 }}>
+        Het domein moet bij Resend geverifieerd zijn (SPF en DKIM) én de
+        inkomende post moet naar de functie <span className="mono">ontvang-mail</span>
+        wijzen. Staat dat niet klaar, dan kun je hier wel een adres uitdelen
+        maar komt er niets aan en gaat er niets weg.
+      </p>
+    </Card>
   )
 }

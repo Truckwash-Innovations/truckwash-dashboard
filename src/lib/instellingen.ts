@@ -49,6 +49,15 @@ export const SLEUTELS = {
   eigenBtw: 'eigen_btw',
   eigenIban: 'eigen_iban',
   /*
+   * Het domein voor de werkadressen van medewerkers (0081): voornaam@<dit>.
+   *
+   * Los van inkoopDomein hierboven, en dat is geen slordigheid: facturen
+   * komen binnen op een ander domein dan waar mensen hun post op krijgen.
+   * Leeg betekent dat er geen werkadres uitgedeeld kan worden -- de knop in
+   * het dossier weet dan niet wat hij achter de naam moet zetten.
+   */
+  werkDomein: 'werk_domein',
+  /*
    * Wie de facturen leest (0049). 'claude' is Claude in de cloud, 'lokaal' is
    * Ollama op de eigen server via het programma in lezer/, en
    * 'lokaal-terugval' is lokaal met Claude als vangnet wanneer het lokale
