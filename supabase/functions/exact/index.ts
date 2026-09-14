@@ -1486,6 +1486,28 @@ interface VerkoopAntwoord {
   EntryNumber?: number
 }
 
+/**
+ * Een omschrijving zoals Exact hem aanneemt: hoogstens 60 tekens, en niet
+ * middenin een woord afgehakt.
+ *
+ * Die grens is van Exact en niet van ons. Wat wij eraan kunnen doen is hoe
+ * hij eindigt: "Buitenwas trekker + oplegger met extra behandel" leest in
+ * het dagboek als een fout, terwijl er alleen een limiet is gehaald. Op een
+ * spatie afbreken en er een beletselteken achter zetten zegt: hier stond
+ * meer.
+ *
+ * Alleen terugzoeken als dat niet te veel kost -- staat de laatste spatie
+ * helemaal vooraan (een lange code zonder spaties), dan is hard afkappen
+ * beter dan twee woorden overhouden.
+ */
+function kortVoorExact(ruw: string, max = 60): string {
+  const schoon = String(ruw ?? '').replace(/\s+/g, ' ').trim()
+  if (schoon.length <= max) return schoon
+  const kaal = schoon.slice(0, max - 1)
+  const spatie = kaal.lastIndexOf(' ')
+  return (spatie > max * 0.6 ? kaal.slice(0, spatie) : kaal) + '…'
+}
+
 async function stuurVerkoop(beller: Beller): Promise<Response> {
   const { data: dagboekRij } = await admin.from('instellingen')
     .select('waarde').eq('sleutel', 'exact_verkoopdagboek').maybeSingle()
@@ -1541,7 +1563,7 @@ async function stuurVerkoop(beller: Beller): Promise<Response> {
           AmountFC: Math.round(Number(r.aantal) * Number(r.prijs_excl) * 100) / 100,
           Quantity: Number(r.aantal) || 1,
           VATCode: btwCode,
-          Description: String(r.omschrijving ?? '').slice(0, 60),
+          Description: kortVoorExact(r.omschrijving ?? ''),
           ...(glId ? { GLAccount: glId } : {}),
         })
       }
@@ -1550,7 +1572,7 @@ async function stuurVerkoop(beller: Beller): Promise<Response> {
         Journal: dagboek,
         Customer: link.exact_id,
         EntryDate: exactDatum(Number(f.datum) || Date.now()),
-        Description: `${f.company_naam} ${f.periode ?? ''}`.trim().slice(0, 60),
+        Description: kortVoorExact(`${f.company_naam} ${f.periode ?? ''}`),
         /* Ons eigen factuurnummer in YourRef. InvoiceNumber is bij Exact een
            geheel getal, en "2026-0001" past daar niet in. */
         YourRef: String(f.nummer ?? '').slice(0, 50),
@@ -1853,6 +1875,9 @@ async function facturenStand() {
       administratie: (e.administratie as string) ?? null,
       datum: Number(e.datum) || 0,
       crediteur: (e.crediteur_naam as string) ?? null,
+      /* Waar de factuur over gaat, van het papier (0085). Dit wordt de
+         regelomschrijving in het inkoopdagboek als de bon niet gesplitst is. */
+      kenmerk: (e.kenmerk as string) ?? null,
       mist,
       fout: (e.fout as string) ?? null,
     }
@@ -2041,7 +2066,10 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           AmountFC: bon.bedrag,
           GLAccount: bon.grootboekId,
           VATCode: btwCode,
-          Description: (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
+          /* Wat de lezer van het papier haalde gaat voor het factuurnummer:
+             "Elektra maart" zegt in het dagboek meer dan "2026-00841". */
+          Description: kortVoorExact(bon.kenmerk ?? '')
+            || kortVoorExact(bon.factuurnummer ?? bon.leverancier),
         }]
       } else {
         lijnen = []
@@ -2063,8 +2091,8 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
             AmountFC: Number(r.bedrag_excl) || 0,
             GLAccount: rek.exact_id,
             VATCode: regelBtw,
-            Description: String(r.omschrijving ?? '').trim().slice(0, 60)
-              || (bon.factuurnummer ?? bon.leverancier).slice(0, 60),
+            Description: kortVoorExact(r.omschrijving ?? '')
+              || kortVoorExact(bon.factuurnummer ?? bon.leverancier),
           })
         }
       }
@@ -2073,7 +2101,8 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
         Journal: inst.dagboek,
         Supplier: bon.crediteurId,
         EntryDate: exactDatum(bon.datum || Date.now()),
-        Description: `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`.slice(0, 60),
+        Description: kortVoorExact(
+          `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`),
         YourRef: (bon.factuurnummer ?? '').slice(0, 50),
         PurchaseEntryLines: lijnen,
       }, bon.administratie)

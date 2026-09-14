@@ -4882,6 +4882,52 @@ table.data tr.aan td { font-weight: 600; }
 }
 .lezing-veld .w { font-size: .86rem; }
 
+/*
+ * De regels van een gelezen factuur.
+ *
+ * Geen tabel, en dat is met opzet. Hier stond er een met vijf kolommen --
+ * omschrijving, aantal, stukprijs, btw, bedrag -- en in deze kolom past dat
+ * niet. Dan schuift de tabel opzij en valt precies het bedrag buiten beeld,
+ * zodat er "Totaal inclusief" staat met niets erachter.
+ *
+ * Twee kolommen passen altijd: wat het was, en wat het kostte. Het aantal en
+ * de stukprijs staan eronder in het klein, want die lees je alleen als je
+ * twijfelt aan het bedrag.
+ */
+.lezing-regels {
+  margin-top: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.lezing-regel {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: .84rem;
+}
+.lezing-regel:first-child { border-top: none; }
+.lezing-regel-wat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+/* Een lange omschrijving breekt af in plaats van de kolom op te rekken. */
+.lezing-regel-wat > span { overflow-wrap: anywhere; }
+.lezing-regel-bedrag {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lezing-regel.som { color: var(--text-2); }
+.lezing-regel.som.totaal {
+  color: var(--text);
+  border-top: 1px solid var(--line);
+}
+
 .lezing-overnemen {
   margin-top: 14px;
   padding-top: 12px;

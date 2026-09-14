@@ -1211,6 +1211,50 @@ function Splitsen({ bon }: { bon: Expense }) {
     }
   }
 
+  /*
+   * De regels van de factuur overnemen.
+   *
+   * Casper: "dat ik bijvoorbeeld 2 dingen op het factuur, ook verschillende
+   * posten op kan zetten."
+   *
+   * Dat kon al -- maar je moest elke regel overtypen, terwijl de lezer ze
+   * allang van het papier had gehaald. Dat is niet alleen werk: wie overtypt
+   * maakt tikfouten in bedragen die daarna gewoon worden goedgekeurd.
+   *
+   * Wat hier NIET gebeurt is de rekening kiezen. De lezer weet wat er staat
+   * ("Buitenwas trekker + oplegger"), niet waar het hoort -- dat is precies
+   * het oordeel dat je zelf wilt maken, en het is de reden dat je splitst.
+   * Eén uitzondering: staat er al een rekening op de bon, dan krijgt de
+   * eerste regel die, want dat is bijna altijd de grootste post.
+   */
+  const teVerdelen = (bon.gelezen?.regels ?? []).filter((r) => Number(r.bedragExcl) > 0)
+
+  async function neemOver() {
+    /* Wat er staat eerst weg, anders komen de regels er dubbel bij te staan
+       als je twee keer drukt. */
+    for (const r of opVolgorde) await expRepo.wisRegel(r.id)
+
+    let n = 0
+    for (const r of teVerdelen) {
+      await expRepo.zetRegel({
+        id: uid('er'),
+        expenseId: bon.id,
+        volgorde: n,
+        omschrijving: (r.omschrijving ?? '').slice(0, 200),
+        bedragExcl: Math.round((Number(r.bedragExcl) || 0) * 100) / 100,
+        /* Het tarief van de regel als het op het papier stond, anders dat van
+           de bon. Een factuur met 21% en 9% door elkaar is precies waarom dit
+           per regel staat. */
+        btwPct: r.btwPct ?? bon.vatPct ?? 21,
+        grootboekCode: n === 0 ? bon.grootboekCode : undefined,
+        locationId: bon.locationId,
+      })
+      n++
+    }
+    setOpen(true)
+    toast.ok(`${n} regel${n === 1 ? '' : 's'} overgenomen. Kies er nog een rekening bij.`)
+  }
+
   if (!open && opVolgorde.length === 0) {
     return (
       <Card title="Verdeling" hint="Deze factuur staat op één rekening" className="mb">
@@ -1222,9 +1266,14 @@ function Splitsen({ bon }: { bon: Expense }) {
                 ? 'Deze factuur staat al in Exact; de verdeling kan niet meer wijzigen.'
                 : 'Je mag de verdeling niet wijzigen.'}
           </span>
+          {mag && teVerdelen.length > 1 && (
+            <button className="btn sm primary" onClick={() => void neemOver()}>
+              <Split size={14} /> Verdeel de {teVerdelen.length} regels
+            </button>
+          )}
           {mag && (
             <button className="btn sm" onClick={() => { setOpen(true); void voegToe() }}>
-              <Split size={14} /> Splitsen
+              <Split size={14} /> {teVerdelen.length > 1 ? 'Zelf' : 'Splitsen'}
             </button>
           )}
         </div>
@@ -1238,9 +1287,20 @@ function Splitsen({ bon }: { bon: Expense }) {
       hint={`${opVolgorde.length} regel${opVolgorde.length === 1 ? '' : 's'}`}
       className="mb"
       action={mag ? (
-        <button className="btn ghost sm" onClick={() => void voegToe()}>
-          <Plus size={14} /> Regel
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          {teVerdelen.length > 1 && (
+            <button
+              className="btn ghost sm"
+              title="De regels van de factuur overnemen; wat hier staat gaat weg"
+              onClick={() => void neemOver()}
+            >
+              <Split size={14} /> Van de factuur
+            </button>
+          )}
+          <button className="btn ghost sm" onClick={() => void voegToe()}>
+            <Plus size={14} /> Regel
+          </button>
+        </div>
       ) : undefined}
     >
       {bon.exactId && (
@@ -2008,45 +2068,62 @@ function Lezing({ bon, lezing }: { bon: Expense; lezing: FactuurLezing }) {
 
       {/* --- de regels --- */}
       {(lezing.regels?.length ?? 0) > 0 && (
-        <div className="table-wrap" style={{ marginTop: 12, maxHeight: 260, overflowY: 'auto' }}>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Omschrijving</th>
-                <th className="num">Aantal</th>
-                <th className="num">Stukprijs</th>
-                <th className="num">Btw</th>
-                <th className="num">Excl.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lezing.regels!.map((r, i) => (
-                <tr key={i}>
-                  <td>{r.omschrijving}</td>
-                  <td className="num">
-                    {r.aantal != null ? `${r.aantal}${r.eenheid ? ' ' + r.eenheid : ''}` : '—'}
-                  </td>
-                  <td className="num">{r.stukprijs != null ? money(r.stukprijs) : '—'}</td>
-                  <td className="num">{r.btwPct != null ? `${r.btwPct}%` : '—'}</td>
-                  <td className="num">{r.bedragExcl != null ? money(r.bedragExcl) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={4}>Subtotaal exclusief btw</td>
-                <td className="num">{lezing.subtotaalExcl != null ? money(lezing.subtotaalExcl) : '—'}</td>
-              </tr>
-              <tr>
-                <td colSpan={4}>Btw</td>
-                <td className="num">{lezing.btwBedrag != null ? money(lezing.btwBedrag) : '—'}</td>
-              </tr>
-              <tr>
-                <td colSpan={4}><strong>Totaal inclusief</strong></td>
-                <td className="num"><strong>{lezing.totaalIncl != null ? money(lezing.totaalIncl) : '—'}</strong></td>
-              </tr>
-            </tfoot>
-          </table>
+        /*
+         * Twee kolommen, en niet vijf.
+         *
+         * Hier stond een tabel met omschrijving, aantal, stukprijs, btw en
+         * bedrag. In deze kolom past dat niet, dus schoof de tabel opzij --
+         * en precies de kolom die ertoe doet viel buiten beeld. Op het scherm
+         * stond "Totaal inclusief" met niets erachter, en een aantal en een
+         * stukprijs die je niet kon optellen.
+         *
+         * Aantal en stukprijs staan nu onder de omschrijving ("18 stuk ×
+         * € 65,00"). Dat is dezelfde informatie op een plek waar hij past, en
+         * het bedrag blijft rechts staan waar je het zoekt.
+         */
+        <div className="lezing-regels">
+          {lezing.regels!.map((r, i) => (
+            <div className="lezing-regel" key={i}>
+              <div className="lezing-regel-wat">
+                <span>{r.omschrijving || '—'}</span>
+                {(r.aantal != null || r.stukprijs != null || r.btwPct != null) && (
+                  <span className="ts-sub">
+                    {[
+                      r.aantal != null
+                        ? `${r.aantal}${r.eenheid ? ' ' + r.eenheid : ''}`
+                        : null,
+                      r.stukprijs != null ? money(r.stukprijs) : null,
+                    ].filter(Boolean).join(' × ')}
+                    {r.btwPct != null
+                      ? `${r.aantal != null || r.stukprijs != null ? ' · ' : ''}${r.btwPct}% btw`
+                      : ''}
+                  </span>
+                )}
+              </div>
+              <div className="lezing-regel-bedrag">
+                {r.bedragExcl != null ? money(r.bedragExcl) : '—'}
+              </div>
+            </div>
+          ))}
+
+          <div className="lezing-regel som">
+            <div className="lezing-regel-wat"><span>Subtotaal exclusief btw</span></div>
+            <div className="lezing-regel-bedrag">
+              {lezing.subtotaalExcl != null ? money(lezing.subtotaalExcl) : '—'}
+            </div>
+          </div>
+          <div className="lezing-regel som">
+            <div className="lezing-regel-wat"><span>Btw</span></div>
+            <div className="lezing-regel-bedrag">
+              {lezing.btwBedrag != null ? money(lezing.btwBedrag) : '—'}
+            </div>
+          </div>
+          <div className="lezing-regel som totaal">
+            <div className="lezing-regel-wat"><strong>Totaal inclusief</strong></div>
+            <div className="lezing-regel-bedrag">
+              <strong>{lezing.totaalIncl != null ? money(lezing.totaalIncl) : '—'}</strong>
+            </div>
+          </div>
         </div>
       )}
 

@@ -9456,5 +9456,138 @@ console.log('\n73. Wat de lokale lezer te zien krijgt')
     proefset.includes("f.sleutel === 'eigen-verkoop' ? 'verkoop' : 'inkoop'"))
 }
 
+/* ==================================================================== *
+ *  74. Eén factuur, meerdere posten
+ *
+ *  Casper: "dat ik bijvoorbeeld 2 dingen op het factuur, ook verschillende
+ *  posten op kan zetten (...) Je moet het echt vriendelijk maken voor exact."
+ *
+ *  Verdelen kon al sinds 0062, maar je moest elke regel OVERTYPEN terwijl de
+ *  lezer ze allang van het papier had gehaald. Dat is niet alleen werk: wie
+ *  overtypt maakt tikfouten in bedragen, en die worden daarna goedgekeurd
+ *  zonder dat iemand ze naast het papier houdt.
+ *
+ *  En wat er in Exact terechtkwam was de tweede helft. Een ongesplitste bon
+ *  kreeg het factuurnummer als regelomschrijving, dus stond er in het
+ *  inkoopdagboek twee keer hetzelfde nummer en nergens waar het over ging.
+ * ==================================================================== */
+
+console.log('\n74. Eén factuur, meerdere posten')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const exact = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const migratie = readFileSync(
+    'supabase/migrations/0085_de_omschrijving_in_het_dagboek.sql', 'utf8')
+  const css = readFileSync('src/styles/theme.css', 'utf8')
+
+  /* ---- 1. de weergave paste niet ---- */
+
+  /*
+   * Vijf kolommen in een smalle kolom betekent horizontaal schuiven, en dan
+   * valt precies het bedrag buiten beeld: op het scherm stond "Totaal
+   * inclusief" met niets erachter.
+   */
+  const lezingBlok = scherm.slice(scherm.indexOf('{/* --- de regels --- */}'),
+    scherm.indexOf('{/* --- wat er over te nemen valt --- */}'))
+  check('de gelezen regels staan niet meer in een tabel van vijf kolommen',
+    lezingBlok.length > 0 && !lezingBlok.includes('<th className="num">Stukprijs</th>'),
+    lezingBlok.length ? 'de tabel staat er nog' : 'blok niet gevonden')
+  check('maar in twee kolommen: wat het was en wat het kostte',
+    lezingBlok.includes('lezing-regel-wat') && lezingBlok.includes('lezing-regel-bedrag'))
+  check('en het bedrag staat er nog bij elke regel',
+    lezingBlok.includes('r.bedragExcl != null ? money(r.bedragExcl)'))
+  check('ook onder het totaal',
+    lezingBlok.includes('lezing.totaalIncl != null ? money(lezing.totaalIncl)'))
+
+  check('de opmaak staat erbij', /\.lezing-regel-bedrag\s*\{/.test(css))
+  /* Een lang bedrag mag niet afbreken; dat is precies wat er misging. */
+  check('en het bedrag breekt niet af',
+    /\.lezing-regel-bedrag\s*\{[^}]*white-space:\s*nowrap/.test(css))
+
+  /* ---- 2. de regels overnemen ---- */
+
+  const splitsen = scherm.slice(scherm.indexOf('function Splitsen('))
+  check('de regels van de factuur zijn over te nemen',
+    splitsen.includes('async function neemOver()'))
+  check('en komen uit de lezing, niet uit de hand',
+    splitsen.includes("bon.gelezen?.regels"))
+
+  /*
+   * Alleen regels met een bedrag. Een regel van nul is een kopregel of een
+   * toelichting ("Specificatie:"), en die hoort geen boekingsregel te worden
+   * -- Exact neemt hem aan en dan staat er een lege regel in het dagboek.
+   */
+  check('regels zonder bedrag worden overgeslagen',
+    splitsen.includes('Number(r.bedragExcl) > 0'))
+
+  /*
+   * Twee keer drukken mag geen dubbele verdeling geven. Dat is geen
+   * schoonheidsfout: de som telt dan op tot het dubbele en de bon kan niet
+   * meer worden goedgekeurd, met een foutmelding die over "de regels tellen
+   * op tot te veel" gaat en niet over de knop die je twee keer indrukte.
+   */
+  check('wat er stond gaat eerst weg',
+    /for \(const r of opVolgorde\) await expRepo\.wisRegel\(r\.id\)/.test(splitsen))
+
+  /*
+   * De rekening wordt NIET geraden. De lezer weet wat er staat, niet waar het
+   * hoort -- en dat oordeel is juist de reden dat je splitst.
+   */
+  check('de rekening kiest een mens, behalve die van de bon zelf',
+    splitsen.includes('grootboekCode: n === 0 ? bon.grootboekCode : undefined'))
+
+  /* Het tarief van de regel gaat voor dat van de bon: een factuur met 21% en
+     9% door elkaar is precies waarom dit per regel staat. */
+  check('het btw-tarief komt van de regel als het op het papier stond',
+    splitsen.includes('btwPct: r.btwPct ?? bon.vatPct ?? 21'))
+
+  check('de knop verschijnt pas als er iets te verdelen valt',
+    splitsen.includes('teVerdelen.length > 1'))
+
+  /* ---- 3. wat Exact te zien krijgt ---- */
+
+  check('een omschrijving wordt netjes afgekapt',
+    /function kortVoorExact\(/.test(exact))
+  /*
+   * Nergens meer een harde slice(0, 60) -- ook niet aan de verkoopkant. Die
+   * stond er nog, in stuurVerkoop(), en de test vond hem: dezelfde fout in
+   * een andere functie. Eén afkapper voor alle vier de plekken, anders staat
+   * er over een half jaar weer een die het net anders doet.
+   */
+  check('en niet meer middenin een woord, ook niet bij verkoop',
+    !/\.slice\(0, 60\)/.test(exact),
+    'er staat nog een harde slice(0, 60)')
+  check('elke omschrijving die naar Exact gaat, gaat door die ene afkapper',
+    (exact.match(/Description:/g) ?? []).length
+      === (exact.match(/kortVoorExact\(/g) ?? []).length
+        - (exact.match(/function kortVoorExact\(/g) ?? []).length
+        - (exact.match(/\|\| kortVoorExact\(/g) ?? []).length,
+    'niet elke Description gaat door kortVoorExact')
+
+  /*
+   * Waar de factuur over ging, in plaats van nog een keer het factuurnummer.
+   * Dat is wat er in het inkoopdagboek komt te staan.
+   */
+  check('het kenmerk uit de lezing gaat mee naar Exact',
+    exact.includes('kortVoorExact(bon.kenmerk ?? \'\')'))
+  check('en de database geeft het terug', migratie.includes("gelezen ->> 'kenmerk'"))
+
+  /*
+   * De rechten na een drop function. Supabase geeft elke nieuwe functie aan
+   * anon en authenticated; deze leest langs RLS heen wat er aan facturen
+   * klaarstaat, dus die deur hoort dicht. Zie 0033/0034.
+   */
+  check('en de rechten staan na de drop weer goed',
+    migratie.includes('revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated')
+    && migratie.includes('grant  execute on function public.exact_facturen_wachtend() to service_role'))
+
+  /* Valt het kenmerk weg, dan gaat het zoals het ging. Een lege omschrijving
+     in het dagboek is erger dan een factuurnummer. */
+  check('zonder kenmerk blijft het factuurnummer de terugval',
+    exact.includes("|| kortVoorExact(bon.factuurnummer ?? bon.leverancier)"))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
