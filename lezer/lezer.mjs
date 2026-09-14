@@ -644,7 +644,28 @@ async function aiLus() {
     if (!opdracht) continue
 
     const begin = Date.now()
-    const model = opdracht.model || INSTELLING.modelTekst
+    /*
+     * Welk model.
+     *
+     * De server zegt welk model hij wil (instelling ai_lokaal_model), en dat
+     * is het antwoord voor een gesprek. Voor een opdracht MET plaatjes niet:
+     * bij die instelling staat er met zoveel woorden bij dat hij geen
+     * plaatjes hoeft te kunnen lezen (0051), want tot 0080 ging er nooit
+     * beeld langs deze lus.
+     *
+     * Een model zonder ogen negeert de afbeelding stilzwijgend en antwoordt
+     * op het prompt alleen. Dat levert geen fout op maar een lezing die
+     * nergens op slaat -- precies het soort stilte waar je een middag aan
+     * kwijt bent.
+     *
+     * Deze machine weet welk van zijn modellen kan kijken en de server niet.
+     * Dus bij beeld wint LEZER_MODEL_BEELD, als die met zoveel woorden is
+     * gezet. Staat hij niet, dan blijft het bij wat de server vroeg.
+     */
+    const metBeeld = Array.isArray(opdracht.plaatjes) && opdracht.plaatjes.length > 0
+    const model = (metBeeld && process.env.LEZER_MODEL_BEELD)
+      || opdracht.model
+      || (metBeeld ? INSTELLING.modelBeeld : INSTELLING.modelTekst)
     begintMet(
       opdracht.soort === 'trucky' ? 'vraag van de website'
         : opdracht.soort === 'document' ? 'een ingescand document lezen'

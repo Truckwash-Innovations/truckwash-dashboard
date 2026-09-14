@@ -8385,6 +8385,21 @@ console.log('\n65. Waar de foto van een paspoort heen mag')
     functie.includes('MAX_PLAATJES'))
   check('en aan de omvang', functie.includes('MAX_TEKENS'))
 
+  /*
+   * En de opdracht moet bij een model met ogen terechtkomen.
+   *
+   * De server vraagt om ai_lokaal_model, en bij die instelling staat met
+   * zoveel woorden dat hij geen plaatjes hoeft te kunnen lezen (0051) -- tot
+   * 0080 ging er nooit beeld langs die lus. Een model zonder ogen negeert de
+   * afbeelding stilzwijgend en antwoordt op het prompt alleen: geen fout,
+   * maar een lezing die nergens op slaat.
+   */
+  const machine = readFileSync('lezer/lezer.mjs', 'utf8')
+  check('een opdracht met een foto gaat naar het beeldmodel',
+    machine.includes('metBeeld && process.env.LEZER_MODEL_BEELD'))
+  check('en de plaatjes gaan ook echt mee naar Ollama',
+    machine.includes("{ role: 'user', content: gebruiker, images: plaatjes }"))
+
   /* De leesmotor op het toestel blijft bestaan; dit is de tweede poging. */
   const scannen = readFileSync('src/lib/scannen.ts', 'utf8')
   check('het lezen op het toestel zelf blijft staan',
