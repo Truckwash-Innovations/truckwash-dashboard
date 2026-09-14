@@ -1014,14 +1014,69 @@ function alsStand(uit: Partial<GrootboekStand>): GrootboekStand {
 }
 
 /** De stand zonder Exact te bellen: alleen wat er is opgeslagen. */
+/* ------------------------------------------------------------------ *
+ *  Ophalen in rondes
+ *
+ *  De serverfunctie gaf 546 terug: WORKER_LIMIT bij Supabase, de worker was
+ *  neergehaald omdat hij door zijn rekentijd heen ging. De oorzaak zat niet
+ *  in één trage bv maar in de vorm: één verzoek liep over ALLE aangevinkte
+ *  administraties, en dat is een grens die meegroeit met het werk -- dus geen
+ *  grens. Bij één bv merkte niemand het; bij ruim twintig valt hij altijd om.
+ *
+ *  De server werkt nu tot zijn tijdsbudget op is en geeft terug wat er nog
+ *  ligt. Hier staat de lus die dat afmaakt.
+ *
+ *  Waarom hier en niet in het scherm
+ *  ---------------------------------
+ *
+ *  Omdat er drie schermen zijn die ophalen, en drie lussen zijn drie kansen
+ *  om er een te vergeten. Een scherm dat één keer belt en denkt dat het klaar
+ *  is, toont een half opgehaald rekeningschema als een heel.
+ *
+ *  De teller is een noodrem en geen verwachting: bij twintig bv's zijn het er
+ *  hooguit een paar. Blijft de server "nog niet klaar" zeggen zonder te
+ *  vorderen, dan is er iets anders aan de hand en hoort dat te blijken in
+ *  plaats van eeuwig door te draaien.
+ */
+/*
+ * Ruim boven wat het worst case kost: twintig bv's die elk een eigen ronde
+ * nodig hebben, twee keer (grootboek en relaties), plus de vaste stappen.
+ */
+const MAX_RONDES = 80
+
+async function inRondes<T extends { klaar?: boolean; vervolg?: unknown }>(
+  actie: string,
+  extra: Record<string, unknown> = {},
+  onderweg?: (uit: T) => void,
+): Promise<T> {
+  let vervolg: unknown = undefined
+  let uit = await roepFunctie<T>('exact', { actie, ...extra })
+
+  for (let n = 0; uit.klaar !== true && n < MAX_RONDES; n++) {
+    onderweg?.(uit)
+    /* Geen vervolg terwijl hij ook niet klaar is: dan vordert er niets meer
+       en is doorgaan alleen maar hetzelfde verzoek herhalen. */
+    if (uit.vervolg === undefined && !('fase' in (uit as object))) break
+    vervolg = uit.vervolg
+    uit = await roepFunctie<T>('exact', {
+      actie,
+      ...extra,
+      ...(vervolg !== undefined ? { vervolg } : {}),
+      ...('fase' in (uit as object) ? { fase: (uit as { fase?: string }).fase } : {}),
+      ...('weg' in (uit as object) ? { weg: (uit as { weg?: unknown }).weg } : {}),
+    })
+  }
+  return uit
+}
+
 export async function exactGrootboekStand(): Promise<GrootboekStand> {
   return alsStand(await roepFunctie<GrootboekStand>('exact', { actie: 'grootboek-stand' }))
 }
 
 /** Het schema opnieuw ophalen bij Exact. Duurt even bij een grote administratie. */
 export async function exactSyncGrootboek(): Promise<GrootboekStand & { aantal: number }> {
-  const uit = await roepFunctie<GrootboekStand & { aantal?: number }>(
-    'exact', { actie: 'sync-grootboek' })
+  const uit = await inRondes<GrootboekStand & { aantal?: number; klaar?: boolean }>(
+    'sync-grootboek')
   return { ...alsStand(uit), aantal: uit.aantal ?? 0 }
 }
 
@@ -1238,9 +1293,10 @@ export async function exactFacturenStand(): Promise<FacturenStand> {
 export async function exactSyncRelaties(): Promise<
   FacturenStand & { aantal: number; gekoppeldLeveranciers: number; gekoppeldBedrijven: number }
 > {
-  const uit = await roepFunctie<FacturenStand & {
+  const uit = await inRondes<FacturenStand & {
     aantal?: number; gekoppeldLeveranciers?: number; gekoppeldBedrijven?: number
-  }>('exact', { actie: 'sync-relaties' })
+    klaar?: boolean
+  }>('sync-relaties')
   return {
     ...alsFacturen(uit),
     aantal: uit.aantal ?? 0,
@@ -1678,16 +1734,46 @@ export interface ExactResultaat {
  * wat de accountant ook ziet.
  */
 export async function exactResultaat(jaar?: number): Promise<ExactResultaat> {
-  const uit = await roepFunctie<Partial<ExactResultaat>>('exact', {
-    actie: 'resultaat',
-    ...(jaar ? { jaar } : {}),
-  })
+  /*
+   * Ook dit gaat per ronde -- één bv is een hele resultatenrekening over
+   * twaalf perioden, en over ruim twintig bv's haalde dat de tijdslimiet.
+   *
+   * Hier wordt niet alleen doorgeteld maar ook samengevoegd: elke ronde geeft
+   * de bv's die zíj deed, en het totaal moet over alles gaan. Zou het totaal
+   * van de laatste ronde worden genomen, dan stond er een resultaat van vier
+   * bv's onder een lijst van twintig -- en dat is erger dan een foutmelding,
+   * want het ziet er goed uit.
+   */
   const leeg = { omzet: 0, kosten: 0, resultaat: 0 }
+  const perBv: ResultaatBv[] = []
+  let uit: Partial<ExactResultaat> & { rest?: string[] } = {}
+  let rest: string[] | undefined
+
+  for (let n = 0; n < MAX_RONDES; n++) {
+    uit = await roepFunctie<Partial<ExactResultaat> & { rest?: string[] }>('exact', {
+      actie: 'resultaat',
+      ...(jaar ? { jaar } : {}),
+      ...(rest ? { rest } : {}),
+    })
+    if (Array.isArray(uit.perBv)) perBv.push(...uit.perBv)
+    rest = Array.isArray(uit.rest) && uit.rest.length ? uit.rest : undefined
+    if (!rest) break
+  }
+
+  const gelukt = perBv.filter((b) => !b.fout)
+  const rond = (x: number) => Math.round(x * 100) / 100
+
   return {
     jaar: Number(uit.jaar) || new Date().getFullYear(),
     totPeriode: Number(uit.totPeriode) || 12,
-    perBv: Array.isArray(uit.perBv) ? uit.perBv : [],
-    totaal: uit.totaal ?? leeg,
+    perBv,
+    totaal: perBv.length
+      ? {
+        omzet: rond(gelukt.reduce((a, b) => a + b.omzet, 0)),
+        kosten: rond(gelukt.reduce((a, b) => a + b.kosten, 0)),
+        resultaat: rond(gelukt.reduce((a, b) => a + b.resultaat, 0)),
+      }
+      : (uit.totaal ?? leeg),
     brug: uit.brug ?? { geboekt: 0, wachtend: 0, wachtendBedrag: 0, mislukt: 0 },
     gemetenOp: Number(uit.gemetenOp) || Date.now(),
   }
@@ -1701,16 +1787,22 @@ export async function exactResultaat(jaar?: number): Promise<ExactResultaat> {
  * opnieuw op te halen. Wat er daarna nergens meer naar wijst komt terug als
  * "wezen": iets om naar te kijken, niet om stilletjes op te ruimen.
  */
-export async function exactOpnieuwOphalen(): Promise<
+export async function exactOpnieuwOphalen(
+  /* Waar de ronde is; het scherm laat het zien. Dit duurt bij twintig bv's
+     een minuut of wat, en een knop die zo lang niets zegt lijkt kapot. */
+  melden?: (stap: string) => void,
+): Promise<
   FacturenStand & {
     weg: { grootboek: number; relaties: number; personeel: number }
     wezen: { leveranciers: string[]; bedrijven: string[]; medewerkers: number }
   }
 > {
-  const uit = await roepFunctie<FacturenStand & {
+  const uit = await inRondes<FacturenStand & {
+    klaar?: boolean
     weg?: { grootboek: number; relaties: number; personeel: number }
     wezen?: { leveranciers: string[]; bedrijven: string[]; medewerkers: number }
-  }>('exact', { actie: 'opnieuw-ophalen' })
+  }>('opnieuw-ophalen', {}, (tussen) => melden?.(String(
+    (tussen as { stap?: string }).stap ?? 'Bezig…')))
   return {
     ...alsFacturen(uit),
     weg: uit.weg ?? { grootboek: 0, relaties: 0, personeel: 0 },

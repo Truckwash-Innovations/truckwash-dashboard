@@ -3295,6 +3295,9 @@ export function Proefrit({ verbonden }: { verbonden: boolean }) {
   const [fout, setFout] = useState<string | null>(null)
   const [opnieuw, setOpnieuw] = useState(false)
   const [ophaalUit, setOphaalUit] = useState<string | null>(null)
+  /* Waar de ronde is. Dit duurt bij twintig bv's een minuut of wat, en een
+     knop die zo lang niets zegt lijkt kapot. */
+  const [stap, setStap] = useState<string | null>(null)
 
   async function rijd() {
     setBezig(true)
@@ -3311,8 +3314,9 @@ export function Proefrit({ verbonden }: { verbonden: boolean }) {
   async function haalAllesOpnieuw() {
     setBezig(true)
     setFout(null)
+    setStap('Bezig…')
     try {
-      const r = await exactOpnieuwOphalen()
+      const r = await exactOpnieuwOphalen(setStap)
       const wezen = r.wezen.leveranciers.length + r.wezen.bedrijven.length + r.wezen.medewerkers
       setOphaalUit(
         `Weggegooid en opnieuw opgehaald: ${r.weg.grootboek} rekeningen, `
@@ -3333,6 +3337,7 @@ export function Proefrit({ verbonden }: { verbonden: boolean }) {
       setFout(e instanceof Error ? e.message : 'Opnieuw ophalen lukte niet.')
     } finally {
       setBezig(false)
+      setStap(null)
     }
   }
 
@@ -3414,7 +3419,9 @@ export function Proefrit({ verbonden }: { verbonden: boolean }) {
       )}
 
       <div className="row" style={{ marginTop: 14 }}>
-        {uit && <span className="ts-sub">Gemeten {relative(uit.gemetenOp)}</span>}
+        {stap
+          ? <span className="ts-sub">{stap}</span>
+          : uit && <span className="ts-sub">Gemeten {relative(uit.gemetenOp)}</span>}
         <span className="spacer" />
         <button className="btn ghost sm" disabled={bezig} onClick={() => setOpnieuw(true)}>
           <RefreshCw size={14} /> Alles opnieuw ophalen
@@ -3451,7 +3458,9 @@ export function Proefrit({ verbonden }: { verbonden: boolean }) {
             disabled={bezig}
             onClick={() => void haalAllesOpnieuw()}
           >
-            {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Weggooien en ophalen'}
+            {bezig
+              ? <><Loader2 size={14} className="spin" /> {stap ?? 'Bezig…'}</>
+              : 'Weggooien en ophalen'}
           </button>
         </div>
       </Modal>

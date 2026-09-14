@@ -919,6 +919,63 @@ async function zetAdministratie(body: Record<string, unknown>): Promise<Response
 }
 
 /** De bv's waar we werkelijk iets mee doen. */
+/* ------------------------------------------------------------------ *
+ *  Een tijdsbudget per verzoek
+ *
+ *  Aanleiding: de serverfunctie gaf 546 terug. Dat is geen HTTP-code van ons
+ *  maar van Supabase -- WORKER_LIMIT: de worker is neergehaald omdat hij door
+ *  zijn geheugen of zijn rekentijd heen ging. Onze eigen foutafhandeling komt
+ *  daar niet meer aan te pas; er is niets meer om te antwoorden.
+ *
+ *  Waarom dat gebeurde
+ *  -------------------
+ *
+ *  Elke ophaalronde liep over ALLE aangevinkte bv's in één verzoek. Bij één
+ *  administratie is dat een paar seconden en valt het niemand op. Bij de ruim
+ *  twintig die in deze boekhouding staan is het per bv een heel rekeningschema
+ *  en een hele relatielijst -- honderden rondjes naar Exact, en al die JSON
+ *  wordt ook nog ontleed. Dat is geen ronde die toevallig lang duurt; dat is
+ *  een ronde zonder bovengrens, en die haalt de limiet een keer en daarna
+ *  altijd.
+ *
+ *  Wat er nu gebeurt
+ *  -----------------
+ *
+ *  De server werkt door tot dit budget op is en zegt dan wat er nog ligt. De
+ *  client belt opnieuw met wat er overbleef. Zo is elk verzoek voorspelbaar
+ *  kort, ongeacht of er één bv is of honderd -- en dat laatste is het punt:
+ *  een grens die meegroeit met het werk is geen grens.
+ *
+ *  Twintig seconden is ruim onder elke limiet van Supabase en kort genoeg dat
+ *  een scherm er niet dood bij staat. Bewust niet krapper: dan wordt een
+ *  ronde over één grote bv in stukken geknipt die elk opnieuw moeten
+ *  inloggen, en dat kost meer dan het oplevert.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Wat er van de vorige ronde overbleef.
+ *
+ * Gaat als `vervolg` mee terug naar de client en komt ongewijzigd weer
+ * binnen. Bewust geen toestand op de server: dan zouden twee mensen die
+ * tegelijk ophalen elkaars ronde overschrijven, en dat is precies het soort
+ * fout dat zich alleen voordoet als het druk is.
+ */
+interface Ronde {
+  /** De bv's die nog moeten. Leeg/afwezig = begin bij het begin. */
+  rest?: string[]
+  /** Het merk van de eerste ronde, zodat de opruiming klopt. */
+  merk?: number
+  /** Hoeveel er tot nu toe is opgehaald, puur om terug te melden. */
+  gedaan?: number
+}
+
+const BUDGET_MS = 20_000
+
+/** Is er nog tijd voor nog een bv? */
+function nogTijd(begonnen: number): boolean {
+  return Date.now() - begonnen < BUDGET_MS
+}
+
 async function actieveAdministraties(lijn: ExactLijn): Promise<string[]> {
   const { data } = await admin.from('exact_administratie')
     .select('code').eq('actief', true).order('code')
@@ -962,19 +1019,41 @@ const GL_SOORTEN: Record<number, string> = {
   90: 'Tussenrekening',
 }
 
-async function syncGrootboek(beller: Beller): Promise<Response> {
+async function syncGrootboek(beller: Beller, opdracht: Ronde = {}): Promise<Response> {
+  const begonnen = Date.now()
   const lijn = await geldigToken(admin)
-  const bvs = await actieveAdministraties(lijn)
+  const alle = await actieveAdministraties(lijn)
 
-  const nu = Date.now()
-  let totaal = 0
+  /*
+   * Welke bv's deze ronde. Bij de eerste aanroep alle; daarna wat de vorige
+   * ronde niet meer haalde. Het merk (`nu`) gaat mee, want de opruiming
+   * hieronder gooit weg wat ouder is dan deze ronde -- zou elke deelronde
+   * zijn eigen merk hebben, dan wist de tweede wat de eerste ophaalde.
+   */
+  const bvs = opdracht.rest ?? alle
+  const nu = opdracht.merk ?? Date.now()
+  let totaal = opdracht.gedaan ?? 0
+  const rest: string[] = []
 
   /*
    * Per bv, want elke administratie heeft zijn eigen schema. Rekening 4000
    * bestaat overal en betekent overal iets anders; ze op één hoop gooien
    * levert een lijst op waarin de eerste de beste wint.
    */
-  for (const bv of bvs) {
+  for (let n = 0; n < bvs.length; n++) {
+    const bv = bvs[n]
+    /*
+     * Budget op: de rest is voor de volgende ronde.
+     *
+     * De eerste bv gaat altijd door, ook als het budget al op is. Anders kan
+     * een ronde nul bv's doen en dan draait de client eeuwig rond zonder dat
+     * er iets opschiet -- een lus die niet vordert is erger dan een die te
+     * lang duurt.
+     */
+    if (n > 0 && !nogTijd(begonnen)) {
+      rest.push(...bvs.slice(n))
+      break
+    }
     const rijen = await exactLijst<ExactGL>(lijn, 'financial/GLAccounts', {
       $select: 'ID,Code,Description,IsBlocked,Type',
       $orderby: 'Code',
@@ -1008,8 +1087,20 @@ async function syncGrootboek(beller: Beller): Promise<Response> {
     totaal += uit.length
   }
 
+  /*
+   * Nog niet klaar: antwoorden met wat er overblijft en verder niets doen.
+   *
+   * De opruiming en de stand horen pas aan het eind. Zou de opruiming hier al
+   * draaien, dan gooit ze de bv's weg die deze ronde nog niet aan de beurt
+   * zijn geweest -- en dan staat het rekeningschema halverwege leeg terwijl
+   * het scherm zegt dat het goed gaat.
+   */
+  if (rest.length) {
+    return json({ ok: true, klaar: false, aantal: totaal, bvs: alle, vervolg: { rest, merk: nu, gedaan: totaal } })
+  }
+
   /* En wat er van een bv staat die niet meer actief is. */
-  await admin.from('exact_grootboek').delete().not('division', 'in', `(${bvs.map((b) => `"${b}"`).join(',')})`)
+  await admin.from('exact_grootboek').delete().not('division', 'in', `(${alle.map((b) => `"${b}"`).join(',')})`)
 
   await admin.from('exact_sync').upsert({
     soort: 'grootboek',
@@ -1020,7 +1111,7 @@ async function syncGrootboek(beller: Beller): Promise<Response> {
     updated_at: nu,
   }, { onConflict: 'soort' })
 
-  return json({ ok: true, aantal: totaal, bvs, ...await grootboekStand() })
+  return json({ ok: true, klaar: true, aantal: totaal, bvs: alle, ...await grootboekStand() })
 }
 
 /* ------------------------------------------------------------------ *
@@ -1521,14 +1612,23 @@ interface ExactAccount {
  * keer hetzelfde verkeer en twee plekken waar dezelfde relatie kan
  * verschillen. Dus zonder filter, en de vlaggen mee.
  */
-async function syncRelaties(beller: Beller): Promise<Response> {
+async function syncRelaties(beller: Beller, opdracht: Ronde = {}): Promise<Response> {
+  const begonnen = Date.now()
   const lijn = await geldigToken(admin)
-  const bvs = await actieveAdministraties(lijn)
+  const alle = await actieveAdministraties(lijn)
 
-  const nu = Date.now()
-  let totaal = 0
+  /* Per ronde zoveel bv's als er in het budget passen; zie syncGrootboek. */
+  const bvs = opdracht.rest ?? alle
+  const nu = opdracht.merk ?? Date.now()
+  let totaal = opdracht.gedaan ?? 0
+  const rest: string[] = []
 
-  for (const bv of bvs) {
+  for (let n = 0; n < bvs.length; n++) {
+    const bv = bvs[n]
+    if (n > 0 && !nogTijd(begonnen)) {
+      rest.push(...bvs.slice(n))
+      break
+    }
     const rijen = await exactLijst<ExactAccount>(lijn, 'crm/Accounts', {
       $select: 'ID,Code,Name,VATNumber,IsSupplier,IsSales,Email,Phone,City',
     }, bv)
@@ -1561,6 +1661,13 @@ async function syncRelaties(beller: Beller): Promise<Response> {
     totaal += uit.length
   }
 
+  /* Nog niet klaar: het koppelen wacht tot alle relaties binnen zijn. Zou het
+     halverwege draaien, dan koppelt het op een lijst die nog niet compleet is
+     en heet "geen eenduidige match" iets anders dan het is. */
+  if (rest.length) {
+    return json({ ok: true, klaar: false, aantal: totaal, vervolg: { rest, merk: nu, gedaan: totaal } })
+  }
+
   /*
    * De zoeknaam en het automatisch koppelen doet de database, in één keer.
    * Dat scheelt niet alleen verkeer: kaal_bedrijf() staat daar, en als deze
@@ -1583,6 +1690,7 @@ async function syncRelaties(beller: Beller): Promise<Response> {
   const gekoppeld = Array.isArray(klaar) ? klaar[0] : klaar
   return json({
     ok: true,
+    klaar: true,
     aantal: totaal,
     gekoppeldLeveranciers: Number(gekoppeld?.leveranciers ?? 0),
     gekoppeldBedrijven: Number(gekoppeld?.bedrijven ?? 0),
@@ -2035,6 +2143,7 @@ interface Stap {
 }
 
 async function proefrit(): Promise<Response> {
+  const begonnen = Date.now()
   const stappen: Stap[] = []
   const zet = (wat: string, ok: boolean, reden?: string, doen?: string) =>
     stappen.push({ wat, ok, reden, doen })
@@ -2105,7 +2214,21 @@ async function proefrit(): Promise<Response> {
       'Er staat geen dagboek.',
       'Kies er een bij Ontwikkeling, Exact, Facturen.')
   } else {
+    /*
+     * Per bv het dagboek nakijken is per bv een vraag aan Exact. Bij ruim
+     * twintig bv's is dat de stap waar deze controle zelf de tijdslimiet
+     * haalt -- en een controle die omvalt op zijn eigen omvang is erger dan
+     * geen controle, want hij zegt niets en kost wel een minuut.
+     *
+     * Dus: zoveel als er in het budget passen, en eerlijk melden wat er niet
+     * is nagekeken. Dat laatste is het punt -- stilzwijgend afkappen zou
+     * betekenen dat "alles staat klaar" ook geldt voor bv's waar niemand
+     * naar heeft gekeken.
+     */
+    const gekeken: string[] = []
     for (const bv of actief) {
+      if (gekeken.length > 0 && !nogTijd(begonnen)) break
+      gekeken.push(bv)
       let gevonden = false
       let soort: number | null = null
       try {
@@ -2133,6 +2256,13 @@ async function proefrit(): Promise<Response> {
           `Het is type ${soort}, niet 20.`,
           'Exact neemt de boeking dan aan en zet hem verkeerd weg.')
       }
+    }
+
+    if (gekeken.length < actief.length) {
+      zet(`${actief.length - gekeken.length} bv's zijn niet nagekeken`, false,
+        'De proefrit was door zijn tijd heen.',
+        'Draai hem nog een keer; hij begint dan weer vooraan. '
+        + 'Wat hierboven staat klopt wel.')
     }
   }
 
@@ -2315,6 +2445,7 @@ interface ExactSaldo {
 }
 
 async function resultaat(body: Record<string, unknown>): Promise<Response> {
+  const begonnen = Date.now()
   const lijn = await geldigToken(admin)
 
   /* Standaard het lopende jaar. Een ander jaar mag, want de vraag "hoe ging
@@ -2325,9 +2456,19 @@ async function resultaat(body: Record<string, unknown>): Promise<Response> {
 
   const { data: onze } = await admin.from('exact_administratie')
     .select('code, naam, hoofd').eq('actief', true).order('code')
-  const bvs = (onze ?? [])
+  const alle = (onze ?? [])
 
-  if (bvs.length === 0) {
+  /*
+   * Ook hier per ronde, om dezelfde reden als bij het ophalen: één bv is een
+   * hele resultatenrekening over twaalf perioden, en bij ruim twintig bv's is
+   * dat een verzoek dat zichzelf neerhaalt. De client telt de rondes bij
+   * elkaar op.
+   */
+  const rest = Array.isArray(body.rest) ? (body.rest as string[]) : null
+  const bvs = rest ? alle.filter((b) => rest.includes(String(b.code))) : alle
+  const nogTeDoen: string[] = []
+
+  if (alle.length === 0) {
     return json({
       ok: false,
       reden: 'Geen enkele administratie staat op actief. Haal ze op bij Ontwikkeling, Exact.',
@@ -2344,8 +2485,14 @@ async function resultaat(body: Record<string, unknown>): Promise<Response> {
     rekeningen: { code: string; naam: string; bedrag: number; soort: 'omzet' | 'kosten' }[]
   }[] = []
 
-  for (const bv of bvs) {
+  for (let n = 0; n < bvs.length; n++) {
+    const bv = bvs[n]
     const code = String(bv.code)
+    /* De eerste gaat altijd door; anders vordert een ronde niet. */
+    if (n > 0 && !nogTijd(begonnen)) {
+      nogTeDoen.push(...bvs.slice(n).map((b) => String(b.code)))
+      break
+    }
     try {
       const rijen = await exactLijst<ExactSaldo>(lijn, 'financial/ReportingBalance', {
         $select: 'GLAccountCode,GLAccountDescription,BalanceType,Amount,ReportingPeriod',
@@ -2424,6 +2571,9 @@ async function resultaat(body: Record<string, unknown>): Promise<Response> {
     ok: true,
     jaar,
     totPeriode,
+    /* Leeg = klaar. Staat hier iets in, dan heeft de client nog een ronde te
+       gaan en zijn de getallen hieronder nog niet het hele verhaal. */
+    rest: nogTeDoen,
     perBv,
     totaal: {
       omzet: Math.round(gelukt.reduce((a, b) => a + b.omzet, 0) * 100) / 100,
@@ -2459,39 +2609,83 @@ async function brugStand() {
   }
 }
 
-async function opnieuwOphalen(beller: Beller): Promise<Response> {
+/** De JSON uit een antwoord dat we zelf net hebben gemaakt. */
+async function lees(res: Response): Promise<Record<string, unknown>> {
+  return await res.json() as Record<string, unknown>
+}
+
+type Fase = 'begin' | 'grootboek' | 'relaties' | 'personeel' | 'wezen'
+
+async function opnieuwOphalen(beller: Beller, body: Record<string, unknown>): Promise<Response> {
   /* Eerst kijken of er een lijn is. Anders staan de kopieën straks leeg en
      is er niets om ze mee te vullen -- dat is erger dan oude gegevens. */
   await geldigToken(admin)
 
-  const weg = { grootboek: 0, relaties: 0, personeel: 0 }
-  for (const [tabel, sleutel] of [
-    ['exact_grootboek', 'grootboek'],
-    ['exact_relatie', 'relaties'],
-    ['exact_personeel', 'personeel'],
-  ] as const) {
-    const { count } = await admin.from(tabel)
-      .select('*', { count: 'exact', head: true })
-    weg[sleutel] = count ?? 0
-    /* Een delete zonder filter weigert PostgREST. "Alles waar de sleutel niet
-       leeg is" is hier hetzelfde als alles, en wel toegestaan. */
-    const { error } = await admin.from(tabel).delete().not(
-      tabel === 'exact_grootboek' ? 'code' : tabel === 'exact_relatie' ? 'exact_id' : 'employee_hid',
-      'is', null)
-    if (error) throw new ExactFout(`${tabel} legen: ${error.message}`)
+  const fase = (String(body.fase ?? 'begin') || 'begin') as Fase
+  const vervolg = (body.vervolg ?? {}) as Ronde
+  const weg = (body.weg ?? { grootboek: 0, relaties: 0, personeel: 0 }) as
+    { grootboek: number; relaties: number; personeel: number }
+
+  /* ---- leegmaken, en welke bv's er zijn ---- */
+
+  if (fase === 'begin') {
+    for (const [tabel, sleutel] of [
+      ['exact_grootboek', 'grootboek'],
+      ['exact_relatie', 'relaties'],
+      ['exact_personeel', 'personeel'],
+    ] as const) {
+      const { count } = await admin.from(tabel)
+        .select('*', { count: 'exact', head: true })
+      weg[sleutel] = count ?? 0
+      /* Een delete zonder filter weigert PostgREST. "Alles waar de sleutel niet
+         leeg is" is hier hetzelfde als alles, en wel toegestaan. */
+      const { error } = await admin.from(tabel).delete().not(
+        tabel === 'exact_grootboek' ? 'code' : tabel === 'exact_relatie' ? 'exact_id' : 'employee_hid',
+        'is', null)
+      if (error) throw new ExactFout(`${tabel} legen: ${error.message}`)
+    }
+
+    await syncAdministraties()
+    return json({ ok: true, klaar: false, fase: 'grootboek', weg, stap: 'Rekeningschema ophalen' })
   }
 
-  /* En dan opnieuw vullen, in de volgorde waarin ze van elkaar afhangen:
-     eerst welke bv's er zijn, dan wat daarin staat. */
-  await syncAdministraties()
-  await syncGrootboek(beller)
-  await syncRelaties(beller)
-  try {
-    await syncPersoneel(beller)
-  } catch (e) {
-    /* Het personeel is een aparte module bij Exact en lang niet elk account
-       heeft hem. Dat mag de rest niet ophouden. */
-    console.warn('[exact] personeel opnieuw ophalen: ' + String(e))
+  /* ---- het rekeningschema, zoveel bv's als er in het budget passen ---- */
+
+  if (fase === 'grootboek') {
+    const uit = await lees(await syncGrootboek(beller, vervolg))
+    if (uit.klaar === true) {
+      return json({ ok: true, klaar: false, fase: 'relaties', weg, stap: 'Relaties ophalen' })
+    }
+    return json({
+      ok: true, klaar: false, fase: 'grootboek', vervolg: uit.vervolg, weg,
+      stap: `Rekeningschema: nog ${((uit.vervolg as Ronde)?.rest ?? []).length} bv's te gaan`,
+    })
+  }
+
+  /* ---- de relaties ---- */
+
+  if (fase === 'relaties') {
+    const uit = await lees(await syncRelaties(beller, vervolg))
+    if (uit.klaar === true) {
+      return json({ ok: true, klaar: false, fase: 'personeel', weg, stap: 'Personeel ophalen' })
+    }
+    return json({
+      ok: true, klaar: false, fase: 'relaties', vervolg: uit.vervolg, weg,
+      stap: `Relaties: nog ${((uit.vervolg as Ronde)?.rest ?? []).length} bv's te gaan`,
+    })
+  }
+
+  /* ---- het personeel ---- */
+
+  if (fase === 'personeel') {
+    try {
+      await syncPersoneel(beller)
+    } catch (e) {
+      /* Het personeel is een aparte module bij Exact en lang niet elk account
+         heeft hem. Dat mag de rest niet ophouden. */
+      console.warn('[exact] personeel opnieuw ophalen: ' + String(e))
+    }
+    return json({ ok: true, klaar: false, fase: 'wezen', weg, stap: 'Koppelingen nakijken' })
   }
 
   /* ---- wat wijst er nergens meer naar ---- */
@@ -2522,6 +2716,7 @@ async function opnieuwOphalen(beller: Beller): Promise<Response> {
 
   return json({
     ok: true,
+    klaar: true,
     weg,
     wezen,
     ...await facturenStand(),
@@ -2961,7 +3156,7 @@ Deno.serve(async (req) => {
       if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
-      return await syncGrootboek(beller)
+      return await syncGrootboek(beller, (body.vervolg ?? {}) as Ronde)
     }
 
     if (actie === 'grootboek-stand') {
@@ -3022,9 +3217,9 @@ Deno.serve(async (req) => {
          kopieën weg en vult ze opnieuw. Allebei achter dezelfde deur als de
          rest van de boekhouding. */
       if (actie === 'proefrit') return await proefrit()
-      if (actie === 'opnieuw-ophalen') return await opnieuwOphalen(beller)
+      if (actie === 'opnieuw-ophalen') return await opnieuwOphalen(beller, body)
       if (actie === 'resultaat') return await resultaat(body)
-      if (actie === 'sync-relaties') return await syncRelaties(beller)
+      if (actie === 'sync-relaties') return await syncRelaties(beller, (body.vervolg ?? {}) as Ronde)
       if (actie === 'koppel-bedrijf') return await koppelBedrijf(body, beller)
       if (actie === 'relaties-stand') return json({ ok: true, ...await relatiesStand() })
       if (actie === 'stuur-facturen') return await stuurFacturen(beller)

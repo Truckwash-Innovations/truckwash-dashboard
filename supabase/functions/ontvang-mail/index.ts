@@ -42,10 +42,33 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
 
 const nu = () => Date.now()
 
+/*
+ * De koppen waarmee een browser hier mag aankloppen.
+ *
+ * Deze functie was jarenlang alleen een webhook: Resend belt hem van server
+ * naar server, en dan bestaat CORS niet -- daar is geen browser bij. Sinds de
+ * proeffacturen wordt hij ook uit het ontwikkelaarsscherm gebeld, en dan wel.
+ *
+ * Wat er zonder deze koppen gebeurt is precies wat er gebeurde: de browser
+ * stuurt eerst een OPTIONS-verzoek (want er gaat een Authorization-kop mee),
+ * krijgt daar 405 op zonder toestemming, en doet de echte POST nooit. In het
+ * scherm staat dan "Failed to fetch" -- een fout die eruitziet als een
+ * netwerkstoring terwijl de server nooit is aangesproken.
+ *
+ * Dat dit openstaat voor elke herkomst verandert niets aan wie er binnenkomt:
+ * de handtekening van Resend en de ontwikkelaarscontrole staan er onverkort
+ * achter. CORS bepaalt welke PAGINA mag vragen, niet wie er antwoord krijgt.
+ */
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...CORS, 'Content-Type': 'application/json' },
   })
 }
 
@@ -846,6 +869,9 @@ async function isOntwikkelaar(req: Request): Promise<boolean> {
 }
 
 Deno.serve(async (req) => {
+  /* De preflight van de browser. Moet vóór de methodecontrole, anders krijgt
+     hij 405 op een OPTIONS en komt de echte POST er nooit. */
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return json({ error: 'Alleen POST' }, 405)
 
   const ruw = await req.text()

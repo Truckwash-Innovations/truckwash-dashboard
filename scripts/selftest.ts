@@ -9203,5 +9203,138 @@ console.log('\n71. De proefrit en de proeffacturen')
     leeg.startsWith('%PDF-') && !/EUR/.test(leeg))
 }
 
+/* ==================================================================== *
+ *  72. Wat er omviel toen het echt aan ging
+ *
+ *  Twee fouten, allebei pas zichtbaar op de echte omgeving, en allebei van
+ *  het soort dat er in een test niet uitkomt omdat er niets mis is met de
+ *  logica -- ze gaan over de VORM van een verzoek.
+ *
+ *  1. "Failed to fetch" op elke proeffactuur.
+ *
+ *     ontvang-mail was jarenlang alleen een webhook: Resend belt hem van
+ *     server naar server, en dan bestaat CORS niet. Sinds de proeffacturen
+ *     wordt hij ook uit een browser gebeld, en die stuurt eerst een OPTIONS
+ *     -- want er gaat een Authorization-kop mee. Daar kwam 405 op zonder
+ *     toestemming, dus de echte POST is nooit verstuurd.
+ *
+ *     Het verraderlijke: in het scherm staat dan "Failed to fetch", wat
+ *     eruitziet als een netwerkstoring terwijl de server nooit is
+ *     aangesproken.
+ *
+ *  2. De serverfunctie exact gaf 546.
+ *
+ *     Dat is geen code van ons. Supabase geeft 546 bij WORKER_LIMIT: de
+ *     worker is neergehaald omdat hij door zijn rekentijd of geheugen ging.
+ *     Onze eigen catch komt daar niet meer aan te pas -- er is niets meer om
+ *     mee te antwoorden, en dat is precies waarom het niet als nette fout
+ *     verscheen.
+ *
+ *     De oorzaak was de vorm: elk ophalen liep over ALLE aangevinkte bv's in
+ *     één verzoek. Dat is een grens die meegroeit met het werk, en dus geen
+ *     grens. Bij één administratie valt het niemand op; bij de ruim twintig
+ *     die hier staan valt hij altijd om.
+ * ==================================================================== */
+
+console.log('\n72. Wat er omviel toen het echt aan ging')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const webhook = readFileSync('supabase/functions/ontvang-mail/index.ts', 'utf8')
+  const exact = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const client = readFileSync('src/lib/trucksupply.ts', 'utf8')
+
+  /* ---- 1. de webhook is ook uit een browser bereikbaar ---- */
+
+  check('ontvang-mail beantwoordt de preflight van de browser',
+    /req\.method === 'OPTIONS'/.test(webhook))
+
+  /*
+   * En vóór de methodecontrole. Staat hij erna, dan krijgt een OPTIONS eerst
+   * 405 en is er niets opgelost -- precies de fout die hier gerepareerd is.
+   */
+  const ingang = webhook.slice(webhook.indexOf('Deno.serve'))
+  check('en wel vóór "alleen POST"',
+    ingang.indexOf("=== 'OPTIONS'") < ingang.indexOf("!== 'POST'"))
+
+  check('elk antwoord van ontvang-mail draagt de CORS-koppen',
+    /headers: \{ \.\.\.CORS,/.test(webhook))
+
+  /*
+   * De deur zelf is niet mee opengegaan. CORS zegt welke PAGINA mag vragen,
+   * niet wie er antwoord krijgt -- en dat blijft zo.
+   */
+  check('de handtekening en de ontwikkelaarscontrole staan er nog',
+    webhook.includes('handtekeningKlopt') && webhook.includes('isOntwikkelaar'))
+
+  /* ---- 2. geen verzoek loopt nog onbegrensd over alle bv's ---- */
+
+  check('de serverfunctie kent een tijdsbudget', /const BUDGET_MS/.test(exact))
+
+  /*
+   * De vier plekken die per bv werk doen. Elk moet kunnen stoppen en zeggen
+   * wat er nog ligt; anders is het opnieuw een verzoek zonder bovengrens.
+   */
+  for (const [naam, start, eind] of [
+    ['syncGrootboek', 'async function syncGrootboek(', 'async function grootboekStand('],
+    ['syncRelaties', 'async function syncRelaties(', 'async function relatiesStand('],
+    ['proefrit', 'async function proefrit(', 'async function lees('],
+    ['resultaat', 'async function resultaat(', 'async function brugStand('],
+  ] as const) {
+    const blok = exact.slice(exact.indexOf(start), exact.indexOf(eind))
+    check(`${naam} stopt als zijn tijd op is`,
+      blok.length > 0 && blok.includes('nogTijd(begonnen)'),
+      blok.length ? 'geen tijdsbewaking' : 'blok niet gevonden')
+  }
+
+  /*
+   * En de eerste bv gaat altijd door. Zonder die uitzondering kan een ronde
+   * nul bv's doen -- en dan draait de client eeuwig rond zonder dat er iets
+   * opschiet. Een lus die niet vordert is erger dan een die lang duurt.
+   */
+  check('elke ronde doet minstens één bv',
+    (exact.match(/n > 0 && !nogTijd\(begonnen\)/g) ?? []).length >= 3)
+
+  /* ---- de lus staat op één plek ---- */
+
+  check('de client maakt de rondes af', /async function inRondes</.test(client))
+  check('en heeft een noodrem als er niets meer vordert',
+    /MAX_RONDES/.test(client) && client.includes('n < MAX_RONDES'))
+
+  /*
+   * Drie schermen halen op. Zouden ze elk hun eigen lus draaien, dan is er
+   * één die het vergeet -- en die toont een half opgehaald rekeningschema
+   * als een heel.
+   */
+  for (const fn of ['exactSyncGrootboek', 'exactSyncRelaties', 'exactOpnieuwOphalen']) {
+    const blok = client.slice(client.indexOf(`export async function ${fn}(`),
+      client.indexOf(`export async function ${fn}(`) + 900)
+    check(`${fn} gaat door de lus`, blok.includes('inRondes'))
+  }
+
+  /*
+   * Het resultaat telt de rondes bij elkaar op in plaats van de laatste te
+   * nemen. Zou dat laatste gebeuren, dan stond er een resultaat van vier
+   * bv's onder een lijst van twintig -- erger dan een foutmelding, want het
+   * ziet er goed uit.
+   */
+  const res = client.slice(client.indexOf('export async function exactResultaat('),
+    client.indexOf('export async function exactOpnieuwOphalen('))
+  check('exactResultaat voegt de rondes samen',
+    res.includes('perBv.push(...uit.perBv)')
+    && res.includes('gelukt.reduce'))
+
+  /*
+   * En opnieuw ophalen ruimt pas op als alles binnen is. Zou de opruiming
+   * halverwege draaien, dan gooit ze de bv's weg die nog niet aan de beurt
+   * waren -- en dan staat het rekeningschema half leeg terwijl het scherm
+   * zegt dat het goed ging.
+   */
+  const gb = exact.slice(exact.indexOf('async function syncGrootboek('),
+    exact.indexOf('async function grootboekStand('))
+  check('de opruiming wacht tot de laatste bv',
+    gb.indexOf('if (rest.length)') < gb.indexOf("delete().not('division'"))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
