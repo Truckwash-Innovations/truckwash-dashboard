@@ -867,6 +867,13 @@ async function administraties() {
       eigenIban: String(r.eigen_iban ?? ''),
       eigenNaam: String(r.eigen_naam ?? ''),
       eigenBic: String(r.eigen_bic ?? ''),
+      /* Waarmee de lezer deze bv op een factuur herkent (0079). Stonden er
+         niet bij, en daarmee was er in de hele app geen plek om ze te zetten
+         -- precies de fout die hierboven bij eigen_iban staat beschreven, en
+         met een zwaarder gevolg: zonder deze twee valt administratie_zoeken()
+         terug op de naam, en dat is de zwakste route. */
+      kvk: String(r.kvk ?? ''),
+      btwNummer: String(r.btw_nummer ?? ''),
     })),
   }
 }
@@ -903,6 +910,41 @@ async function zetAdministratie(body: Record<string, unknown>): Promise<Response
   if ('eigenNaam' in body) velden.eigen_naam = String(body.eigenNaam ?? '').trim() || null
   if ('eigenBic' in body) {
     velden.eigen_bic = String(body.eigenBic ?? '').trim().toUpperCase() || null
+  }
+
+  /*
+   * Het KvK- en btw-nummer (0079).
+   *
+   * Hiermee herkent de lezer in welke bv een factuur hoort. Staat een van
+   * deze nummers op het stuk, dan is dat een feit; zonder ze valt
+   * administratie_zoeken() terug op de naam, en "Truckwash 1 Asten B.V." en
+   * "Truckwash 1 Aalsmeer B.V." schelen één woord.
+   *
+   * Alleen de cijfers bewaren zou hier verkeerd zijn: het btw-nummer heeft
+   * letters (NL...B01). Wat er wél gebeurt is normaliseren op hoofdletters en
+   * witruimte weghalen, want administratie_zoeken() vergelijkt zo.
+   */
+  if ('kvk' in body) {
+    const ruw = String(body.kvk ?? '').replace(/[^0-9]/g, '')
+    if (ruw && ruw.length !== 8) {
+      return json({
+        ok: false,
+        reden: `Een KvK-nummer heeft acht cijfers; dit heeft er ${ruw.length}. `
+          + 'Laat het leeg als je het niet weet -- dan zoekt de lezer op naam.',
+      }, 400)
+    }
+    velden.kvk = ruw || null
+  }
+  if ('btwNummer' in body) {
+    const ruw = String(body.btwNummer ?? '').replace(/\s+/g, '').toUpperCase()
+    if (ruw && !/^[A-Z]{2}[A-Z0-9]{8,14}$/.test(ruw)) {
+      return json({
+        ok: false,
+        reden: `${ruw} ziet er niet uit als een btw-nummer (twee letters land en dan het nummer, `
+          + 'bijvoorbeeld NL123456789B01). Laat het leeg als je het niet weet.',
+      }, 400)
+    }
+    velden.btw_nummer = ruw || null
   }
 
   if ('hoofd' in body && body.hoofd === true) {
@@ -1123,11 +1165,57 @@ async function syncGrootboek(beller: Beller, opdracht: Ronde = {}): Promise<Resp
  *  geweigerd wordt -- en dat wil je weten vóór de factuur weg is.
  * ------------------------------------------------------------------ */
 
-async function grootboekStand() {
-  const [onze, hunne, sync] = await Promise.all([
-    admin.from('grootboek').select('code, naam, categorie, actief').order('code'),
-    admin.from('exact_grootboek').select('code, omschrijving, soort, geblokkeerd').order('code'),
+/**
+ * Het rekeningschema, PER BV.
+ *
+ * Hier stond één lijst. exact_grootboek werd gelezen zonder division terwijl
+ * die tabel sinds 0059 de sleutel (division, code) heeft: rekening 4000
+ * bestaat in elke administratie, dus twintig rijen werden in een Map op code
+ * gepropt en de laatste won. Het scherm zei daarna "4000 bestaat in Exact"
+ * terwijl hij in de bv van díe bon helemaal niet bestond -- en het versturen
+ * liep er precies op stuk.
+ *
+ * Zonder bv wordt er niets meer geraden: dan komt de lijst met bv's terug en
+ * kies je er een. Een antwoord over "het grootboek" bestaat niet meer.
+ */
+async function grootboekStand(bv?: string) {
+  const [bvs, sync] = await Promise.all([
+    admin.from('exact_administratie').select('code, naam, actief, hoofd')
+      .eq('actief', true).order('code'),
     admin.from('exact_sync').select('*').eq('soort', 'grootboek').maybeSingle(),
+  ])
+
+  const lijst = (bvs.data ?? []).map((r) => ({
+    code: String(r.code),
+    naam: String(r.naam ?? ''),
+    hoofd: r.hoofd === true,
+  }))
+
+  const gekozen = (bv ?? '').trim()
+    || lijst.find((b) => b.hoofd)?.code
+    || lijst[0]?.code
+    || ''
+
+  if (!gekozen) {
+    return {
+      bvs: lijst,
+      bv: '',
+      regels: [],
+      nogNiet: [],
+      ontbreekt: 0,
+      geblokkeerd: 0,
+      exactAantal: 0,
+      laatstAt: sync.data?.laatst_at ?? null,
+      laatsteFout: sync.data?.laatste_fout ?? null,
+      door: sync.data?.door ?? null,
+    }
+  }
+
+  const [onze, hunne] = await Promise.all([
+    admin.from('grootboek').select('code, naam, categorie, actief')
+      .eq('administratie', gekozen).order('code'),
+    admin.from('exact_grootboek').select('code, omschrijving, soort, geblokkeerd')
+      .eq('division', gekozen).order('code'),
   ])
 
   const bij = new Map<string, { omschrijving: string; soort: string | null; geblokkeerd: boolean }>()
@@ -1153,13 +1241,6 @@ async function grootboekStand() {
     }
   })
 
-  /*
-   * En andersom: wat Exact kent en wij nog niet.
-   *
-   * Dit is nieuw sinds 0057. Tot dan liet dit scherm alleen zien of ONZE
-   * codes bij Exact bestonden; overnemen moest met de hand. Casper: "zodat
-   * we echt een sync hebben ipv alles handmatig oppakken."
-   */
   const onzeCodes = new Set((onze.data ?? []).map((g) => String(g.code)))
   const nogNiet = (hunne.data ?? [])
     .filter((r) => !onzeCodes.has(String(r.code)))
@@ -1171,6 +1252,8 @@ async function grootboekStand() {
     }))
 
   return {
+    bvs: lijst,
+    bv: gekozen,
     regels,
     nogNiet,
     /* Alleen tellen wat ertoe doet: een rekening die wij niet meer gebruiken
@@ -1184,18 +1267,32 @@ async function grootboekStand() {
   }
 }
 
-/* ------------------------------------------------------------------ *
- *  Betalen
+/**
+ * Het hele schema van één bv overnemen.
  *
- *  Casper: "zorg ervoor dat je hem ook op betaald kan zetten, evt een sepa
- *  bestand kan aanmaken."
+ * Casper: "Zorg er ook voor dat je alle huidige grootboeken in zijn geheel
+ * vervangt voor die per bv dan."
  *
- *  Het bestand maken en het betaald zetten zijn met opzet twee handelingen.
- *  Een bestand maken is niet hetzelfde als geld overmaken -- er kan van alles
- *  tussen komen: de bank weigert het, iemand vergeet te fiatteren, het blijft
- *  in de map staan. Pas als iemand zegt dat het is uitgevoerd, gaan de
- *  facturen op betaald.
- * ------------------------------------------------------------------ */
+ * Het rekenwerk staat in de database (grootboek_overnemen, 0086) omdat het
+ * daar in één opdracht kan en de trefwoorden uit het sjabloon komen. Hier
+ * staat alleen wie het mag vragen en wat er teruggaat.
+ */
+async function grootboekOvernemen(body: Record<string, unknown>): Promise<Response> {
+  const bv = String(body.bv ?? '').trim()
+  if (!bv) return json({ ok: false, reden: 'Geen bv meegestuurd.' }, 400)
+
+  const { data, error } = await admin.rpc('grootboek_overnemen', { bv })
+  if (error) return json({ ok: false, reden: `overnemen: ${error.message}` }, 502)
+
+  const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
+  return json({
+    ok: true,
+    nieuw: Number(r?.nieuw ?? 0),
+    bijgewerkt: Number(r?.bijgewerkt ?? 0),
+    uit: Number(r?.uit ?? 0),
+    ...await grootboekStand(bv),
+  })
+}
 
 async function betaalStand() {
   const [open, batches, bvs] = await Promise.all([
@@ -1729,6 +1826,50 @@ async function syncRelaties(beller: Beller, opdracht: Ronde = {}): Promise<Respo
  *  grootboek: een kopie ernaast en een koppeling ertussen.
  * ------------------------------------------------------------------ */
 
+/**
+ * De crediteuren van één bv, om uit te kiezen.
+ *
+ * relatiesStand() hiernaast gaat alleen over KLANTEN -- die kant is sinds
+ * 0063 per bv geregeld en heeft een koppelscherm. De inkoopkant had geen van
+ * beide, en dat was precies de schakel waar alles op vastliep: zonder
+ * crediteur gaat een bon niet mee, en het automatisch koppelen deed sinds de
+ * tweede bv niets meer.
+ *
+ * Per bv, want een crediteur-guid bestaat in precies één administratie.
+ */
+async function crediteurenVan(body: Record<string, unknown>): Promise<Response> {
+  const bv = String(body.bv ?? '').trim()
+  if (!bv) return json({ ok: false, reden: 'Geen bv meegestuurd.' }, 400)
+
+  const zoek = String(body.zoek ?? '').trim()
+
+  let vraag = admin.from('exact_relatie')
+    .select('exact_id, code, naam, plaats, btw_nummer')
+    .eq('division', bv).eq('is_leverancier', true)
+
+  /* Bij een grote administratie zijn het er duizenden. Zonder filter is dit
+     een lijst waar niemand doorheen scrolt, en met alles ophalen ook nog een
+     traag verzoek. */
+  if (zoek) vraag = vraag.ilike('naam', `%${zoek}%`)
+
+  const { data, error } = await vraag.order('naam').limit(zoek ? 50 : 200)
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  return json({
+    ok: true,
+    crediteuren: (data ?? []).map((r) => ({
+      exactId: String(r.exact_id),
+      code: (r.code as string) ?? null,
+      naam: String(r.naam ?? ''),
+      plaats: (r.plaats as string) ?? null,
+      btwNummer: (r.btw_nummer as string) ?? null,
+    })),
+    /* Zodat het scherm kan zeggen "er zijn er meer" in plaats van te doen
+       alsof dit alles is. */
+    afgekapt: (data ?? []).length >= (zoek ? 50 : 200),
+  })
+}
+
 async function relatiesStand() {
   const [onze, hunne, links, sync] = await Promise.all([
     admin.from('companies').select('id, name, city').order('name'),
@@ -1831,6 +1972,32 @@ async function instellingenVoorFacturen() {
     aan: (bij.exact_facturen ?? 'uit') === 'aan',
     dagboek: bij.exact_dagboek ?? '',
     btw: { 21: bij.exact_btw_21 ?? '', 9: bij.exact_btw_9 ?? '', 0: bij.exact_btw_0 ?? '' },
+  }
+}
+
+/**
+ * Het dagboek en de btw-codes van ÉÉN bv (0086).
+ *
+ * Hiervoor stond er één dagboek en één btw-code voor alle administraties.
+ * Dagboek 70 bestaat niet gegarandeerd in elke bv, en waar het een ander type
+ * heeft komt de boeking op de verkeerde plek -- de proefrit waarschuwde daar
+ * zelf al voor. Dat is geen instelling die je "even goed zet"; hij kán niet
+ * goed staan.
+ *
+ * De database doet de terugval op de globale waarde, zodat de bv waarvoor het
+ * nu werkt blijft werken. Zie bv_boekinstelling() in 0086.
+ */
+async function boekinstellingVan(bv: string) {
+  const { data } = await admin.rpc('bv_boekinstelling', { bv })
+  const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
+  return {
+    dagboek: String(r?.inkoop_dagboek ?? '').trim(),
+    verkoopdagboek: String(r?.verkoop_dagboek ?? '').trim(),
+    btw: {
+      21: String(r?.btw_21 ?? '').trim(),
+      9: String(r?.btw_9 ?? '').trim(),
+      0: String(r?.btw_0 ?? '').trim(),
+    } as Record<number, string>,
   }
 }
 
@@ -1956,29 +2123,69 @@ async function btwCodes(): Promise<Response> {
  *  Met de hand koppelen
  * ------------------------------------------------------------------ */
 
+/**
+ * Een leverancier aan een crediteur in Exact koppelen -- in ÉÉN bv.
+ *
+ * Dit was de enige schakel in de hele keten zonder scherm, en tegelijk de
+ * schakel waar alles op vastliep: zonder crediteur gaat een bon niet mee, en
+ * het automatisch koppelen deed sinds de tweede bv niets meer (het eiste
+ * precies één match over alle administraties heen, en dezelfde Shell staat er
+ * twintig keer in).
+ *
+ * De bv hoort erbij en is niet optioneel. Een crediteur-guid bestaat in
+ * precies één administratie; dezelfde leverancier heeft in elke bv een ander
+ * id. Werd er gekoppeld zonder bv, dan ging die ene guid overal mee en
+ * weigerde Exact de boeking -- of erger, hij hoorde daar bij een andere
+ * relatie.
+ */
 async function koppelLeverancier(body: Record<string, unknown>, beller: Beller): Promise<Response> {
   const zoeknaam = String(body.zoeknaam ?? '').trim()
   if (!zoeknaam) return json({ ok: false, reden: 'Geen leverancier meegestuurd.' }, 400)
 
+  const bv = String(body.administratie ?? '').trim()
+  if (!bv) {
+    return json({
+      ok: false,
+      reden: 'Geen bv meegestuurd. Een crediteur hoort bij één administratie; '
+        + 'zonder te weten welke, is de koppeling niets waard.',
+    }, 400)
+  }
+
   const exactId = String(body.exactId ?? '').trim()
   if (!exactId) {
-    await admin.from('exact_leverancier').delete().eq('zoeknaam', zoeknaam)
+    /* Loskoppelen, en alleen in deze bv. Zonder het filter op administratie
+       zou je met één druk de koppelingen van twintig bv's weggooien. */
+    await admin.from('exact_leverancier').delete()
+      .eq('zoeknaam', zoeknaam).eq('administratie', bv)
     return json({ ok: true, ...await facturenStand() })
   }
 
+  /*
+   * De crediteur moet in DEZE bv bestaan. Zonder het filter op division
+   * accepteerde dit een guid uit een andere administratie -- en dan lijkt het
+   * gekoppeld terwijl Exact bij het boeken zegt dat hij de relatie niet kent.
+   */
   const { data: cred } = await admin.from('exact_relatie')
-    .select('exact_id, naam').eq('exact_id', exactId).maybeSingle()
-  if (!cred) return json({ ok: false, reden: 'Die crediteur staat niet in de opgehaalde lijst.' }, 404)
+    .select('exact_id, naam, is_leverancier').eq('exact_id', exactId)
+    .eq('division', bv).maybeSingle()
+  if (!cred) {
+    return json({
+      ok: false,
+      reden: `Die crediteur staat niet in de opgehaalde lijst van ${bv}. `
+        + 'Haal de relaties opnieuw op, of kies er een uit die bv.',
+    }, 404)
+  }
 
   const { error } = await admin.from('exact_leverancier').upsert({
     zoeknaam,
+    administratie: bv,
     gezien_als: String(body.gezienAls ?? ''),
     exact_id: exactId,
     exact_naam: cred.naam,
     bron: 'handmatig',
     door: beller.naam || beller.id,
     updated_at: Date.now(),
-  }, { onConflict: 'zoeknaam' })
+  }, { onConflict: 'administratie,zoeknaam' })
   if (error) return json({ ok: false, reden: error.message }, 502)
 
   return json({ ok: true, ...await facturenStand() })
@@ -2010,9 +2217,14 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       reden: 'Facturen naar Exact staat uit. Zet hem aan bij Ontwikkeling, Exact.',
     }, 409)
   }
-  if (!inst.dagboek) {
-    return json({ ok: false, reden: 'Er staat geen inkoopdagboek ingesteld.' }, 409)
-  }
+  /*
+   * Geen vroege weigering meer op het globale dagboek.
+   *
+   * Sinds 0086 heeft elke bv er een eigen, met de globale als terugval. Een
+   * bv die zijn eigen dagboek heeft kan dus prima boeken terwijl de globale
+   * instelling leeg is -- hier weigeren zou die bv onterecht tegenhouden. Per
+   * bon wordt het alsnog gecontroleerd, met de naam van de bv in de melding.
+   */
 
   const lijn = await geldigToken(admin)
   const stand = await facturenStand()
@@ -2026,8 +2238,26 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       if (!bon.crediteurId) throw new Error('geen crediteur gekoppeld')
       if (!bon.grootboekId) throw new Error(`rekening ${bon.grootboek} bestaat niet in Exact`)
 
-      const btwCode = inst.btw[bon.btwPct as 21 | 9 | 0] ?? inst.btw[21]
-      if (!btwCode) throw new Error(`geen btw-code ingesteld voor ${bon.btwPct}%`)
+      /*
+       * Het dagboek en de btw-code van DEZE bv (0086).
+       *
+       * Hier stond de globale instelling, voor alle twintig administraties
+       * dezelfde. Dagboek 70 bestaat niet gegarandeerd overal, en waar het een
+       * ander type heeft komt de boeking op de verkeerde plek terecht -- dat
+       * is erger dan een weigering, want er komt geen foutmelding.
+       */
+      if (!bon.administratie) throw new Error('geen administratie bekend voor deze bon')
+      const bvInst = await boekinstellingVan(bon.administratie)
+
+      const dagboek = bvInst.dagboek
+      if (!dagboek) {
+        throw new Error(`voor ${bon.administratie} staat geen inkoopdagboek`)
+      }
+
+      const btwCode = bvInst.btw[bon.btwPct as 21 | 9 | 0] || bvInst.btw[21]
+      if (!btwCode) {
+        throw new Error(`voor ${bon.administratie} staat geen btw-code voor ${bon.btwPct}%`)
+      }
 
       /*
        * YourRef en niet InvoiceNumber. Dat laatste is bij Exact een geheel
@@ -2036,12 +2266,12 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
        * uitlegt.
        */
       /*
-       * In de bv van de vestiging. Rekening 4000 bestaat in elke
-       * administratie en betekent er iets anders; zonder dit belandt een
-       * factuur van de wasstraat in het grootboek van de holding, en dat
-       * levert geen foutmelding op -- alleen een verkeerde boeking.
+       * In de bv van de bon. Rekening 4000 bestaat in elke administratie en
+       * betekent er iets anders; zonder dit belandt een factuur van de
+       * wasstraat in het grootboek van de holding, en dat levert geen
+       * foutmelding op -- alleen een verkeerde boeking. De controle staat
+       * hierboven, bij het ophalen van het dagboek.
        */
-      if (!bon.administratie) throw new Error('geen administratie bekend voor deze bon')
 
       /*
        * Gesplitst of niet (0062).
@@ -2084,7 +2314,7 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           }
 
           const pct = Number(r.btw_pct)
-          const regelBtw = inst.btw[(pct === 9 || pct === 0 ? pct : 21) as 21 | 9 | 0] ?? btwCode
+          const regelBtw = bvInst.btw[(pct === 9 || pct === 0 ? pct : 21) as 21 | 9 | 0] || btwCode
           if (!regelBtw) throw new Error(`geen btw-code ingesteld voor ${pct}%`)
 
           lijnen.push({
@@ -2098,7 +2328,7 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       }
 
       const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
-        Journal: inst.dagboek,
+        Journal: dagboek,
         Supplier: bon.crediteurId,
         EntryDate: exactDatum(bon.datum || Date.now()),
         Description: kortVoorExact(
@@ -2234,94 +2464,104 @@ async function proefrit(): Promise<Response> {
       'Wijs er een aan; daar valt in wat nergens anders bij hoort.')
   }
 
-  /* ---- 4. het inkoopdagboek, in elke bv waar we boeken ---- */
+  /* ---- 4. het dagboek en de btw-codes, PER BV ---- */
 
   const inst = await instellingenVoorFacturen()
 
-  if (!inst.dagboek) {
-    zet('Het inkoopdagboek is ingesteld', false,
-      'Er staat geen dagboek.',
-      'Kies er een bij Ontwikkeling, Exact, Facturen.')
-  } else {
-    /*
-     * Per bv het dagboek nakijken is per bv een vraag aan Exact. Bij ruim
-     * twintig bv's is dat de stap waar deze controle zelf de tijdslimiet
-     * haalt -- en een controle die omvalt op zijn eigen omvang is erger dan
-     * geen controle, want hij zegt niets en kost wel een minuut.
-     *
-     * Dus: zoveel als er in het budget passen, en eerlijk melden wat er niet
-     * is nagekeken. Dat laatste is het punt -- stilzwijgend afkappen zou
-     * betekenen dat "alles staat klaar" ook geldt voor bv's waar niemand
-     * naar heeft gekeken.
-     */
-    const gekeken: string[] = []
-    for (const bv of actief) {
-      if (gekeken.length > 0 && !nogTijd(begonnen)) break
-      gekeken.push(bv)
-      let gevonden = false
-      let soort: number | null = null
-      try {
-        const rijen = await exactLijst<{ Code?: string; Type?: number }>(
-          lijn, 'financial/Journals', { $select: 'Code,Type' }, bv)
-        const raak = rijen.find((r) => String(r.Code ?? '').trim() === inst.dagboek)
-        gevonden = Boolean(raak)
-        soort = typeof raak?.Type === 'number' ? raak.Type : null
-      } catch (e) {
-        zet(`Dagboek ${inst.dagboek} in ${bv}`, false,
-          e instanceof Error ? e.message : String(e))
-        continue
-      }
+  /*
+   * Elke bv apart, want sinds 0086 heeft elke bv zijn eigen dagboek en zijn
+   * eigen btw-codes. Hiervoor werd één dagboek in alle administraties gezocht
+   * en dat is precies de fout: dagboek 70 bestaat niet gegarandeerd overal,
+   * en waar het een ander type heeft komt de boeking op de verkeerde plek --
+   * zonder foutmelding.
+   *
+   * Per bv is dat twee vragen aan Exact. Bij ruim twintig bv's is dit de stap
+   * waar de controle zelf de tijdslimiet haalt, dus: zoveel als er in het
+   * budget passen, en eerlijk melden wat er niet is nagekeken. Stilzwijgend
+   * afkappen zou betekenen dat "alles staat klaar" ook geldt voor bv's waar
+   * niemand naar heeft gekeken.
+   */
+  const gekeken: string[] = []
+  for (const bv of actief) {
+    if (gekeken.length > 0 && !nogTijd(begonnen)) break
+    gekeken.push(bv)
 
-      zet(`Dagboek ${inst.dagboek} bestaat in ${bv}`, gevonden,
-        gevonden ? undefined : `Administratie ${bv} kent geen dagboek ${inst.dagboek}.`,
-        gevonden ? undefined
-          : 'Elke bv heeft zijn eigen dagboeken; kies er een die overal bestaat, '
-            + 'of boek in deze bv niet.')
+    const bvInst = await boekinstellingVan(bv)
+    const naam = (onze ?? []).find((r) => String(r.code) === bv)?.naam ?? bv
 
-      /* Type 20 is inkoop. Een ander type neemt de boeking wél aan en zet
-         hem op de verkeerde plek -- dat is erger dan een weigering. */
-      if (gevonden && soort !== null && soort !== 20) {
-        zet(`Dagboek ${inst.dagboek} in ${bv} is een INKOOPdagboek`, false,
-          `Het is type ${soort}, niet 20.`,
-          'Exact neemt de boeking dan aan en zet hem verkeerd weg.')
-      }
+    if (!bvInst.dagboek) {
+      zet(`${naam}: inkoopdagboek`, false,
+        'Er staat er geen, en ook geen algemene.',
+        'Kies er een bij Ontwikkeling, Exact — per bv.')
+      continue
     }
 
-    if (gekeken.length < actief.length) {
-      zet(`${actief.length - gekeken.length} bv's zijn niet nagekeken`, false,
-        'De proefrit was door zijn tijd heen.',
-        'Draai hem nog een keer; hij begint dan weer vooraan. '
-        + 'Wat hierboven staat klopt wel.')
+    let gevonden = false
+    let soort: number | null = null
+    try {
+      const rijen = await exactLijst<{ Code?: string; Type?: number }>(
+        lijn, 'financial/Journals', { $select: 'Code,Type' }, bv)
+      const raak = rijen.find((r) => String(r.Code ?? '').trim() === bvInst.dagboek)
+      gevonden = Boolean(raak)
+      soort = typeof raak?.Type === 'number' ? raak.Type : null
+    } catch (e) {
+      zet(`${naam}: dagboek ${bvInst.dagboek} nakijken`, false,
+        e instanceof Error ? e.message : String(e))
+      continue
+    }
+
+    zet(`${naam}: dagboek ${bvInst.dagboek} bestaat`, gevonden,
+      gevonden ? undefined : `${naam} kent geen dagboek ${bvInst.dagboek}.`,
+      gevonden ? undefined
+        : 'Elke bv heeft zijn eigen dagboeken. Geef deze bv er een die hier bestaat, '
+          + 'of zet hem uit als je er niet in boekt.')
+
+    /* Type 20 is inkoop. Een ander type neemt de boeking wél aan en zet hem
+       op de verkeerde plek -- dat is erger dan een weigering. */
+    if (gevonden && soort !== null && soort !== 20) {
+      zet(`${naam}: dagboek ${bvInst.dagboek} is een INKOOPdagboek`, false,
+        `Het is type ${soort}, niet 20.`,
+        'Exact neemt de boeking dan aan en zet hem verkeerd weg.')
+    }
+
+    /* ---- en de btw-codes van deze bv ---- */
+
+    for (const pct of [21, 9, 0] as const) {
+      const code = bvInst.btw[pct]
+      if (!code) {
+        /* 21% moet; de andere twee alleen als er bonnen mee zijn, en dat
+           weten we hier niet. Dus melden, niet afkeuren. */
+        zet(`${naam}: btw-code voor ${pct}%`, pct !== 21,
+          'Niet ingesteld.',
+          pct === 21 ? 'Zonder deze gaat er in deze bv niets.'
+            : 'Nodig zodra er een bon met dit tarief in deze bv komt.')
+        continue
+      }
+      try {
+        const rijen = await exactLijst<{ Code?: string; Percentage?: number }>(
+          lijn, 'vat/VATCodes', { $select: 'Code,Percentage', $filter: `Code eq '${code}'` }, bv)
+        const raak = rijen[0]
+        const daar = typeof raak?.Percentage === 'number' ? Math.round(raak.Percentage * 100) : null
+        zet(`${naam}: btw-code ${code} bestaat`, Boolean(raak),
+          raak ? undefined : `${naam} kent geen btw-code ${code}.`,
+          raak ? undefined : 'Kies er een uit de lijst van deze bv.')
+        if (raak && daar !== null && daar !== pct) {
+          zet(`${naam}: btw-code ${code} staat op ${pct}%`, false,
+            `In Exact is het ${daar}%.`,
+            'Dan wordt er btw geboekt die niet op de factuur staat.')
+        }
+      } catch (e) {
+        zet(`${naam}: btw-code ${code} nakijken`, false,
+          e instanceof Error ? e.message : String(e))
+      }
     }
   }
 
-  /* ---- 5. de btw-codes ---- */
-
-  for (const [pct, code] of Object.entries(inst.btw)) {
-    if (!code) {
-      /* 21% moet; de andere twee alleen als er bonnen mee zijn, en dat weten
-         we hier niet. Dus melden, niet afkeuren. */
-      zet(`Btw-code voor ${pct}%`, pct !== '21',
-        `Niet ingesteld.`,
-        pct === '21' ? 'Zonder deze gaat er niets.' : 'Nodig zodra er een bon met dit tarief komt.')
-      continue
-    }
-    try {
-      const rijen = await exactLijst<{ Code?: string; Percentage?: number }>(
-        lijn, 'vat/VATCodes', { $select: 'Code,Percentage', $filter: `Code eq '${code}'` })
-      const raak = rijen[0]
-      const daar = typeof raak?.Percentage === 'number' ? Math.round(raak.Percentage * 100) : null
-      zet(`Btw-code ${code} bestaat in Exact`, Boolean(raak),
-        raak ? undefined : `Exact kent geen btw-code ${code}.`,
-        raak ? undefined : 'Kies er een uit de lijst bij Facturen.')
-      if (raak && daar !== null && daar !== Number(pct)) {
-        zet(`Btw-code ${code} staat op ${pct}%`, false,
-          `In Exact is het ${daar}%.`,
-          'Dan wordt er btw geboekt die niet op de factuur staat.')
-      }
-    } catch (e) {
-      zet(`Btw-code ${code} nakijken`, false, e instanceof Error ? e.message : String(e))
-    }
+  if (gekeken.length < actief.length) {
+    zet(`${actief.length - gekeken.length} bv's zijn niet nagekeken`, false,
+      'De proefrit was door zijn tijd heen.',
+      'Draai hem nog een keer; hij begint dan weer vooraan. '
+      + 'Wat hierboven staat klopt wel.')
   }
 
   /* ---- 6. de bonnen die klaarstaan ---- */
@@ -3189,7 +3429,17 @@ Deno.serve(async (req) => {
     }
 
     if (actie === 'grootboek-stand') {
-      return json({ ok: true, ...await grootboekStand() })
+      /* Met een bv: die ene. Zonder: de hoofdadministratie, en de lijst met
+         bv's erbij zodat het scherm kan laten kiezen. Een antwoord over "het
+         grootboek" bestaat niet meer -- er zijn er twintig. */
+      return json({ ok: true, ...await grootboekStand(String(body.bv ?? '')) })
+    }
+
+    if (actie === 'grootboek-overnemen') {
+      if (!beller.magBoekhouding) {
+        return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
+      }
+      return await grootboekOvernemen(body)
     }
 
     /* ---- het personeel ---- */
@@ -3238,6 +3488,8 @@ Deno.serve(async (req) => {
         || actie === 'koppel-bedrijf' || actie === 'relaties-stand'
         || actie === 'dagboeken' || actie === 'btw-codes'
         || actie === 'proefrit' || actie === 'opnieuw-ophalen'
+        || actie === 'geschiedenis' || actie === 'niet-boekbaar'
+        || actie === 'crediteuren'
         || actie === 'resultaat') {
       if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
@@ -3245,6 +3497,39 @@ Deno.serve(async (req) => {
       /* De proefrit boekt niets en leest alleen; opnieuw ophalen gooit de
          kopieën weg en vult ze opnieuw. Allebei achter dezelfde deur als de
          rest van de boekhouding. */
+      if (actie === 'crediteuren') return await crediteurenVan(body)
+
+      if (actie === 'geschiedenis') {
+        /*
+         * Wat er met Exact is gebeurd (0087). Casper: "zodat alles zichtbaar
+         * is, en je niks kan missen." De database zet het op een rij; hier
+         * staat alleen wie het mag vragen.
+         */
+        const { data, error } = await admin.rpc('exact_geschiedenis', {
+          vanaf_in: Number(body.vanaf) || null,
+          bv_in: String(body.bv ?? '') || null,
+          hoeveel: Number(body.hoeveel) || 200,
+        })
+        if (error) return json({ ok: false, reden: error.message }, 502)
+        const { data: kort } = await admin.rpc('exact_stand_kort', {
+          vanaf_in: Number(body.vanaf) || null,
+        })
+        return json({
+          ok: true,
+          regels: data ?? [],
+          kort: (Array.isArray(kort) ? kort[0] : kort) ?? null,
+        })
+      }
+
+      if (actie === 'niet-boekbaar') {
+        /* Wat er goedgekeurd is en toch niet weg kan, met per stuk de reden
+           (0086). Voor het scherm waar iemand goedkeurt -- daar stond tot nu
+           toe nergens dat een factuur zou blijven liggen. */
+        const { data, error } = await admin.rpc('bon_niet_boekbaar')
+        if (error) return json({ ok: false, reden: error.message }, 502)
+        return json({ ok: true, bonnen: data ?? [] })
+      }
+
       if (actie === 'proefrit') return await proefrit()
       if (actie === 'opnieuw-ophalen') return await opnieuwOphalen(beller, body)
       if (actie === 'resultaat') return await resultaat(body)

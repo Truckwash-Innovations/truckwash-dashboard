@@ -986,6 +986,16 @@ export interface ExactRekening {
 }
 
 export interface GrootboekStand {
+  /**
+   * Welke bv's er zijn, en welke je nu ziet (0086).
+   *
+   * Er is geen "het grootboek" meer. Rekening 4000 bestaat in elke
+   * administratie en betekent er iets anders; een lijst zonder bv is een
+   * lijst waarin de laatste wint, en dan zegt het scherm "klopt" bij een
+   * rekening die in de bv van díe bon niet eens bestaat.
+   */
+  bvs: { code: string; naam: string; hoofd: boolean }[]
+  bv: string
   regels: GrootboekRegel[]
   /** Wat Exact kent en wij nog niet -- de lijst om uit over te nemen. */
   nogNiet: ExactRekening[]
@@ -1002,6 +1012,8 @@ export interface GrootboekStand {
 
 function alsStand(uit: Partial<GrootboekStand>): GrootboekStand {
   return {
+    bvs: uit.bvs ?? [],
+    bv: uit.bv ?? '',
     regels: uit.regels ?? [],
     nogNiet: uit.nogNiet ?? [],
     ontbreekt: uit.ontbreekt ?? 0,
@@ -1069,8 +1081,33 @@ async function inRondes<T extends { klaar?: boolean; vervolg?: unknown }>(
   return uit
 }
 
-export async function exactGrootboekStand(): Promise<GrootboekStand> {
-  return alsStand(await roepFunctie<GrootboekStand>('exact', { actie: 'grootboek-stand' }))
+export async function exactGrootboekStand(bv?: string): Promise<GrootboekStand> {
+  return alsStand(await roepFunctie<GrootboekStand>(
+    'exact', { actie: 'grootboek-stand', ...(bv ? { bv } : {}) }))
+}
+
+/**
+ * Het hele schema van één bv overnemen uit Exact.
+ *
+ * Casper: "Zorg er ook voor dat je alle huidige grootboeken in zijn geheel
+ * vervangt voor die per bv dan."
+ *
+ * Wat er al stond blijft staan met zijn eigen naam en trefwoorden; wat Exact
+ * niet meer kent gaat op inactief in plaats van weg -- er kan op geboekt
+ * zijn, en dan is de historie onleesbaar zonder de naam.
+ */
+export async function exactGrootboekOvernemen(bv: string): Promise<
+  GrootboekStand & { nieuw: number; bijgewerkt: number; uit: number }
+> {
+  const uit = await roepFunctie<GrootboekStand & {
+    nieuw?: number; bijgewerkt?: number; uit?: number
+  }>('exact', { actie: 'grootboek-overnemen', bv })
+  return {
+    ...alsStand(uit),
+    nieuw: uit.nieuw ?? 0,
+    bijgewerkt: uit.bijgewerkt ?? 0,
+    uit: uit.uit ?? 0,
+  }
 }
 
 /** Het schema opnieuw ophalen bij Exact. Duurt even bij een grote administratie. */
@@ -1220,6 +1257,21 @@ export interface ExactAdministratie {
   eigenIban: string
   eigenNaam: string
   eigenBic: string
+  /**
+   * Het KvK- en btw-nummer van deze bv (0079).
+   *
+   * Hiermee bepaalt de lezer in welke bv een factuur hoort: staat een van
+   * deze nummers op het stuk, dan is dat een FEIT en geen gelijkenis. Zonder
+   * ze valt administratie_zoeken() terug op de naam, en "Truckwash 1 Asten
+   * B.V." en "Truckwash 1 Aalsmeer B.V." schelen één woord.
+   *
+   * Ze stonden sinds 0079 in de database en waren in de hele app nergens in
+   * te vullen -- exact dezelfde fout als bij eigenIban hierboven, en met een
+   * zwaarder gevolg: een factuur in de jaarrekening van de verkeerde
+   * vennootschap.
+   */
+  kvk: string
+  btwNummer: string
 }
 
 /**
@@ -1244,6 +1296,8 @@ function alsAdministratie(r: Partial<ExactAdministratie>): ExactAdministratie {
     eigenIban: r.eigenIban ?? '',
     eigenNaam: r.eigenNaam ?? '',
     eigenBic: r.eigenBic ?? '',
+    kvk: r.kvk ?? '',
+    btwNummer: r.btwNummer ?? '',
   }
 }
 
@@ -1319,11 +1373,163 @@ export async function exactStuurFacturen(): Promise<
   }
 }
 
+/**
+ * Een leverancier aan een crediteur in Exact koppelen, in ÉÉN bv.
+ *
+ * De bv is verplicht en dat is geen formaliteit: een crediteur-guid bestaat
+ * in precies één administratie. Dezelfde Shell heeft in elke bv een ander id,
+ * en werd er zonder bv gekoppeld, dan ging die ene guid overal mee -- waarna
+ * Exact de boeking weigert omdat hij de relatie daar niet kent.
+ */
 export async function exactKoppelLeverancier(
-  zoeknaam: string, exactId: string | null, gezienAls: string,
+  zoeknaam: string, exactId: string | null, administratie: string, gezienAls: string,
 ): Promise<FacturenStand> {
   return alsFacturen(await roepFunctie<FacturenStand>(
-    'exact', { actie: 'koppel-leverancier', zoeknaam, exactId, gezienAls }))
+    'exact', { actie: 'koppel-leverancier', zoeknaam, exactId, administratie, gezienAls }))
+}
+
+/* ------------------------------------------------------------------ *
+ *  De geschiedenis van Exact
+ *
+ *  Casper: "Kan je zorgen dat je ook de geschiedenis van exact kan zien,
+ *  zodat je weet wat er door is gekomen ect? zodat alles zichtbaar is, en je
+ *  niks kan missen."
+ *
+ *  Alles stond er al -- verspreid over vier plekken en per factuur pas te
+ *  zien als je hem openklikte. Wat ontbrak is het overzicht: een bon die op
+ *  een fout is vastgelopen zag er in de lijst hetzelfde uit als een die net
+ *  was goedgekeurd.
+ * ------------------------------------------------------------------ */
+
+export interface ExactHistorieRegel {
+  id: string
+  richting: 'inkoop' | 'verkoop'
+  stand: 'geboekt' | 'mislukt' | 'wacht'
+  wie: string
+  nummer: string | null
+  bedrag: number
+  administratie: string | null
+  /** Het boekingsnummer in Exact. Gevuld = dit is er doorgekomen. */
+  boeking: string | null
+  at: number
+  reden: string | null
+}
+
+export interface ExactHistorie {
+  regels: ExactHistorieRegel[]
+  kort: {
+    geboekt: number
+    geboektBedrag: number
+    mislukt: number
+    wacht: number
+    wachtBedrag: number
+    /** Wanneer de oudste wachtende is goedgekeurd. Een factuur van drie
+        maanden geleden die er nog staat is een ander verhaal dan een van
+        gisteren. */
+    oudsteWacht: number | null
+  } | null
+}
+
+export async function exactGeschiedenis(opties: {
+  vanaf?: number
+  bv?: string
+  hoeveel?: number
+} = {}): Promise<ExactHistorie> {
+  const uit = await roepFunctie<{
+    regels?: Record<string, unknown>[]
+    kort?: Record<string, unknown> | null
+  }>('exact', {
+    actie: 'geschiedenis',
+    ...(opties.vanaf ? { vanaf: opties.vanaf } : {}),
+    ...(opties.bv ? { bv: opties.bv } : {}),
+    ...(opties.hoeveel ? { hoeveel: opties.hoeveel } : {}),
+  })
+
+  /* De database geeft snake_case terug via rpc; hier één keer omzetten zodat
+     de schermen het niet elk voor zich hoeven te weten. */
+  const k = uit.kort
+  return {
+    regels: (uit.regels ?? []).map((r) => ({
+      id: String(r.id ?? ''),
+      richting: (r.richting === 'verkoop' ? 'verkoop' : 'inkoop'),
+      stand: (r.stand === 'geboekt' || r.stand === 'mislukt' ? r.stand : 'wacht'),
+      wie: String(r.wie ?? ''),
+      nummer: (r.nummer as string) ?? null,
+      bedrag: Number(r.bedrag) || 0,
+      administratie: (r.administratie as string) ?? null,
+      boeking: (r.boeking as string) ?? null,
+      at: Number(r.at) || 0,
+      reden: (r.reden as string) ?? null,
+    })),
+    kort: k
+      ? {
+        geboekt: Number(k.geboekt) || 0,
+        geboektBedrag: Number(k.geboekt_bedrag) || 0,
+        mislukt: Number(k.mislukt) || 0,
+        wacht: Number(k.wacht) || 0,
+        wachtBedrag: Number(k.wacht_bedrag) || 0,
+        oudsteWacht: k.oudste_wacht != null ? Number(k.oudste_wacht) : null,
+      }
+      : null,
+  }
+}
+
+export interface ExactCrediteur {
+  exactId: string
+  code: string | null
+  naam: string
+  plaats: string | null
+  btwNummer: string | null
+}
+
+/**
+ * De crediteuren van één bv, om uit te kiezen bij het koppelen.
+ *
+ * Per bv, want een crediteur-guid bestaat in precies één administratie. Met
+ * een zoekterm worden het er hoogstens vijftig; zonder tweehonderd. Bij een
+ * grote administratie zijn het er duizenden en dan is een volledige lijst
+ * geen lijst maar een muur.
+ */
+export async function exactCrediteuren(bv: string, zoek = ''): Promise<{
+  crediteuren: ExactCrediteur[]
+  afgekapt: boolean
+}> {
+  const uit = await roepFunctie<{
+    crediteuren?: ExactCrediteur[]
+    afgekapt?: boolean
+  }>('exact', { actie: 'crediteuren', bv, ...(zoek ? { zoek } : {}) })
+  return { crediteuren: uit.crediteuren ?? [], afgekapt: uit.afgekapt === true }
+}
+
+export interface NietBoekbaar {
+  id: string
+  leverancier: string
+  bedrag: number
+  administratie: string | null
+  /** Welke velden ontbreken, kort. Voor een rijtje vinkjes. */
+  wat: string[]
+  /** Eén zin die zegt wat je eraan doet. */
+  reden: string
+}
+
+/**
+ * Goedgekeurde facturen die niet naar Exact kunnen, met de reden erbij.
+ *
+ * Voor het scherm waar iemand goedkeurt. Daar stond tot nu toe nergens dat
+ * een factuur zou blijven liggen -- en dat is precies hoe "hij wilt niks naar
+ * exact sturen" ontstaat zonder dat er ergens een foutmelding staat.
+ */
+export async function exactNietBoekbaar(): Promise<NietBoekbaar[]> {
+  const uit = await roepFunctie<{ bonnen?: Record<string, unknown>[] }>(
+    'exact', { actie: 'niet-boekbaar' })
+  return (uit.bonnen ?? []).map((r) => ({
+    id: String(r.id ?? ''),
+    leverancier: String(r.leverancier ?? ''),
+    bedrag: Number(r.bedrag) || 0,
+    administratie: (r.administratie as string) ?? null,
+    wat: Array.isArray(r.wat) ? r.wat.map(String) : [],
+    reden: String(r.reden ?? ''),
+  }))
 }
 
 export interface ExactDagboek { code: string; naam: string; inkoop: boolean }
@@ -1383,6 +1589,8 @@ export async function exactZetAdministratie(
     eigenIban?: string
     eigenNaam?: string
     eigenBic?: string
+    kvk?: string
+    btwNummer?: string
   },
 ): Promise<ExactAdministratie[]> {
   const uit = await roepFunctie<{ administraties?: ExactAdministratie[] }>(

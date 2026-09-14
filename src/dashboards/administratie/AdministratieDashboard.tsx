@@ -24,6 +24,7 @@ import MijnPostvak from '../../components/Postvak'
 import {
   Administraties, Betalen, Facturen, Grootboek, Proefrit, Relaties, Verkoop,
 } from '../developer/Exact'
+import { NaarExact } from './NaarExact'
 import { exactStatus } from '../../lib/trucksupply'
 import { telStuk, telWerk } from '../../lib/werklijst'
 import { useNavTarget, usePerms } from '../../store/useNav'
@@ -377,6 +378,15 @@ export default function AdministratieDashboard() {
       */}
       {page === 'boekhouding' && (
         <>
+          {/*
+            Bovenaan wat er NU aan de hand is, en pas daarna de instellingen.
+            Casper: "Nu is het te onduidelijk, en werkt het gewoon niet."
+            De reden dat er niets ging was dat elke bon op "crediteur
+            ontbreekt" bleef staan -- en dat stond nergens. Nu staat het
+            bovenaan, met de knop om het te verhelpen ernaast, en eronder wat
+            er werkelijk is doorgekomen.
+          */}
+          <NaarExact verbonden={verbonden} />
           <Inkoopinstellingen />
           {/* De proefrit staat vóór de knop die facturen wegstuurt. Dat is de
               volgorde waarin je het doet: eerst kijken of het aankomt. */}

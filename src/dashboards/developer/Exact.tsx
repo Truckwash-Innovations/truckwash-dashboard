@@ -718,6 +718,8 @@ export function Administraties({ verbonden }: { verbonden: boolean }) {
       eigenIban?: string
       eigenNaam?: string
       eigenBic?: string
+      kvk?: string
+      btwNummer?: string
     },
   ) {
     try {
@@ -726,6 +728,14 @@ export function Administraties({ verbonden }: { verbonden: boolean }) {
          voor zich; een rekeningnummer dat is nagerekend en goedgekeurd niet. */
       if (velden.eigenIban !== undefined && velden.eigenIban.trim()) {
         toast.ok('Rekeningnummer opgeslagen.')
+      }
+      /* Idem voor de twee kenmerken: die worden nagerekend en dan gaat er een
+         veld op zwart zonder dat je ziet dat er iets gebeurd is. */
+      if (velden.kvk !== undefined && velden.kvk.trim()) {
+        toast.ok('KvK-nummer opgeslagen. De lezer herkent deze bv nu op het stuk.')
+      }
+      if (velden.btwNummer !== undefined && velden.btwNummer.trim()) {
+        toast.ok('Btw-nummer opgeslagen. De lezer herkent deze bv nu op het stuk.')
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Dat lukte niet.')
@@ -889,6 +899,43 @@ export function Administraties({ verbonden }: { verbonden: boolean }) {
                 </table>
               </div>
             )}
+
+          {/* ---- waaraan elke bv te herkennen is ---- */}
+
+          <h4 style={{ marginTop: 18, marginBottom: 6 }}>Waaraan elke bv te herkennen is</h4>
+          <p className="help" style={{ marginTop: 0 }}>
+            Hiermee bepaalt de lezer in welke bv een factuur hoort. Staat een van deze
+            nummers op het stuk, dan is dat een <strong>feit</strong>; staan ze leeg, dan
+            moet hij het op de naam doen — en “Truckwash 1 Asten B.V.” en “Truckwash 1
+            Aalsmeer B.V.” schelen één woord. Exact geeft deze nummers niet mee bij het
+            ophalen, dus ze moeten hier met de hand in.
+          </p>
+          {actief.length === 0
+            ? (
+              <p className="help">Zet hierboven eerst een bv aan.</p>
+            )
+            : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Bv</th>
+                      <th style={{ width: 150 }}>KvK-nummer</th>
+                      <th style={{ width: 190 }}>Btw-nummer</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {actief.map((a) => (
+                      <KenmerkRegel
+                        key={a.code}
+                        adm={a}
+                        bewaar={(velden) => zet(a.code, velden)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
         </>
       )}
     </Card>
@@ -906,6 +953,70 @@ export function Administraties({ verbonden }: { verbonden: boolean }) {
  *  veranderd is. Geen knop per regel: drie velden maal twaalf bv's is
  *  zesendertig knoppen waarvan je er hooguit twee gebruikt.
  * ------------------------------------------------------------------ */
+
+/**
+ * Waaraan een bv te herkennen is op een factuur.
+ *
+ * Migratie 0079 liet de lezer de geadresseerde van het stuk halen en zoekt
+ * daar met administratie_zoeken() de bv bij: eerst op KvK-nummer, dan op
+ * btw-nummer, dan op naam. De eerste twee zijn feiten; de derde is een
+ * gelijkenis.
+ *
+ * Die twee kolommen stonden sinds 0079 in de database en waren in de hele app
+ * nergens in te vullen -- dezelfde fout als bij het rekeningnummer hierboven,
+ * en met een zwaarder gevolg. Een verkeerd gelezen bv zet een kostenpost in
+ * de jaarrekening van een andere vennootschap, en dat merkt niemand tot de
+ * accountant belt.
+ *
+ * Ze staan in een eigen tabel en niet als twee kolommen bij het
+ * rekeningnummer: het zijn twee verschillende vragen ("waarvan betaalt deze
+ * bv" tegenover "waaraan herken je hem"), en zes kolommen naast elkaar is
+ * precies waar een tabel onleesbaar van wordt.
+ */
+function KenmerkRegel({
+  adm, bewaar,
+}: {
+  adm: ExactAdministratie
+  bewaar: (velden: { kvk?: string; btwNummer?: string }) => void
+}) {
+  const [kvk, setKvk] = useState(adm.kvk)
+  const [btw, setBtw] = useState(adm.btwNummer)
+
+  /* De server wint, net als bij de rekeningregel: een geweigerd nummer hoort
+     niet in beeld te blijven alsof het bewaard is. */
+  useEffect(() => { setKvk(adm.kvk) }, [adm.kvk])
+  useEffect(() => { setBtw(adm.btwNummer) }, [adm.btwNummer])
+
+  return (
+    <tr>
+      <td>
+        <span className="mono">{adm.code}</span>
+        {adm.naam && <div className="ts-sub afgekapt">{adm.naam}</div>}
+      </td>
+      <td>
+        <input
+          className="input mono"
+          value={kvk}
+          placeholder="12345678"
+          inputMode="numeric"
+          spellCheck={false}
+          onChange={(e) => setKvk(e.currentTarget.value)}
+          onBlur={() => { if (kvk.trim() !== adm.kvk) bewaar({ kvk }) }}
+        />
+      </td>
+      <td>
+        <input
+          className="input mono"
+          value={btw}
+          placeholder="NL123456789B01"
+          spellCheck={false}
+          onChange={(e) => setBtw(e.currentTarget.value)}
+          onBlur={() => { if (btw.trim() !== adm.btwNummer) bewaar({ btwNummer: btw }) }}
+        />
+      </td>
+    </tr>
+  )
+}
 
 function RekeningRegel({
   adm, bewaar,

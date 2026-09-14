@@ -5052,8 +5052,44 @@ console.log('\n37. Het rekeningschema blijft van ons')
       .test(bron))
   check('en die uitkomst bepaalt of het mag',
     bron.includes('const mag = magBoekhouding ||'))
+  /*
+   * Hier stond een telling op precies vijf. Dat is een teller en geen
+   * controle: wie er een beschermde actie bij zet, moet het getal ophogen, en
+   * dan is de test iets wat je stilzwijgend goedzet in plaats van iets wat je
+   * iets vertelt. Bij de zesde actie (grootboek-overnemen) viel hij om
+   * terwijl die juist wél netjes beschermd was.
+   *
+   * Wat het moet zijn: een ondergrens, plus de eis dat elke actie die aan de
+   * boekhouding komt er ook echt achter staat.
+   */
   check('de boekhoudacties hangen aan dat veld',
-    (bron.match(/if \(!beller\.magBoekhouding\)/g) ?? []).length === 5)
+    (bron.match(/if \(!beller\.magBoekhouding\)/g) ?? []).length >= 5)
+
+  /*
+   * En geen enkele boekhoudactie staat buiten die deur. De router groepeert
+   * ze; wat hier wordt nagerekend is dat elke naam die geld of Exact raakt in
+   * zo'n groep valt en niet los in de router is blijven hangen.
+   */
+  for (const actie of [
+    'sync-grootboek', 'grootboek-overnemen', 'sync-relaties', 'stuur-facturen',
+    'koppel-leverancier', 'proefrit', 'opnieuw-ophalen', 'geschiedenis',
+    'niet-boekbaar', 'crediteuren', 'sepa-maken', 'batch-uitvoeren',
+  ]) {
+    /*
+     * De LAATSTE vermelding, want dat is de regel die hem afhandelt. De
+     * eerste staat in de groepsvoorwaarde ("actie === 'a' || actie === 'b'"),
+     * en daar staat de rechtencontrole per definitie ná -- zoek je daarvóór,
+     * dan vind je de controle van de vórige groep en slaagt de test om de
+     * verkeerde reden. Precies dat deed de eerste versie hiervan: tien acties
+     * groen op een controle die niet de hunne was.
+     */
+    const plek = bron.lastIndexOf(`actie === '${actie}'`)
+    const deur = bron.lastIndexOf('if (!beller.magBoekhouding)', plek)
+    const magPersoneel = bron.lastIndexOf('await magPersoneel(req)', plek)
+    check(`${actie} staat achter de boekhouddeur`,
+      plek > 0 && deur > 0 && deur < plek && deur > magPersoneel,
+      plek > 0 ? 'staat buiten een rechtencontrole' : 'actie niet gevonden')
+  }
   /* De sleutels blijven bij ontwikkeling en management. */
   check('maar de sleutels van de Exact-app niet',
     bron.includes('if (!beller.magSleutels) {'))
