@@ -9817,5 +9817,84 @@ console.log('\n76. Versturen naar Exact')
     herstel.includes('set zoeknaam   = public.kaal_bedrijf(l.gezien_als)'))
 }
 
+/* ==================================================================== *
+ *  77. Wat Exact van een inkoopboeking eist
+ *
+ *  Exact weigerde de eerste echte boeking met vijf regels tegelijk, en vier
+ *  daarvan wist Exact zelf al. Casper: "zoveel mogelijk uit exact gebruiken."
+ *
+ *  De ergste van de vijf was een omgekeerde aanname: wij hielden
+ *  Journals.Type 20 voor het inkoopdagboek, terwijl 20 VERKOOP is en 22
+ *  inkoop. Daardoor keurde de proefrit een goed dagboek af en een verkeerd
+ *  goed -- groen scherm, geweigerde boeking.
+ *
+ *  Zulke getallen staan in de documentatie van Exact en nergens anders. Deze
+ *  controle houdt vast wat daar is nagekeken, zodat het niet terugglijdt naar
+ *  wat plausibel lijkt.
+ * ==================================================================== */
+
+console.log('\n77. Wat Exact van een inkoopboeking eist')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const m89 = readFileSync('supabase/migrations/0089_wat_exact_zelf_al_wist.sql', 'utf8')
+
+  /* --- 1. het dagboektype --- */
+
+  check('een inkoopdagboek is type 22, niet 20',
+    /const DAGBOEK_INKOOP = 22/.test(fn),
+    'DAGBOEK_INKOOP staat niet op 22')
+
+  /* Nergens nog een losse 20 als dagboektype. Die stond op twee plekken en
+     één ervan was de proefrit, die het dus niet ving. */
+  check('en dat getal staat op één plek',
+    !/Type === 20|soort !== 20|r\.Type === 20/.test(fn),
+    'er staat nog ergens een dagboektype 20')
+
+  /* --- 2. de vier dingen die Exact zelf weet --- */
+
+  check('het dagboek komt uit Exact',
+    fn.includes("'financial/Journals'") && fn.includes('GLAccount'),
+    'de crediteurenrekening van het dagboek wordt niet opgehaald')
+
+  check('een verkoop-btw-code gaat er niet meer in',
+    fn.includes('VATTransactionType'),
+    'het type van een btw-code wordt nergens gelezen')
+
+  check('de betalingsconditie komt van de crediteur in Exact',
+    fn.includes('PaymentConditionPurchase') && fn.includes('PaymentCondition:'),
+    'de betalingsconditie wordt niet opgehaald of niet meegestuurd')
+
+  check('de crediteurenrekening van de relatie ook',
+    fn.includes('GLAP'),
+    'crm/Accounts.GLAP wordt niet gelezen')
+
+  /* --- 3. het ene dat Exact NIET weet --- */
+
+  check('de vervaldatum gaat mee naar Exact',
+    fn.includes('DueDate:'),
+    'DueDate wordt niet meegestuurd')
+
+  check('en komt uit de wachtrij, van het papier',
+    m89.includes('b.vervaldatum') && fn.includes('bon.vervaldatum'),
+    'de vervaldatum komt niet uit exact_facturen_wachtend')
+
+  /*
+   * Geen verzonnen termijn. Een vervaldatum bepaalt wanneer er betaald
+   * wordt; er dagen bij optellen omdat het veld verplicht is, is geld
+   * verplaatsen op een aanname.
+   */
+  check('zonder vervaldatum wordt er geen termijn verzonnen',
+    fn.includes('bon.vervaldatum || bon.datum'),
+    'er wordt een vervaldatum berekend in plaats van overgenomen')
+
+  /* --- 4. en de rechten na de drop --- */
+
+  check('de rechten staan na de drop weer goed',
+    m89.includes('revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated')
+    && m89.includes('grant  execute on function public.exact_facturen_wachtend() to service_role'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

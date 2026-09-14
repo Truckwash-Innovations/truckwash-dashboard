@@ -1236,6 +1236,12 @@ export interface WachtendeFactuur {
   grootboek: string | null
   crediteur: string | null
   datum: number
+  /**
+   * Wanneer de factuur vervalt, van het papier (0089). Exact eist hem bij een
+   * inkoopboeking en kan hem niet zelf weten; nul betekent dat er niets op
+   * stond en de factuurdatum wordt genomen.
+   */
+  vervaldatum: number
   /** Wat er nog ontbreekt voordat deze bon weg kan. Leeg = klaar. */
   mist: string[]
   fout: string | null
@@ -1544,7 +1550,18 @@ export async function exactNietBoekbaar(): Promise<NietBoekbaar[]> {
 }
 
 export interface ExactDagboek { code: string; naam: string; inkoop: boolean }
-export interface ExactBtwCode { code: string; naam: string; pct: number | null }
+export interface ExactBtwCode {
+  code: string
+  naam: string
+  pct: number | null
+  /**
+   * Mag deze code voor inkoop. Exact kent 'S' (verkoop), 'P' (inkoop) en 'B'
+   * (beide); een verkoopcode ziet er in een lijst precies hetzelfde uit en
+   * wordt pas bij het boeken geweigerd. De serverfunctie laat ze hier niet
+   * meer door -- dit veld staat er zodat dat te zien is en niet stil.
+   */
+  voorInkoop?: boolean
+}
 
 export async function exactDagboeken(): Promise<ExactDagboek[]> {
   const uit = await roepFunctie<{ dagboeken?: ExactDagboek[] }>('exact', { actie: 'dagboeken' })

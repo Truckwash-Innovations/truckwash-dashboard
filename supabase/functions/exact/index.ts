@@ -2041,6 +2041,8 @@ async function facturenStand() {
       crediteurId: (e.crediteur_id as string) ?? null,
       administratie: (e.administratie as string) ?? null,
       datum: Number(e.datum) || 0,
+      /* Voor DueDate: Exact eist een vervaldatum en kent hem niet. */
+      vervaldatum: Number(e.vervaldatum) || 0,
       crediteur: (e.crediteur_naam as string) ?? null,
       /* Waar de factuur over gaat, van het papier (0085). Dit wordt de
          regelomschrijving in het inkoopdagboek als de bon niet gesplitst is. */
@@ -2086,15 +2088,17 @@ async function dagboeken(): Promise<Response> {
   const lijn = await geldigToken(admin)
   const rijen = await exactLijst<{ Code?: string; Description?: string; Type?: number }>(
     lijn, 'financial/Journals', { $select: 'Code,Description,Type' })
-  /* Type 20 is het inkoopdagboek bij Exact. De rest tonen we ook maar
-     onderaan -- een administratie kan afwijkend zijn ingericht. */
+  /* Type 22 is het inkoopdagboek bij Exact; 20 is VERKOOP. Hier stond 20, en
+     daarmee wees de lijst de verkoopdagboeken aan als de goede keuze. De rest
+     tonen we ook maar onderaan -- een administratie kan afwijkend zijn
+     ingericht. */
   return json({
     ok: true,
     dagboeken: rijen
       .map((r) => ({
         code: String(r.Code ?? '').trim(),
         naam: String(r.Description ?? '').trim(),
-        inkoop: r.Type === 20,
+        inkoop: r.Type === DAGBOEK_INKOOP,
       }))
       .filter((r) => r.code)
       .sort((a, b) => Number(b.inkoop) - Number(a.inkoop) || a.code.localeCompare(b.code)),
@@ -2103,20 +2107,268 @@ async function dagboeken(): Promise<Response> {
 
 async function btwCodes(): Promise<Response> {
   const lijn = await geldigToken(admin)
-  const rijen = await exactLijst<{ Code?: string; Description?: string; Percentage?: number }>(
-    lijn, 'vat/VATCodes', { $select: 'Code,Description,Percentage' })
+  const rijen = await exactLijst<{
+    Code?: string; Description?: string; Percentage?: number
+    VATTransactionType?: string; IsBlocked?: boolean
+  }>(lijn, 'vat/VATCodes',
+    { $select: 'Code,Description,Percentage,VATTransactionType,IsBlocked' })
+  /*
+   * Een geblokkeerde code hoort niet in een keuzelijst: die kun je kiezen en
+   * daarna weigert Exact elke boeking ermee. En VATTransactionType 'S' is
+   * verkoop -- precies waar de eerste echte boeking op afketste, met
+   * "U kunt geen btw-code van het type 'Verkoop' gebruiken".
+   */
   return json({
     ok: true,
     codes: rijen
+      .filter((r) => r.IsBlocked !== true)
       .map((r) => ({
         code: String(r.Code ?? '').trim(),
         naam: String(r.Description ?? '').trim(),
         /* Exact geeft 0.21 waar wij 21 zeggen. */
         pct: typeof r.Percentage === 'number' ? Math.round(r.Percentage * 100) : null,
+        voorInkoop: String(r.VATTransactionType ?? '').toUpperCase() !== 'S',
       }))
-      .filter((r) => r.code)
+      .filter((r) => r.code && r.voorInkoop)
       .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1)),
   })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat een inkoopboeking nodig heeft -- gevraagd aan Exact zelf
+ *
+ *  Casper: "Kan je zorgen dat dit gefixed wordt? zoveel mogelijk uit exact
+ *  gebruiken."
+ *
+ *  Exact weigerde de eerste echte boeking met vijf regels tegelijk:
+ *
+ *      Verplicht: Vervaldatum
+ *      Verplicht: Betalingsconditie
+ *      Ongeldig: Dagboek (Type)
+ *      Ongeldig: U kunt geen btw-code van het type 'Verkoop' gebruiken
+ *      De crediteurenrekening van deze relatie is niet gelijk aan die van
+ *      het dagboek
+ *
+ *  Vier van de vijf wist Exact zelf al. Wij vroegen het niet, en lieten het
+ *  in plaats daarvan met de hand instellen -- en dan is elke instelling een
+ *  kans om het mis te hebben. Vandaar dat dit nu bij Exact wordt opgehaald,
+ *  per bv en per crediteur.
+ *
+ *  De ene die Exact NIET weet is de vervaldatum: die staat op het papier, en
+ *  die haalt de lezer eraf.
+ *
+ *  Nagekeken in de documentatie van Exact, niet gegokt
+ *  ---------------------------------------------------
+ *
+ *  Dat is hier het verschil tussen werken en niet werken, want er stond een
+ *  aanname in die precies verkeerd om was:
+ *
+ *      financial/Journals.Type    20 = VERKOOP, 22 = INKOOP
+ *
+ *  Onze code hield 20 voor het inkoopdagboek -- ook de proefrit, die dus een
+ *  goed ingesteld dagboek afkeurde en een verkeerd dagboek goedkeurde. Dat is
+ *  "Ongeldig: Dagboek (Type)".
+ *
+ *  De rest van wat hieronder wordt gelezen, met de naam zoals Exact hem
+ *  schrijft:
+ *
+ *      financial/Journals.GLAccount        de crediteurenrekening van het
+ *                                          dagboek (bij Exact "suspense")
+ *      vat/VATCodes.VATTransactionType     'P' inkoop, 'S' verkoop, 'B' beide
+ *      vat/VATCodes.IsBlocked              mag deze code nog
+ *      crm/Accounts.GLAP                   de crediteurenrekening van de
+ *                                          relatie -- die moet gelijk zijn
+ *                                          aan die van het dagboek
+ *      crm/Accounts.PaymentConditionPurchase   de betalingsconditie
+ * ------------------------------------------------------------------ */
+
+/** Het type dat Exact aan een INKOOPdagboek geeft. Verkoop is 20. */
+const DAGBOEK_INKOOP = 22
+
+interface Inkoopdagboek {
+  code: string
+  naam: string
+  /** De crediteurenrekening van dit dagboek (Journals.GLAccount). */
+  crediteuren: string | null
+}
+
+interface BtwUitExact {
+  code: string
+  pct: number | null
+  voorInkoop: boolean
+}
+
+interface BvBasis {
+  dagboeken: Inkoopdagboek[]
+  btw: BtwUitExact[]
+}
+
+/**
+ * De inkoopdagboeken en de btw-codes van één bv.
+ *
+ * Eén keer per verzendronde per bv: bij vijfentwintig bonnen van dezelfde
+ * vestiging zijn dat anders vijftig heen-en-weertjes naar Exact voor een
+ * antwoord dat niet verandert.
+ */
+async function bvBasis(
+  lijn: ExactLijn, bv: string, geheugen: Map<string, BvBasis>,
+): Promise<BvBasis> {
+  const al = geheugen.get(bv)
+  if (al) return al
+
+  const [dagboeken, codes] = await Promise.all([
+    exactLijst<{ Code?: string; Description?: string; Type?: number; GLAccount?: string }>(
+      lijn, 'financial/Journals', { $select: 'Code,Description,Type,GLAccount' }, bv),
+    exactLijst<{ Code?: string; Percentage?: number; VATTransactionType?: string; IsBlocked?: boolean }>(
+      lijn, 'vat/VATCodes', { $select: 'Code,Percentage,VATTransactionType,IsBlocked' }, bv),
+  ])
+
+  const uit: BvBasis = {
+    dagboeken: dagboeken
+      .filter((r) => r.Type === DAGBOEK_INKOOP)
+      .map((r) => ({
+        code: String(r.Code ?? '').trim(),
+        naam: String(r.Description ?? '').trim(),
+        crediteuren: String(r.GLAccount ?? '').trim() || null,
+      }))
+      .filter((r) => r.code),
+    btw: codes
+      .filter((r) => r.IsBlocked !== true)
+      .map((r) => ({
+        code: String(r.Code ?? '').trim(),
+        /* Exact geeft 0.21 waar wij 21 zeggen. */
+        pct: typeof r.Percentage === 'number' ? Math.round(r.Percentage * 100) : null,
+        /* 'S' is verkoop en precies waar Exact op afketste. */
+        voorInkoop: String(r.VATTransactionType ?? '').toUpperCase() !== 'S',
+      }))
+      .filter((r) => r.code),
+  }
+
+  geheugen.set(bv, uit)
+  return uit
+}
+
+/**
+ * Wat Exact van deze crediteur weet: zijn betalingsconditie en zijn
+ * crediteurenrekening.
+ *
+ * Die tweede bepaalt in welk dagboek hij geboekt KAN worden -- Exact eist dat
+ * de crediteurenrekening van de relatie gelijk is aan die van het dagboek.
+ * Dat is geen instelling van ons; het staat aan beide kanten in Exact, en
+ * wij hoeven alleen de combinatie te kiezen die klopt.
+ */
+async function crediteurBij(
+  lijn: ExactLijn, bv: string, exactId: string, geheugen: Map<string, ExactCrediteurInfo>,
+): Promise<ExactCrediteurInfo> {
+  const sleutel = `${bv}:${exactId}`
+  const al = geheugen.get(sleutel)
+  if (al) return al
+
+  const rijen = await exactLijst<{
+    ID?: string; Name?: string; PaymentConditionPurchase?: string; GLAP?: string
+  }>(lijn, 'crm/Accounts', {
+    $select: 'ID,Name,PaymentConditionPurchase,GLAP',
+    $filter: `ID eq guid'${exactId}'`,
+  }, bv)
+
+  const r = rijen[0]
+  const uit: ExactCrediteurInfo = {
+    naam: String(r?.Name ?? '').trim(),
+    betaalconditie: String(r?.PaymentConditionPurchase ?? '').trim() || null,
+    crediteuren: String(r?.GLAP ?? '').trim() || null,
+    gevonden: Boolean(r),
+  }
+  geheugen.set(sleutel, uit)
+  return uit
+}
+
+interface ExactCrediteurInfo {
+  naam: string
+  betaalconditie: string | null
+  crediteuren: string | null
+  gevonden: boolean
+}
+
+/**
+ * Welk inkoopdagboek hoort bij deze crediteur?
+ *
+ * De regel van Exact: de crediteurenrekening van het dagboek moet die van de
+ * relatie zijn. Is er maar één inkoopdagboek, dan is er niets te kiezen. Zijn
+ * er meer, dan is dat bijna altijd omdat ze op verschillende
+ * crediteurenrekeningen boeken -- en dan is de keuze geen smaak maar een
+ * gelijkheid.
+ *
+ * Een eigen instelling (0086) gaat voor, maar alleen als hij mag: een dagboek
+ * dat Exact weigert is geen keuze.
+ */
+function kiesDagboek(
+  basis: BvBasis, cred: ExactCrediteurInfo, ingesteld: string, bv: string,
+): Inkoopdagboek {
+  if (basis.dagboeken.length === 0) {
+    throw new Error(`${bv} heeft geen inkoopdagboek (Type ${DAGBOEK_INKOOP}) in Exact`)
+  }
+
+  const past = (d: Inkoopdagboek) =>
+    !cred.crediteuren || !d.crediteuren || d.crediteuren === cred.crediteuren
+
+  if (ingesteld) {
+    const raak = basis.dagboeken.find((d) => d.code === ingesteld)
+    if (!raak) {
+      throw new Error(
+        `dagboek ${ingesteld} is in ${bv} geen inkoopdagboek. `
+        + `Inkoop is er ${basis.dagboeken.map((d) => d.code).join(', ') || 'geen'}.`)
+    }
+    if (past(raak)) return raak
+    /* Wel een inkoopdagboek, maar op een andere crediteurenrekening dan deze
+       relatie. Exact weigert dat; een ander dagboek dat wél past is dan geen
+       eigenmachtige keuze maar de enige die er is. */
+    const anders = basis.dagboeken.find(past)
+    if (anders) return anders
+    throw new Error(
+      `de crediteurenrekening van ${cred.naam || 'deze relatie'} hoort bij geen enkel `
+      + `inkoopdagboek van ${bv}. Zet ze in Exact gelijk.`)
+  }
+
+  const raak = basis.dagboeken.find(past)
+  if (!raak) {
+    throw new Error(
+      `geen inkoopdagboek in ${bv} met de crediteurenrekening van `
+      + `${cred.naam || 'deze relatie'}.`)
+  }
+  return raak
+}
+
+/**
+ * Welke btw-code hoort bij dit percentage?
+ *
+ * Alleen codes die Exact voor inkoop toestaat. Een ingestelde code gaat voor
+ * zolang hij mag en het juiste percentage heeft; anders wordt hij bij Exact
+ * opgezocht. Zijn er meer codes met hetzelfde percentage -- dat komt voor,
+ * "21% inkoop" naast "21% verlegd" -- dan wordt er niet gekozen maar
+ * gevraagd. Raden levert btw op die niet op de factuur staat.
+ */
+function kiesBtw(basis: BvBasis, pct: number, ingesteld: string, bv: string): string {
+  const bruikbaar = basis.btw.filter((c) => c.voorInkoop)
+
+  if (ingesteld) {
+    const raak = bruikbaar.find((c) => c.code === ingesteld)
+    if (raak && (raak.pct === null || raak.pct === pct)) return raak.code
+    if (!raak && basis.btw.some((c) => c.code === ingesteld)) {
+      throw new Error(
+        `btw-code ${ingesteld} is in ${bv} een verkoopcode; voor inkoop mag hij niet`)
+    }
+    /* Ingesteld op een code die er niet is of een ander percentage heeft:
+       niet stilzwijgend iets anders pakken, maar wel proberen wat Exact zegt. */
+  }
+
+  const passend = bruikbaar.filter((c) => c.pct === pct)
+  if (passend.length === 1) return passend[0].code
+  if (passend.length === 0) {
+    throw new Error(`${bv} heeft geen inkoop-btw-code voor ${pct}%`)
+  }
+  throw new Error(
+    `${bv} heeft ${passend.length} inkoop-btw-codes voor ${pct}% `
+    + `(${passend.map((c) => c.code).join(', ')}). Kies er een bij de bv.`)
 }
 
 /* ------------------------------------------------------------------ *
@@ -2268,6 +2520,11 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
   const stand = await facturenStand()
   const klaar = stand.wachtend.filter((b) => b.mist.length === 0)
 
+  /* Eén keer vragen per bv en per crediteur, niet per bon. Vijfentwintig
+     bonnen van dezelfde vestiging zijn anders vijftig gelijke vragen. */
+  const basisPerBv = new Map<string, BvBasis>()
+  const credPerId = new Map<string, ExactCrediteurInfo>()
+
   let gelukt = 0
   const mislukt: { id: string; reden: string }[] = []
 
@@ -2287,14 +2544,37 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       if (!bon.administratie) throw new Error('geen administratie bekend voor deze bon')
       const bvInst = await boekinstellingVan(bon.administratie)
 
-      const dagboek = bvInst.dagboek
-      if (!dagboek) {
-        throw new Error(`voor ${bon.administratie} staat geen inkoopdagboek`)
+      /*
+       * Wat Exact ervan vindt, en pas daarna wat wij hadden ingesteld.
+       *
+       * Een ingestelde waarde die Exact weigert is geen instelling maar een
+       * foutmelding op het moment dat de factuur al weg had moeten zijn.
+       */
+      const basis = await bvBasis(lijn, bon.administratie, basisPerBv)
+      const cred = await crediteurBij(lijn, bon.administratie, bon.crediteurId, credPerId)
+      if (!cred.gevonden) {
+        throw new Error(
+          `de gekoppelde crediteur bestaat niet (meer) in ${bon.administratie}. `
+          + 'Haal de relaties opnieuw op en koppel opnieuw.')
       }
 
-      const btwCode = bvInst.btw[bon.btwPct as 21 | 9 | 0] || bvInst.btw[21]
-      if (!btwCode) {
-        throw new Error(`voor ${bon.administratie} staat geen btw-code voor ${bon.btwPct}%`)
+      const gekozen = kiesDagboek(basis, cred, bvInst.dagboek, bon.administratie)
+      const dagboek = gekozen.code
+
+      const btwCode = kiesBtw(
+        basis, bon.btwPct === 9 || bon.btwPct === 0 ? bon.btwPct : 21,
+        bvInst.btw[bon.btwPct as 21 | 9 | 0] || '', bon.administratie)
+
+      /*
+       * De betalingsconditie staat bij de crediteur in Exact en nergens bij
+       * ons -- en dat hoort ook: welke termijn er met een leverancier is
+       * afgesproken is boekhouding, geen app-instelling. Exact eist hem, dus
+       * een lege is een echte melding en geen detail.
+       */
+      if (!cred.betaalconditie) {
+        throw new Error(
+          `${cred.naam || 'deze crediteur'} heeft in ${bon.administratie} geen `
+          + 'betalingsconditie. Zet die in Exact bij de relatie; Exact eist hem.')
       }
 
       /*
@@ -2351,9 +2631,12 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
             throw new Error(`rekening ${code} bestaat niet in administratie ${bon.administratie}`)
           }
 
+          /* Ook per regel langs Exact: een gesplitste bon kan een regel van 9%
+             hebben, en die code moet net zo goed voor inkoop mogen. */
           const pct = Number(r.btw_pct)
-          const regelBtw = bvInst.btw[(pct === 9 || pct === 0 ? pct : 21) as 21 | 9 | 0] || btwCode
-          if (!regelBtw) throw new Error(`geen btw-code ingesteld voor ${pct}%`)
+          const tarief = pct === 9 || pct === 0 ? pct : 21
+          const regelBtw = kiesBtw(
+            basis, tarief, bvInst.btw[tarief as 21 | 9 | 0] || '', bon.administratie)
 
           lijnen.push({
             AmountFC: Number(r.bedrag_excl) || 0,
@@ -2365,10 +2648,22 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
         }
       }
 
+      /*
+       * De vervaldatum komt van het papier.
+       *
+       * Dit is het enige van de vijf dat Exact niet zelf weet: wanneer DEZE
+       * factuur vervalt staat erop, en de lezer haalt het eraf. Staat er
+       * niets, dan de factuurdatum -- en niet een termijn erbij verzinnen.
+       * Een verzonnen vervaldatum bepaalt wanneer er betaald wordt.
+       */
+      const vervalt = bon.vervaldatum || bon.datum || Date.now()
+
       const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
         Journal: dagboek,
         Supplier: bon.crediteurId,
         EntryDate: exactDatum(bon.datum || Date.now()),
+        DueDate: exactDatum(vervalt),
+        PaymentCondition: cred.betaalconditie,
         Description: kortVoorExact(
           `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`),
         YourRef: (bon.factuurnummer ?? '').slice(0, 50),
@@ -2554,12 +2849,18 @@ async function proefrit(): Promise<Response> {
         : 'Elke bv heeft zijn eigen dagboeken. Geef deze bv er een die hier bestaat, '
           + 'of zet hem uit als je er niet in boekt.')
 
-    /* Type 20 is inkoop. Een ander type neemt de boeking wél aan en zet hem
-       op de verkeerde plek -- dat is erger dan een weigering. */
-    if (gevonden && soort !== null && soort !== 20) {
+    /*
+     * Type 22 is inkoop bij Exact; 20 is verkoop.
+     *
+     * Hier stond 20, en daarmee keurde de proefrit een goed ingesteld
+     * inkoopdagboek af en een verkoopdagboek goed. Exact weigerde de eerste
+     * echte boeking met "Ongeldig: Dagboek (Type)" -- en de proefrit had
+     * groen gestaan.
+     */
+    if (gevonden && soort !== null && soort !== DAGBOEK_INKOOP) {
       zet(`${naam}: dagboek ${bvInst.dagboek} is een INKOOPdagboek`, false,
-        `Het is type ${soort}, niet 20.`,
-        'Exact neemt de boeking dan aan en zet hem verkeerd weg.')
+        `Het is type ${soort}, niet ${DAGBOEK_INKOOP}.`,
+        'Exact weigert de boeking; type 20 is verkoop.')
     }
 
     /* ---- en de btw-codes van deze bv ---- */
@@ -2576,8 +2877,11 @@ async function proefrit(): Promise<Response> {
         continue
       }
       try {
-        const rijen = await exactLijst<{ Code?: string; Percentage?: number }>(
-          lijn, 'vat/VATCodes', { $select: 'Code,Percentage', $filter: `Code eq '${code}'` }, bv)
+        const rijen = await exactLijst<{
+          Code?: string; Percentage?: number; VATTransactionType?: string; IsBlocked?: boolean
+        }>(lijn, 'vat/VATCodes',
+          { $select: 'Code,Percentage,VATTransactionType,IsBlocked', $filter: `Code eq '${code}'` },
+          bv)
         const raak = rijen[0]
         const daar = typeof raak?.Percentage === 'number' ? Math.round(raak.Percentage * 100) : null
         zet(`${naam}: btw-code ${code} bestaat`, Boolean(raak),
@@ -2587,6 +2891,17 @@ async function proefrit(): Promise<Response> {
           zet(`${naam}: btw-code ${code} staat op ${pct}%`, false,
             `In Exact is het ${daar}%.`,
             'Dan wordt er btw geboekt die niet op de factuur staat.')
+        }
+        /* En of hij voor INKOOP mag. Een verkoopcode ziet er verder precies
+           hetzelfde uit; Exact zegt pas bij het boeken dat het niet mag. */
+        if (raak && String(raak.VATTransactionType ?? '').toUpperCase() === 'S') {
+          zet(`${naam}: btw-code ${code} mag voor inkoop`, false,
+            'Het is een verkoopcode (type S).',
+            'Exact weigert een inkoopboeking met een verkoopcode.')
+        }
+        if (raak && raak.IsBlocked === true) {
+          zet(`${naam}: btw-code ${code} is niet geblokkeerd`, false,
+            'Hij staat in Exact op geblokkeerd.')
         }
       } catch (e) {
         zet(`${naam}: btw-code ${code} nakijken`, false,
