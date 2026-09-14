@@ -645,13 +645,17 @@ async function aiLus() {
 
     const begin = Date.now()
     const model = opdracht.model || INSTELLING.modelTekst
-    begintMet(opdracht.soort === 'trucky' ? 'vraag van de website' : 'meedenken bij een melding')
+    begintMet(
+      opdracht.soort === 'trucky' ? 'vraag van de website'
+        : opdracht.soort === 'document' ? 'een ingescand document lezen'
+        : 'meedenken bij een melding')
     try {
       const antwoord = await vraagOllamaTekst({
         systeem: opdracht.systeem,
         gebruiker: opdracht.gebruiker,
         schema: opdracht.schema ?? undefined,
         model,
+        plaatjes: opdracht.plaatjes ?? undefined,
       })
       const uit = await server('ai-klaar', { id: opdracht.id, antwoord, model })
       klaarMet(true, 'ai')
@@ -676,12 +680,28 @@ async function aiLus() {
  * het gesprek bij een melding) wordt dat als "format" meegegeven; dan kán het
  * model niet anders antwoorden.
  */
-async function vraagOllamaTekst({ systeem, gebruiker, schema, model }) {
+async function vraagOllamaTekst({ systeem, gebruiker, schema, model, plaatjes }) {
+  /*
+   * Plaatjes erbij, als ze er zijn.
+   *
+   * Sinds 0080 komt hier ook een ingescand identiteitsbewijs of contract
+   * langs. Ollama wil de afbeeldingen als base64 in het gebruikersbericht,
+   * net als bij de facturen; het verschil is alleen dat ze hier van de
+   * server komen in plaats van uit een bijlage.
+   *
+   * Het model moet er dan wel naar kunnen kijken. Een model zonder ogen
+   * negeert het veld stilzwijgend en antwoordt op de tekst alleen -- en dan
+   * krijg je een lezing die nergens op slaat in plaats van een fout. Daarom
+   * hieronder de controle op een leeg antwoord én de melding in de log.
+   */
+  const heeftBeeld = Array.isArray(plaatjes) && plaatjes.length > 0
   const body = {
     model,
     messages: [
       { role: 'system', content: systeem },
-      { role: 'user', content: gebruiker },
+      heeftBeeld
+        ? { role: 'user', content: gebruiker, images: plaatjes }
+        : { role: 'user', content: gebruiker },
     ],
     stream: false,
     options: { temperature: 0.2, num_ctx: 16384 },

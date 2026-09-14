@@ -8213,5 +8213,186 @@ console.log('\n63. Exact hoort bij de administratie')
     relaties.includes('totaal > lijst.length'))
 }
 
+/* ==================================================================== *
+ *  64. De AI leest een pasje, en wij rekenen het na
+ *
+ *  Casper: "De ai, kan je die niet gebruiken bij inscannen arbeidsovereenkomst
+ *  en id ect? gezien de ocr niet echt lekker werkt."
+ *
+ *  Het versturen is een paar regels en valt vanzelf op als het stuk is. Het
+ *  narekenen niet, en daar zit het hele risico: een model dat een cijfer
+ *  verkeerd leest geeft een antwoord dat er precies zo uitziet als een goed
+ *  antwoord. Bij OCR wist je dat je moest wantrouwen; bij een model dat in
+ *  vloeiende zinnen antwoordt vergeet je het.
+ *
+ *  Dus gaat alles langs dezelfde drie controles als wat een mens intikt: de
+ *  elfproef op het BSN, mod-97 op het IBAN, en de controlecijfers van de MRZ.
+ *  Wat daar niet doorheen komt hoort GEEN voorstel te worden.
+ *
+ *  Dat laatste is wat hier wordt vastgelegd. Een regel die per ongeluk een
+ *  ongecontroleerd BSN doorlaat is met het oog niet te zien in een diff.
+ * ==================================================================== */
+
+console.log('\n64. De AI leest een pasje, en wij rekenen het na')
+
+{
+  const { naarContractUitkomst, naarIdUitkomst } =
+    await import('../src/lib/documentlezen')
+
+  /* De strook uit hoofdstuk 16, waarvan we weten dat hij klopt. */
+  const GOED = [
+    'P<NLDDE<BRUIJN<<WILLEM<JAN<<<<<<<<<<<<<<<<<<',
+    'SPECI20142NLD6503101M2403096999999990<<<<<84',
+  ]
+
+  /* ---- een lezing die deugt ---- */
+
+  const goed = naarIdUitkomst({
+    mrzRegels: GOED,
+    bsn: '111222333',   // komt door de elfproef
+    twijfel: [],
+  })
+  check('een kloppende strook levert een lezing op', !!goed.mrz)
+  check('en de naam komt eruit', goed.mrz?.volledigeNaam === 'Willem Jan De Bruijn',
+    String(goed.mrz?.volledigeNaam))
+  check('een geldig BSN wordt overgenomen', goed.bsn === '111222333')
+  check('en er valt niets op te merken', goed.opmerkingen.length === 0,
+    JSON.stringify(goed.opmerkingen))
+
+  /* ---- en een die niet deugt ---- */
+
+  /*
+   * Eén teken verkeerd in het documentnummer. De MRZ komt er wel uit -- het is
+   * een geldige strook -- maar zijn eigen som klopt niet meer. Dat is precies
+   * het geval waarvoor die regels worden opgevraagd in plaats van alleen de
+   * naam: zonder controlecijfers is een lezing een bewering.
+   */
+  const scheef = naarIdUitkomst({
+    mrzRegels: [GOED[0], GOED[1].replace('SPECI20142', 'SPECI20143')],
+    twijfel: [],
+  })
+  check('een verminkte strook wordt gemeld', scheef.opmerkingen.length > 0)
+  check('en de melding noemt de controlecijfers',
+    scheef.opmerkingen.some((o) => o.includes('controlecijfers')),
+    JSON.stringify(scheef.opmerkingen))
+
+  /*
+   * Het BSN is de gevaarlijkste. Een verkeerd cijfer gaat mee de loonaangifte
+   * in en komt er maanden later als probleem weer uit.
+   */
+  const fout = naarIdUitkomst({ mrzRegels: [], bsn: '123456789', twijfel: [] })
+  check('een BSN dat de elfproef niet haalt wordt NIET overgenomen',
+    fout.bsn === undefined)
+  check('maar wel gemeld, met het nummer erbij',
+    fout.opmerkingen.some((o) => o.includes('123456789') && o.includes('elfproef')),
+    JSON.stringify(fout.opmerkingen))
+
+  check('zonder strook wordt dat gezegd',
+    naarIdUitkomst({ mrzRegels: [], twijfel: [] }).opmerkingen
+      .some((o) => o.includes('niet gelezen')))
+
+  /* Wat het model zelf niet zeker wist gaat mee naar het scherm. */
+  const twijfel = naarIdUitkomst({
+    mrzRegels: GOED, twijfel: ['De onderste regel is afgesneden.'],
+  })
+  check('de twijfel van het model komt erbij te staan',
+    twijfel.opmerkingen.includes('De onderste regel is afgesneden.'))
+
+  /* ---- het contract ---- */
+
+  const contract = naarContractUitkomst({
+    werknemer: 'W. de Bruijn',
+    iban: 'NL91ABNA0417164300',
+    bsn: '111222333',
+    uren: 38,
+    uurloon: 15.5,
+    twijfel: [],
+  })
+  check('een geldig rekeningnummer wordt overgenomen',
+    contract.iban === 'NL91ABNA0417164300')
+  check('en een geldig BSN ook', contract.bsn === '111222333')
+  check('zonder opmerkingen', contract.opmerkingen.length === 0,
+    JSON.stringify(contract.opmerkingen))
+
+  const slecht = naarContractUitkomst({ iban: 'NL00FOUT0000000000', twijfel: [] })
+  check('een rekeningnummer dat niet klopt wordt niet overgenomen',
+    slecht.iban === undefined)
+  check('en wel gemeld', slecht.opmerkingen.some((o) => o.includes('NL00FOUT0000000000')))
+
+  /*
+   * Terugrekenen is aanvullen, en aanvullen is hier de duurste fout. Een
+   * maandloon zonder uurloon blijft een maandloon zonder uurloon -- met een
+   * regel erbij zodat degene die het invult weet waarom het veld leeg is.
+   */
+  const maand = naarContractUitkomst({ maandloon: 2800, uren: 38, twijfel: [] })
+  check('een uurloon wordt niet uitgerekend uit een maandloon',
+    maand.lezing.uurloon === undefined)
+  check('en er staat bij waarom het veld leeg blijft',
+    maand.opmerkingen.some((o) => o.includes('niet uitgerekend')),
+    JSON.stringify(maand.opmerkingen))
+}
+
+/* ==================================================================== *
+ *  65. Waar de foto van een paspoort heen mag
+ *
+ *  Bovenaan src/lib/scannen.ts staat waarom het inlezen op het toestel zelf
+ *  gebeurt: "Er gaat geen foto van een paspoort naar een externe partij --
+ *  niet naar ons, niet naar een leverancier."
+ *
+ *  Die belofte wordt met 0080 deels ingeleverd, en dat mag -- de OCR werkt
+ *  niet goed genoeg. Maar niet stilzwijgend, en niet verder dan nodig. Wat
+ *  hier vastligt is de grens die daarbij is getrokken.
+ * ==================================================================== */
+
+console.log('\n65. Waar de foto van een paspoort heen mag')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const migratie = readFileSync(
+    'supabase/migrations/0080_de_ai_leest_ook_een_pasje.sql', 'utf8')
+  const functie = readFileSync('supabase/functions/document-lezen/index.ts', 'utf8')
+  const lezer = readFileSync('supabase/functions/lezer/index.ts', 'utf8')
+
+  check('de standaard is de eigen machine, niet de cloud',
+    /'ai_documenten', 'lokaal'/.test(migratie))
+
+  /*
+   * Dit is het besluit dat ertoe doet. Bij de facturen bestaat
+   * "lokaal-terugval": lukt het lokaal niet, dan doet Claude het alsnog. Die
+   * stand hoort hier NIET te bestaan -- een paspoort gaat niet naar de andere
+   * kant van de oceaan omdat er een pc uit stond.
+   */
+  check('er is geen terugval van lokaal naar Claude',
+    !functie.includes("'lokaal-terugval'") || functie.includes('bij een document is er geen terugval'))
+  check('en de migratie zegt dat met zoveel woorden',
+    migratie.includes('GEEN terugval'))
+
+  /* De deur: dezelfde grens als het dossier zelf (0056, 0074). */
+  check('alleen wie personeelsdossiers mag inzien komt erlangs',
+    functie.includes('magDossiers') && functie.includes("rollen.includes('management')"))
+  check('en een ingetrokken recht wint',
+    functie.includes("ingetrokken.includes('staff.view')"))
+
+  /*
+   * De foto blijft niet staan. Niet tot de opruimer langskomt, maar tot het
+   * antwoord er is -- ook als het mislukte.
+   */
+  check('de foto wordt gewist zodra het antwoord er is',
+    /plaatjes: null/.test(lezer))
+
+  /* En er staat een grens op wat je erin kunt duwen. */
+  check('er is een grens aan het aantal afbeeldingen',
+    functie.includes('MAX_PLAATJES'))
+  check('en aan de omvang', functie.includes('MAX_TEKENS'))
+
+  /* De leesmotor op het toestel blijft bestaan; dit is de tweede poging. */
+  const scannen = readFileSync('src/lib/scannen.ts', 'utf8')
+  check('het lezen op het toestel zelf blijft staan',
+    scannen.includes('scanIdentiteitsbewijs'))
+  const client = readFileSync('src/lib/documentlezen.ts', 'utf8')
+  check('en de nieuwe weg zegt zelf dat hij ernaast staat',
+    client.includes('staat NAAST scannen.ts'))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

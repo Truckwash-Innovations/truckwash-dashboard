@@ -62,7 +62,10 @@ function leesKeuze(waarde: unknown): Keuze {
  * gebeurt en vier losse vragen vier keer de reistijd zijn.
  */
 // deno-lint-ignore no-explicit-any
-export async function lokaleInstelling(admin: any, sleutel: 'ai_melding' | 'ai_trucky'): Promise<{
+export async function lokaleInstelling(
+  admin: any,
+  sleutel: 'ai_melding' | 'ai_trucky' | 'ai_documenten',
+): Promise<{
   keuze: Keuze
   model: string
   wachtMs: number
@@ -103,13 +106,24 @@ const slaap = (ms: number) => new Promise((klaar) => setTimeout(klaar, ms))
  */
 // deno-lint-ignore no-explicit-any
 export async function vraagLokaal(admin: any, opties: {
-  soort: 'melding' | 'trucky'
+  soort: 'melding' | 'trucky' | 'document'
   systeem: string
   gebruiker: string
   model: string
   wachtMs: number
   /** Moet het antwoord JSON zijn volgens dit schema? */
   schema?: unknown
+  /**
+   * Afbeeldingen om naar te kijken, als base64 zonder data-URI-kop.
+   *
+   * Hiermee gaat er een foto van het toestel naar onze database en van daar
+   * naar de eigen machine. Zie 0080 voor waarom dat een besluit is en geen
+   * bijvangst -- en waarom er bij documenten geen terugval naar Claude is.
+   *
+   * Ze worden gewist zodra het antwoord binnenkomt (functie lezer, actie
+   * ai-klaar), niet pas bij het opruimen.
+   */
+  plaatjes?: string[]
 }): Promise<Uitkomst> {
   const id = 'ai_' + crypto.randomUUID().replace(/-/g, '')
   const begin = nu()
@@ -122,6 +136,7 @@ export async function vraagLokaal(admin: any, opties: {
     gebruiker: opties.gebruiker,
     model: opties.model,
     schema: opties.schema ?? null,
+    plaatjes: opties.plaatjes?.length ? opties.plaatjes : null,
     created_at: begin,
     updated_at: begin,
   })

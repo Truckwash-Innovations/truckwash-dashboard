@@ -4189,6 +4189,28 @@ table.data.matrix th { vertical-align: bottom; }
 }
 .scan-bezig svg { color: var(--brand); flex: none; }
 
+/*
+ * De tweede poging: de AI erbij halen.
+ *
+ * Een gewone knop met de uitleg ernaast en niet de hoofdactie van het
+ * scherm -- dat is en blijft "Aanmaken". Hier hoort geen geel: dit is een
+ * hulpmiddel als het eerste niet lukte, geen stap die je moet zetten.
+ */
+.ai-kijken {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin: 4px 0 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.ai-kijken .btn { flex: none; }
+.ai-kijken .help { margin: 0; }
+
+@media (max-width: 680px) {
+  .ai-kijken { flex-direction: column; gap: 8px; }
+}
+
 .mrz-uitkomst .voet {
   margin-top: 10px;
   padding-top: 9px;

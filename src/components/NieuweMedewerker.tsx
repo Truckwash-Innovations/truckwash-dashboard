@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, CreditCard,
   FileSignature,
-  FileText, Fingerprint, Loader2, ScanLine, Send, ShieldCheck, Upload,
+  FileText, Fingerprint, Loader2, ScanLine, Send, ShieldCheck, Sparkles, Upload,
   UserPlus, UserSearch, X,
 } from 'lucide-react'
 import { db, alleMensen } from '../lib/db'
@@ -13,6 +13,7 @@ import {
   scanBankpas, scanIdentiteitsbewijs, voorstellenUitId, voorstellenUitPas,
   type IdScan, type PasScan,
 } from '../lib/scannen'
+import { leesIdMetAi } from '../lib/documentlezen'
 import { documenten, dossier as dossierRepo, DossierFout, MAX_BESTAND, TOEGESTAAN } from '../lib/dossier'
 import {
   bsnFormatteer, bsnProbleem, ibanFormatteer, ibanProbleem, leesMrz,
@@ -116,6 +117,10 @@ export default function NieuweMedewerker({
   const [idScan, setIdScan] = useState<IdScan | null>(null)
   const [pasScan, setPasScan] = useState<PasScan | null>(null)
   const [scanBezig, setScanBezig] = useState<'id' | 'pas' | null>(null)
+  /* Het laten meekijken van de AI, los van de leesmotor op het toestel. */
+  const [aiBezig, setAiBezig] = useState(false)
+  const [aiDoor, setAiDoor] = useState<string | null>(null)
+  const [aiOpmerkingen, setAiOpmerkingen] = useState<string[]>([])
   const [idVoor, setIdVoor] = useState<File | null>(null)
   const [idAchter, setIdAchter] = useState<File | null>(null)
   const [scanStand, setScanStand] = useState('')
@@ -295,6 +300,60 @@ export default function NieuweMedewerker({
     } finally {
       setScanBezig(null)
       setScanStand('')
+    }
+  }
+
+  /**
+   * De AI ernaar laten kijken.
+   *
+   * Tweede poging, niet de eerste. De leesmotor hierboven draait op het
+   * toestel zelf en daar gaat geen foto weg; deze stuurt hem naar de eigen
+   * machine (of naar Claude, als dat met zoveel woorden is ingesteld). Zie
+   * migratie 0080 voor waarom dat een keuze is en geen standaard.
+   *
+   * Wat eruit komt gaat door dezelfde controles als wat een mens intikt. Een
+   * BSN dat niet door de elfproef komt wordt niet ingevuld maar gemeld -- een
+   * verkeerd cijfer in een BSN ziet er precies zo uit als een goed cijfer.
+   */
+  async function leesIdViaAi() {
+    if (!idVoor) return
+    setAiBezig(true)
+    setAiDoor(null)
+    setAiOpmerkingen([])
+    try {
+      const uit = await leesIdMetAi(idVoor, idAchter ?? undefined)
+      setAiDoor(uit.door)
+      setAiOpmerkingen(uit.opmerkingen)
+
+      const m = uit.mrz
+      let overgenomen = 0
+      if (m) {
+        setMrz(m)
+        if (m.volledigeNaam && !naam.trim()) { setNaam(m.volledigeNaam); overgenomen++ }
+        if (m.geboortedatum) { setGeboortedatum(dateInputValue(m.geboortedatum)); overgenomen++ }
+        if (m.nationaliteit) { setNationaliteit(m.nationaliteit); overgenomen++ }
+        if (m.documentNumber) { setDocNummer(m.documentNumber); overgenomen++ }
+        if (m.vervaldatum) { setDocVerloopt(dateInputValue(m.vervaldatum)); overgenomen++ }
+      }
+      if (uit.bsn) { setBsn(uit.bsn); overgenomen++ }
+
+      /*
+       * Alleen invullen wat nog leeg is, behalve bij de MRZ-velden hierboven:
+       * die zijn nagerekend en mogen een eerdere gok overschrijven. De naam
+       * blijft staan als er al iets stond -- die tikt iemand liever zelf.
+       */
+      const r = uit.ruw
+      if (r.geboorteplaats && !geboorteplaats.trim()) setGeboorteplaats(r.geboorteplaats)
+
+      if (overgenomen > 0) {
+        toast.ok(`${overgenomen} gegeven(s) overgenomen en nagerekend`)
+      } else {
+        toast.info('Er kwam niets uit dat door de controle kwam — kijk bij de opmerkingen')
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'De AI kon er niet naar kijken')
+    } finally {
+      setAiBezig(false)
     }
   }
 
@@ -879,6 +938,48 @@ export default function NieuweMedewerker({
                 <div className="voet">
                   Nagekeken kun je alles nog wijzigen bij de volgende stap. Wat
                   hier staat is overgenomen, niet vastgesteld.
+                </div>
+              </div>
+            )}
+
+            {/* ---- de AI ernaar laten kijken ---- */}
+
+            {idVoor && (
+              <div className="ai-kijken">
+                <button
+                  className="btn sm"
+                  disabled={aiBezig || scanBezig !== null}
+                  onClick={() => void leesIdViaAi()}
+                >
+                  {aiBezig
+                    ? <><Loader2 size={14} className="spin" /> De AI kijkt…</>
+                    : <><Sparkles size={14} /> Laat de AI meekijken</>}
+                </button>
+                <span className="help">
+                  De leesmotor hierboven draait op dit toestel. Lukt het daar niet — een
+                  foto onder tl-licht, een pasje dat scheef ligt — dan kan de AI het
+                  proberen. Standaard is dat de eigen machine op kantoor; de foto gaat
+                  dan niet het bedrijf uit. Wat eruit komt wordt nagerekend voordat het
+                  in een veld belandt.
+                </span>
+              </div>
+            )}
+
+            {aiDoor && (
+              <div className={`mrz-uitkomst ${aiOpmerkingen.length === 0 ? 'goed' : 'twijfel'}`}>
+                <div className="kop">
+                  {aiOpmerkingen.length === 0
+                    ? <><ShieldCheck size={16} /> Gelezen en nagerekend</>
+                    : <><AlertTriangle size={16} /> Gelezen, met opmerkingen</>}
+                </div>
+                {aiOpmerkingen.length > 0 && (
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {aiOpmerkingen.map((o, i) => <li key={i}>{o}</li>)}
+                  </ul>
+                )}
+                <div className="voet">
+                  Gelezen door {aiDoor}. Wat hier is overgenomen is een voorstel — kijk
+                  het na op het document zelf.
                 </div>
               </div>
             )}

@@ -615,7 +615,7 @@ async function aiWerk(body: Willekeurig): Promise<Response> {
   for (;;) {
     const { data, error } = await admin
       .from('ai_opdrachten')
-      .select('id, soort, systeem, gebruiker, model, schema, status, geclaimd_at')
+      .select('id, soort, systeem, gebruiker, model, schema, plaatjes, status, geclaimd_at')
       .or(`status.eq.wacht,and(status.eq.bezig,geclaimd_at.lt.${grens})`)
       .order('created_at', { ascending: true })
       .limit(1)
@@ -648,6 +648,9 @@ async function aiWerk(body: Willekeurig): Promise<Response> {
             gebruiker: rij.gebruiker,
             model: rij.model,
             schema: rij.schema ?? null,
+            /* Bij een document (0080) zitten hier de foto's in, als base64.
+               Bij een gesprek is dit leeg en verandert er niets. */
+            plaatjes: Array.isArray(rij.plaatjes) ? rij.plaatjes : null,
           },
         })
       }
@@ -677,6 +680,15 @@ async function aiKlaar(body: Willekeurig): Promise<Response> {
       status: antwoord ? 'klaar' : 'mislukt',
       antwoord,
       fout,
+      /*
+       * En de foto's meteen weg.
+       *
+       * Niet pas bij het opruimen een minuut later: dit kan een paspoort
+       * zijn, en die hoort niet langer te blijven staan dan het lezen duurt.
+       * Ook bij een mislukking -- dan is de foto helemaal nergens meer goed
+       * voor, en probeert de gebruiker het gewoon opnieuw.
+       */
+      plaatjes: null,
       gebruikt_model: model,
       klaar_at: Date.now(),
       updated_at: Date.now(),

@@ -227,6 +227,48 @@ Op `expenses`:
 | `goedkeuring_bron` | `mens` of `automatisch`; leeg bij alles wat nog openstaat |
 | `goedkeuring_reden` | de zin waarmee een automatische goedkeuring is genomen |
 
+## Hij leest ook pasjes en contracten
+
+Sinds migratie 0080 komt er meer langs dezelfde lijn dan alleen facturen: een
+ingescand identiteitsbewijs of een arbeidsovereenkomst bij het aanmaken van een
+medewerker.
+
+**Waarom dat er bij is gekomen.** Het inlezen van een pasje gebeurde met een
+leesmotor in de browser zelf (Tesseract). Dat is de enige weg waarbij er zeker
+geen foto weggaat, en daarom staat hij er — maar hij is kieskeurig: een scherpe,
+rechte scan leest hij prima, een telefoonkiek onder tl-licht niet. Dan bleef het
+formulier leeg.
+
+Die motor blijft en gaat vóór. De AI is de tweede poging, met een eigen knop.
+
+**Waar de foto heen gaat** bepaalt de instelling `ai_documenten`:
+
+| stand | wat er gebeurt |
+|---|---|
+| `uit` | er gaat niets het toestel af; alleen de motor in de app |
+| `lokaal` | naar onze database, en van daar haalt deze machine hem op — **de standaard** |
+| `claude` | naar Anthropic, dus buiten het bedrijf |
+
+**Er is met opzet geen `lokaal-terugval`.** Bij facturen bestaat die stand wel.
+Hier niet: een paspoort hoort niet naar de andere kant van de oceaan te gaan
+omdat er een pc uit stond. Staat hij op `lokaal` en is deze machine er niet, dan
+komt er een nette melding en verder niets.
+
+De foto wordt gewist zodra het antwoord binnen is — niet pas bij het opruimen
+een minuut later, en ook als het lezen mislukte.
+
+**Het model moet ogen hebben.** Een tekstmodel negeert de afbeelding stilzwijgend
+en antwoordt op het prompt alleen; dan krijg je een lezing die nergens op slaat
+in plaats van een fout. Gebruik hiervoor hetzelfde model als voor gescande
+facturen (`LEZER_MODEL_BEELD`).
+
+**Wat er uitkomt is een voorstel.** Alles gaat langs dezelfde controles als wat
+een mens intikt: het BSN door de elfproef, het IBAN door de mod-97, en de twee
+regels onderaan het pasje door hun eigen controlecijfers. Wat daar niet doorheen
+komt wordt géén ingevuld veld maar een opmerking op het scherm. Daarom vraagt het
+prompt die twee regels ook letterlijk op in plaats van alleen de naam: zonder
+controlecijfers is een lezing een bewering.
+
 ### Twee modellen: één voor tekst, één voor foto's
 
 Een PDF uit een boekhoudpakket heeft een tekstlaag; die gaat als platte tekst
