@@ -676,6 +676,16 @@ export interface Expense {
 
   /** Het boekingsnummer van Exact. Gevuld = verstuurd, en gaat niet nog eens. */
   exactId?: string
+  /**
+   * Het boekstuknummer, en niet de guid (0090).
+   *
+   * exactId is de EntryID van Exact: uniek, stabiel, en op geen enkel scherm
+   * van Exact te zien of te zoeken. Casper kreeg hem te zien en kon de
+   * boeking nergens terugvinden. Dit is het nummer dat er wel op staat.
+   */
+  exactNummer?: string
+  /** In welk dagboek hij terechtkwam. Boekstuknummers lopen per dagboek. */
+  exactDagboek?: string
   exactAt?: number
   /** Waarom het niet lukte, als het niet lukte. */
   exactFout?: string

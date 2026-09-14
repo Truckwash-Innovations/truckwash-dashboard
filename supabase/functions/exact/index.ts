@@ -2703,6 +2703,45 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
        */
       const vervalt = bon.vervaldatum || bon.datum || Date.now()
 
+      /*
+       * Staat hij er al?
+       *
+       * Casper: "kan het zijn omdat er in exact al eentje staat?" Die vraag
+       * hoort bij het antwoord, want Exact weigert een tweede boeking van
+       * dezelfde factuur niet. Hij maakt er netjes nog een, en dan staat er
+       * twee keer hetzelfde open bij dezelfde crediteur.
+       *
+       * Aan onze kant kan het niet: expenses.exact_id krijgt een waarde en
+       * exact_facturen_wachtend() slaat alles met een exact_id over. Maar dat
+       * beschermt alleen tegen onszelf. Blue10 boekt voorlopig nog mee, en
+       * met de hand invoeren kan altijd -- dan is deze factuur er al zonder
+       * dat wij het weten.
+       *
+       * Dus vragen we het aan Exact, op de twee dingen die een inkoopfactuur
+       * uniek maken: van wie hij is en welk nummer hij draagt. Een leeg
+       * factuurnummer slaan we over; dan is er niets om op te vergelijken en
+       * zou dit elke boeking zonder nummer voor een dubbele aanzien.
+       */
+      const ref = (bon.factuurnummer ?? '').slice(0, 50)
+      if (ref) {
+        const staatEr = await exactLijst<{ EntryNumber?: number; Journal?: string }>(
+          lijn, 'purchaseentry/PurchaseEntries',
+          {
+            $select: 'EntryNumber,Journal',
+            $filter: `Supplier eq guid'${bon.crediteurId}' and YourRef eq '${ref.replace(/'/g, "''")}'`,
+            $top: '1',
+          },
+          bon.administratie)
+        if (staatEr.length > 0) {
+          const al = staatEr[0]
+          throw new Error(
+            `Deze factuur staat al in Exact, als boekstuk ${al.EntryNumber ?? '?'}`
+            + `${al.Journal ? ` in dagboek ${al.Journal}` : ''} van ${bon.administratie}. `
+            + 'Er is niets verstuurd. Klopt die boeking, zet deze dan hier op geboekt; '
+            + 'is het er een van Blue10, dan hoort er maar een van de twee te blijven.')
+        }
+      }
+
       const uit = await exactPost<BoekingAntwoord>(lijn, 'purchaseentry/PurchaseEntries', {
         Journal: dagboek,
         Supplier: bon.crediteurId,
@@ -2711,15 +2750,35 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
         PaymentCondition: cred.betaalconditie,
         Description: kortVoorExact(
           `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`),
-        YourRef: (bon.factuurnummer ?? '').slice(0, 50),
+        YourRef: ref,
         PurchaseEntryLines: lijnen,
       }, bon.administratie)
 
       const id = uit.EntryID ?? (uit.EntryNumber != null ? String(uit.EntryNumber) : null)
       if (!id) throw new Error('Exact gaf geen boekingsnummer terug')
 
+      /*
+       * Allebei bewaren, en niet alleen de guid.
+       *
+       * Casper: "Ik kan hem nergens in exact vinden." De boeking was gelukt;
+       * wat wij hem gaven was de EntryID, en die staat op geen enkel scherm
+       * van Exact en is er ook niet op te zoeken. Het EntryNumber is het
+       * boekstuknummer dat er wel op staat.
+       *
+       * De guid blijft leidend -- daar hangt de uniciteitsindex van 0053 aan
+       * en daarmee de garantie dat dezelfde bon niet twee keer gaat. Het
+       * nummer en het dagboek staan ernaast om te tonen (0090); dagboek,
+       * want boekstuknummers lopen per dagboek.
+       */
       await admin.from('expenses')
-        .update({ exact_id: id, exact_at: Date.now(), exact_fout: null, updated_at: Date.now() })
+        .update({
+          exact_id: id,
+          exact_nummer: uit.EntryNumber != null ? String(uit.EntryNumber) : null,
+          exact_dagboek: dagboek,
+          exact_at: Date.now(),
+          exact_fout: null,
+          updated_at: Date.now(),
+        })
         .eq('id', bon.id)
       gelukt++
     } catch (e) {

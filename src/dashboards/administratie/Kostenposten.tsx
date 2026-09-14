@@ -1317,7 +1317,12 @@ function Splitsen({ bon }: { bon: Expense }) {
     >
       {bon.exactId && (
         <div className="waarschuwing zacht mb">
-          <span>Deze factuur staat in Exact. De verdeling ligt vast.</span>
+          <span>
+            Deze factuur staat in Exact
+            {bon.exactNummer ? ` als boekstuk ${bon.exactNummer}` : ''}
+            {bon.exactDagboek ? ` in dagboek ${bon.exactDagboek}` : ''}
+            . De verdeling ligt vast.
+          </span>
         </div>
       )}
 
@@ -1928,6 +1933,38 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
           />
         </div>
       </div>
+
+      {/*
+        * Waar hij in Exact staat (0090).
+        *
+        * Casper: "Ik kan hem nergens in exact vinden." De boeking was gelukt;
+        * wat er stond was de EntryID van Exact -- een guid, en die staat op
+        * geen enkel scherm van Exact en is er niet op te zoeken. Wat je nodig
+        * hebt om hem terug te vinden is het boekstuknummer, het dagboek en de
+        * administratie, en die drie staan hier nu bij elkaar.
+        *
+        * Bij oudere boekingen is er geen nummer -- die stonden er al voordat
+        * we het bewaarden. Dan de guid, met erbij dat je op het
+        * factuurnummer moet zoeken; dat is wat er dan te doen valt.
+        */}
+      {bon.exactId && (
+        <Field label="In Exact" help="Hierop vind je de boeking in Exact terug">
+          {bon.exactNummer ? (
+            <p className="help" style={{ margin: 0 }}>
+              Boekstuk <strong className="mono">{bon.exactNummer}</strong>
+              {bon.exactDagboek && <> in dagboek <span className="mono">{bon.exactDagboek}</span></>}
+              {bon.administratie && <> van <span className="mono">{bon.administratie}</span></>}.
+            </p>
+          ) : (
+            <p className="help" style={{ margin: 0 }}>
+              Deze boeking is van voor we het boekstuknummer bewaarden. Zoek in
+              Exact op het factuurnummer{' '}
+              <strong className="mono">{bon.factuurnummer || '—'}</strong>
+              {bon.administratie && <> in administratie <span className="mono">{bon.administratie}</span></>}.
+            </p>
+          )}
+        </Field>
+      )}
 
       {beschikbaar.length > 0 && (
         <Field label="Tags" help="Waar je later op filtert; los van de rekening.">

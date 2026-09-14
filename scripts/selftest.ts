@@ -10000,5 +10000,90 @@ console.log('\n78. Een koppeling die verkeerd staat')
     'zonder link is er geen antwoord meer op de vraag waar het in Exact staat')
 }
 
+/* ==================================================================== *
+ *  79. Het nummer waarop je een boeking terugvindt
+ *
+ *  Casper: "Ik kan hem nergens in exact vinden, kan het zijn omdat er in
+ *  exact al eentje staat?"
+ *
+ *  Nee -- de boeking was gelukt. Wat wij hem gaven was de EntryID van Exact:
+ *  een guid, en die staat op geen enkel scherm van Exact en is er niet op te
+ *  zoeken. Het EntryNumber, het boekstuknummer, is wat er wel op staat. Dat
+ *  kregen we in hetzelfde antwoord al mee en gooiden we weg.
+ *
+ *  Zijn vermoeden was los daarvan terecht: Exact weigert een tweede boeking
+ *  van dezelfde factuur niet. Aan onze kant kan het niet, maar Blue10 boekt
+ *  voorlopig nog mee.
+ * ==================================================================== */
+
+console.log('\n79. Het nummer waarop je een boeking terugvindt')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const m90 = readFileSync('supabase/migrations/0090_het_nummer_waarop_je_hem_terugvindt.sql', 'utf8')
+  const types = readFileSync('src/lib/types.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+
+  /* --- 1. het boekstuknummer wordt bewaard --- */
+
+  check('het boekstuknummer wordt bewaard, niet alleen de guid',
+    /exact_nummer: uit\.EntryNumber/.test(fn)
+    && m90.includes('add column if not exists exact_nummer'),
+    'EntryNumber wordt weggegooid -- dan blijft er een guid over om mee te zoeken')
+
+  /* Boekstuknummers lopen per dagboek. Sinds 0089 kiest de verzendlus het
+     dagboek zelf, en welk het werd legden we nergens vast. */
+  check('en het dagboek waar hij in kwam',
+    /exact_dagboek: dagboek/.test(fn)
+    && m90.includes('add column if not exists exact_dagboek'),
+    'het gekozen dagboek wordt niet bewaard')
+
+  /*
+   * De guid blijft leidend. Daar hangt de uniciteitsindex van 0053 aan, en
+   * die is de garantie dat dezelfde bon niet twee keer naar Exact gaat.
+   */
+  check('de guid blijft het veld waar de uniciteit aan hangt',
+    /exact_id: id,/.test(fn),
+    'exact_id wordt niet meer met de EntryID gevuld')
+
+  /* --- 2. en je ziet hem terug --- */
+
+  check('de app kent de twee velden',
+    types.includes('exactNummer?: string') && types.includes('exactDagboek?: string'),
+    'Expense heeft het boekstuknummer niet')
+
+  check('het scherm zegt waar de boeking in Exact staat',
+    scherm.includes('label="In Exact"') && scherm.includes('Boekstuk'),
+    'het scherm noemt het boekstuknummer nergens')
+
+  /* Oude boekingen hebben geen nummer; die stonden er al voordat we het
+     bewaarden. Een leeg vak is daar geen antwoord op. */
+  check('en bij oude boekingen wat je dan doet',
+    scherm.includes('voor we het boekstuknummer bewaarden'),
+    'zonder nummer staat er niets over hoe je hem dan vindt')
+
+  check('de historieregel noemt het nummer ook',
+    m90.includes("coalesce(nullif(new.exact_nummer, ''), new.exact_id)"),
+    'de regel in de historie toont nog steeds alleen de guid')
+
+  /* --- 3. en niet twee keer dezelfde factuur --- */
+
+  /*
+   * Exact weigert een dubbele boeking niet; hij maakt er netjes nog een.
+   * Onze kant is gedekt door exact_id, maar dat beschermt alleen tegen
+   * onszelf -- Blue10 en handmatige invoer zien wij niet.
+   */
+  check('er wordt eerst gevraagd of hij er al staat',
+    /YourRef eq/.test(fn) && fn.includes('Deze factuur staat al in Exact'),
+    'er gaat een boeking heen zonder te kijken of dezelfde factuur er al is')
+
+  /* Zonder factuurnummer valt er niets te vergelijken. Dan die controle
+     overslaan, en niet elke bon zonder nummer voor een dubbele aanzien. */
+  check('behalve als er geen factuurnummer is',
+    /if \(ref\) \{/.test(fn),
+    'de dubbelcontrole draait ook zonder factuurnummer')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
