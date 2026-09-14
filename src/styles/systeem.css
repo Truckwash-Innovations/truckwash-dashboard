@@ -746,9 +746,22 @@
    velden. Staan die op twee schermen, dan moet hij onthouden wat er stond --
    en dat is precies waar een bedrag verkeerd wordt overgetypt.
 
-   Het document krijgt de meeste ruimte maar niet alles: de gegevenskolom
-   heeft een vaste, comfortabele breedte, want daar staan formuliervelden en
-   die worden niet leesbaarder als ze breder zijn.
+   Hoe de ruimte verdeeld is
+   -------------------------
+
+   Hier stond: het document krijgt de meeste ruimte, de gegevenskolom is
+   vast 420px, "want daar staan formuliervelden en die worden niet leesbaarder
+   als ze breder zijn."
+
+   Dat klopte toen er alleen velden stonden. Inmiddels staat er een VERDELING
+   in, en dat is een tabel met vijf kolommen naast elkaar. Die past niet in
+   420px, en dan loopt hij er aan de rechterkant uit -- dwars door de PDF
+   heen. Casper: "Er gaat op het moment tekst erdoorheen (...) verklein het
+   pdf, zodat er meer ruimte is."
+
+   Dus meegroeien tot een grens. Boven de 900px wordt een formulier inderdaad
+   niet beter, en wat er overblijft gaat naar het document -- dat is nog altijd
+   ruim genoeg om een A4 op te lezen.
    ================================================================== */
 
 .tweeluik {
@@ -756,7 +769,7 @@
   /* De invoer eerst, het document daarna. In de HTML staat het ook in die
      volgorde -- niet met "order" omgedraaid, want dan loopt de tabvolgorde
      andersom dan het oog en springt de cursor over het scherm. */
-  grid-template-columns: 420px minmax(0, 1fr);
+  grid-template-columns: minmax(420px, 900px) minmax(0, 1fr);
   gap: var(--s4);
   align-items: start;
 }
@@ -792,7 +805,23 @@
 .tweeluik-doc .blad img { width: 100%; height: 100%; border: 0; display: block; }
 .tweeluik-doc .blad img { object-fit: contain; }
 
-.tweeluik-zij { min-width: 0; display: flex; flex-direction: column; gap: var(--s4); }
+/*
+ * De zijkolom is een container.
+ *
+ * Wat hierin staat moet reageren op de breedte van DEZE kolom en niet op die
+ * van het venster. Dat verschil was precies de fout: de verdeling klapte in
+ * onder een VENSTERbreedte van 900px, terwijl hij in een kolom van 420px
+ * stond op een scherm van 2000px. De brede indeling bleef dus staan in een
+ * vak waar hij niet in paste.
+ */
+.tweeluik-zij {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  container-type: inline-size;
+  container-name: zij;
+}
 
 @media (max-width: 1180px) {
   /* Onder elkaar. De invoer komt dan bovenaan, want dat is waar je moet

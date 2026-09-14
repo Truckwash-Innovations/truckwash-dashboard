@@ -17,8 +17,15 @@ import {
 } from '../../lib/facturen'
 import { dateShort, dateTime, datumMisschienTijd, maandNaam, money } from '../../lib/format'
 import {
-  BRON_TEKST, BV_BRON_TEKST, onthoudBoeking, rekeningNaam, vraagtAandacht,
-  zetBoeking, zetOnderneming,
+  BRON_TEKST,
+  BV_BRON_TEKST,
+  bvVanBon,
+  onthoudBoeking,
+  rekeningNaam,
+  rekeningenVoor,
+  vraagtAandacht,
+  zetBoeking,
+  zetOnderneming,
 } from '../../lib/boeking'
 import { historieVan } from '../../lib/factuurhistorie'
 import Stroombalk from '../../components/Stroombalk'
@@ -983,7 +990,7 @@ function BonDetail({
           <LeesStatus bon={bon} />
 
           <Overzicht bon={bon} />
-          <Splitsen bon={bon} />
+          <Splitsen bon={bon} bedrijven={bedrijven} />
           <Boeking bon={bon} bedrijven={bedrijven} />
 
           <AnimatePresence mode="wait">
@@ -1183,7 +1190,13 @@ function Historie({ bon }: { bon: Expense }) {
  * hier de hele tijd in beeld, want dat is wat je uiteindelijk op nul wilt
  * hebben.
  */
-function Splitsen({ bon }: { bon: Expense }) {
+function Splitsen({ bon, bedrijven }: {
+  bon: Expense
+  /* Alleen om de hoofdadministratie te kennen: staat er niets op de bon en
+     niets op zijn vestiging, dan valt hij daarop terug (0079). Komt van de
+     server en niet uit Dexie -- exact_administratie synchroniseert niet mee. */
+  bedrijven: ExactAdministratie[]
+}) {
   const perms = usePerms()
   const mag = perms.can('expenses.approve') && !bon.exactId
   const [open, setOpen] = useState(false)
@@ -1193,6 +1206,12 @@ function Splitsen({ bon }: { bon: Expense }) {
     [bon.id], [] as ExpenseRegel[])
   const rekeningen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
   const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+  /* De bv van deze bon, en dus welke rekeningen er te kiezen zijn. Een regel
+     van de verdeling boekt in dezelfde administratie als de bon zelf; een
+     rekening uit een andere bv kent Exact daar niet. */
+  const bv = useMemo(
+    () => bvVanBon(bon, vestigingen, bedrijven),
+    [bon, vestigingen, bedrijven])
 
   const opVolgorde = useMemo(
     () => [...regels].sort((a, b) => a.volgorde - b.volgorde), [regels])
@@ -1385,11 +1404,9 @@ function Splitsen({ bon }: { bon: Expense }) {
                 onChange={(e) => void pas(r, { grootboekCode: e.currentTarget.value || undefined })}
               >
                 <option value="">— kies —</option>
-                {rekeningen.filter((g) => g.actief || g.code === r.grootboekCode)
-                  .sort((a, b) => a.code.localeCompare(b.code))
-                  .map((g) => (
-                    <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
-                  ))}
+                {rekeningenVoor(rekeningen, bv, r.grootboekCode).map((g) => (
+                  <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
+                ))}
               </select>
             </label>
 
@@ -1785,20 +1802,28 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
   const rekeningen = useLiveQuery(
     () => db.grootboek.toArray(), [], [] as Grootboek[])
   const tags = useLiveQuery(() => db.kostenTags.toArray(), [], [] as KostenTag[])
+  /* Nodig om te weten in welke bv deze bon valt: die volgt uit de vestiging
+     als er niets op de bon staat (0079). */
+  const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
 
   const [bezig, setBezig] = useState(false)
 
+  /*
+   * De rekeningen van DEZE onderneming.
+   *
+   * Casper: "als ik bij boeking een andere onderneming pak, moet je die
+   * grootboekrekeningen laten zien.... want anders blijf ik bezig." Hier
+   * stonden ze allemaal door elkaar: 0010 en 4040 van elke bv in één lijst,
+   * en pas bij het boeken bleek dat de gekozen rekening in die administratie
+   * niet bestond. Zie rekeningenVoor() voor wat er blijft staan en waarom.
+   */
+  const bv = useMemo(
+    () => bvVanBon(bon, vestigingen, bedrijven),
+    [bon, vestigingen, bedrijven])
+
   const bruikbaar = useMemo(
-    () => rekeningen
-      /*
-       * Uitgezette rekeningen zijn niet te kiezen, maar de rekening die er nu
-       * op staat wél -- ook als hij uit is. Anders springt een oude boeking
-       * bij het openen naar leeg, en dan verander je hem per ongeluk door
-       * alleen te kijken.
-       */
-      .filter((g) => g.actief || g.code === bon.grootboekCode)
-      .sort((a, b) => a.code.localeCompare(b.code)),
-    [rekeningen, bon.grootboekCode])
+    () => rekeningenVoor(rekeningen, bv, bon.grootboekCode),
+    [rekeningen, bv, bon.grootboekCode])
 
   const beschikbaar = useMemo(
     () => [...new Set([...tags.map((t) => t.naam), ...(bon.tags ?? [])])].sort(),
@@ -2004,8 +2029,16 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
 
       {bruikbaar.length === 0 && (
         <p className="hint">
-          <Wallet size={14} style={{ verticalAlign: -2 }} /> Er staan nog geen
-          grootboekrekeningen klaar. Die stel je in bij Ontwikkeling → Inkoop.
+          <Wallet size={14} style={{ verticalAlign: -2 }} />{' '}
+          {bv
+            /* Niet "er staan geen rekeningen" maar "niet voor DEZE bv". Dat
+               scheelt zoeken: het schema van een andere administratie staat
+               er meestal wel, en dan lijkt het alsof er iets stuk is. */
+            ? <>Voor onderneming <span className="mono">{bv}</span> staat nog geen
+                rekeningschema klaar. Neem het over bij Administratie →
+                Boekhouding, onder “Grootboek”.</>
+            : <>Er staan nog geen grootboekrekeningen klaar. Die neem je over
+                uit Exact bij Administratie → Boekhouding.</>}
         </p>
       )}
     </Card>

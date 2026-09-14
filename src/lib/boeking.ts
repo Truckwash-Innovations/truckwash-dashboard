@@ -112,6 +112,72 @@ export async function onthoudBoeking(bon: Expense): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ *  In welke bv valt deze bon, en welke rekeningen horen daarbij
+ *
+ *  Casper: "als ik bij boeking een andere onderneming pak, moet je die
+ *  grootboekrekeningen laten zien.... want anders blijf ik bezig"
+ *
+ *  Terecht. Sinds 0086 staat het rekeningschema per bv in de database, maar
+ *  het scherm toonde ze allemaal door elkaar -- 4040 van de ene administratie
+ *  naast 4040 van de andere, zonder onderscheid. Wie er een koos die in zijn
+ *  bv niet bestaat, kreeg dat pas bij het boeken te horen.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Welke bv is dit?
+ *
+ * Dezelfde volgorde als bon_administratie() in de database (0079): wat op de
+ * bon staat, anders die van zijn vestiging, anders de hoofdadministratie.
+ * Twee plekken die hetzelfde moeten zeggen -- vandaar dat die volgorde hier
+ * woordelijk staat en niet "ongeveer zo".
+ */
+export function bvVanBon(
+  bon: Expense,
+  vestigingen: { id: string; administratie?: string }[],
+  bedrijven: { code: string; hoofd?: boolean }[],
+): string | undefined {
+  const opDeBon = (bon.administratie ?? '').trim()
+  if (opDeBon) return opDeBon
+
+  const vest = vestigingen.find((l) => l.id === bon.locationId)
+  const viaVestiging = (vest?.administratie ?? '').trim()
+  if (viaVestiging) return viaVestiging
+
+  return bedrijven.find((b) => b.hoofd)?.code
+}
+
+/**
+ * De rekeningen die in DEZE bv te kiezen zijn.
+ *
+ * Drie dingen blijven staan, en elk om een eigen reden:
+ *
+ *   - een rekening zonder bv geldt overal. Dat is hoe het was voordat er meer
+ *     dan één administratie was (0059), en die rijen horen niet te verdwijnen
+ *     omdat er een kolom bij is gekomen.
+ *   - de rekening die er NU op staat blijft kiesbaar, ook als hij uit staat
+ *     of bij een andere bv hoort. Anders springt een bestaande boeking bij
+ *     het openen naar leeg en verander je hem door alleen te kijken.
+ *   - is de bv onbekend, dan alles. Niets tonen zou betekenen dat je geen
+ *     rekening kunt kiezen omdat de onderneming nog niet vaststaat, terwijl
+ *     dat juist twee aparte dingen zijn.
+ */
+export function rekeningenVoor(
+  alle: Grootboek[],
+  bv: string | undefined,
+  huidige?: string,
+): Grootboek[] {
+  return alle
+    .filter((g) => {
+      if (huidige && g.code === huidige) return true
+      if (!g.actief) return false
+      if (!bv) return true
+      const van = (g.administratie ?? '').trim()
+      return van === '' || van === bv
+    })
+    .sort((a, b) => a.code.localeCompare(b.code))
+}
+
 /**
  * De naam bij een rekeningnummer.
  *

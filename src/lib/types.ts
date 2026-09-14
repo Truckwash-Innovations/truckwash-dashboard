@@ -740,6 +740,17 @@ export interface Grootboek {
    */
   categorie?: string
   btwPct?: number
+  /**
+   * In welke bv deze rekening geldt (0086).
+   *
+   * Stond wel in de database en niet in dit type, en daarmee liet het scherm
+   * ALLE rekeningen van ALLE bv's door elkaar zien. Rekening 4040 bestaat in
+   * de ene administratie en niet in de andere; wie hem daar koos, kreeg bij
+   * het boeken "rekening 4040 bestaat niet in administratie X" terug.
+   *
+   * Leeg = geldt overal, zoals het was voordat er meer dan één bv was.
+   */
+  administratie?: string
   actief: boolean
   updatedAt: number
 }

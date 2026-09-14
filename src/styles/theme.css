@@ -5309,7 +5309,11 @@ table.data tr.aan td { font-weight: 600; }
    elkaar met de kop erboven.
    ================================================================== */
 
-.verdeling { display: grid; gap: 8px; }
+/* min-width: 0 zodat het raster mag krimpen in plaats van zijn kaart uit te
+   duwen. Een grid-vak is standaard minstens zo breed als zijn inhoud, en dan
+   loopt een lange optienaam de kolom uit. */
+.verdeling { display: grid; gap: 8px; min-width: 0; }
+.verdeling > * { min-width: 0; }
 
 .verdeel-kop,
 .verdeel-regel {
@@ -5349,8 +5353,35 @@ table.data tr.aan td { font-weight: 600; }
 }
 .verdeel-som .op { flex: 1; min-width: 180px; }
 
-/* Onder de 900 in twee kolommen, met een kopje boven elk veld -- de kopregel
-   bovenaan klopt dan niet meer. */
+/* Onder de 760 in twee kolommen, met een kopje boven elk veld -- de kopregel
+   bovenaan klopt dan niet meer.
+
+   Op de BREEDTE VAN HET VAK en niet die van het venster. Dat was de fout: dit
+   stond op @media (max-width: 900px), terwijl de verdeling in het
+   factuurscherm in een kolom van 420px staat op een scherm van 2000px. De
+   brede indeling bleef dus staan in een vak waar zes velden naast elkaar niet
+   in passen, en liep er dwars doorheen -- over de PDF ernaast.
+
+   @container meet het vak zelf. Het werkt overal waar een voorouder
+   container-type heeft (.tweeluik-zij); staat die er niet, dan valt de regel
+   stil en blijft de brede indeling staan, precies zoals het was. */
+@container (max-width: 760px) {
+  .verdeel-kop { display: none; }
+  .verdeel-regel {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 8px;
+    padding: 10px;
+  }
+  .verdeel-regel > .breed { grid-column: 1 / -1; }
+  .verdeel-veld { display: grid; gap: 3px; }
+  .verdeel-veld > span {
+    font-size: .66rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--text-3);
+  }
+}
+
+/* En dezelfde omslag voor een smal VENSTER, voor de plekken waar de verdeling
+   niet in een container staat -- een telefoon in staande stand. */
 @media (max-width: 900px) {
   .verdeel-kop { display: none; }
   .verdeel-regel {
@@ -5366,7 +5397,15 @@ table.data tr.aan td { font-weight: 600; }
   }
 }
 
-@media (min-width: 901px) {
+/*
+ * De kopjes boven de velden verbergen zodra alles op één regel past.
+ *
+ * Hier stond @media (min-width: 901px), en die won het van de regel hierboven
+ * zodra het venster breed was -- ook als het VAK smal was. Dan stonden de
+ * velden onder elkaar zonder te zeggen wat ze waren. Nu op het vak, met
+ * dezelfde grens als de omslag zelf.
+ */
+@container (min-width: 761px) {
   .verdeel-veld > span { display: none; }
 }
 

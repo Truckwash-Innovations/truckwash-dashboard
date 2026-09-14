@@ -9666,8 +9666,19 @@ console.log('\n75. Het factuurscherm')
    * -- dat is erger dan het was.
    */
   const grid = /\.tweeluik\s*\{[^}]*grid-template-columns:\s*([^;]+);/.exec(css)
+  /*
+   * Hier stond /^420px\s+minmax/ -- de maat zelf, niet de regel. Toen de
+   * gegevenskolom mocht meegroeien (de verdeling paste niet in 420px en liep
+   * dwars door de PDF) viel hij om, terwijl de bedoeling ongewijzigd was.
+   *
+   * De regel is: links een kolom met een BEGRENSDE breedte, rechts de kolom
+   * die de rest opvult. Draait dat om, dan krijgt het document de smalle
+   * kolom en is het erger dan het was.
+   */
   check('de smalle kolom staat links, bij de invoer',
-    Boolean(grid) && /^420px\s+minmax/.test(grid[1].trim()),
+    Boolean(grid)
+      && /^(?:\d+px|minmax\(\s*\d+px\s*,\s*\d+px\s*\))\s+minmax\(\s*0\s*,\s*1fr\s*\)$/
+        .test(grid[1].trim()),
     grid ? grid[1].trim() : 'grid-template-columns niet gevonden')
 
   /*
@@ -10191,6 +10202,109 @@ console.log('\n80. Een boeking die niet optelt, en de factuur die meegaat')
   check('en dat is terug te zien op de factuur',
     bon.includes('De factuur zelf ging niet mee'),
     'het scherm zegt niet of de PDF is meegegaan')
+}
+
+/* ==================================================================== *
+ *  81. Per onderneming, en niet meer door de PDF heen
+ *
+ *  Casper: "Er gaat op het moment tekst erdoorheen (...) verklein het pdf,
+ *  zodat er meer ruimte is." En: "als ik bij boeking een andere onderneming
+ *  pak, moet je die grootboekrekeningen laten zien.... datzelfde met de
+ *  inkoopdagboek, btw codes ect, zorg dat je die juist per onderneming zelf
+ *  pakt, want anders blijf ik bezig"
+ *
+ *  Twee dingen die aan elkaar hangen. Het schema stond sinds 0086 per bv in
+ *  de database, maar het scherm liet ze allemaal door elkaar zien -- 4040 van
+ *  de ene administratie naast 4040 van de andere -- en dat bleek pas bij het
+ *  boeken. En de verdeling klapte in onder een VENSTERbreedte van 900px,
+ *  terwijl hij in een kolom van 420px stond op een scherm van 2000px: de
+ *  brede indeling bleef staan in een vak waar hij niet in paste, en liep er
+ *  dwars doorheen.
+ * ==================================================================== */
+
+console.log('\n81. Per onderneming, en niet meer door de PDF heen')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const boeking = readFileSync('src/lib/boeking.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const types = readFileSync('src/lib/types.ts', 'utf8')
+  const thema = readFileSync('src/styles/theme.css', 'utf8')
+  const systeem = readFileSync('src/styles/systeem.css', 'utf8')
+  const m92 = readFileSync(
+    'supabase/migrations/0092_niet_meer_per_bv_instellen_wat_exact_weet.sql', 'utf8')
+
+  /* --- 1. de rekeningen horen bij één bv --- */
+
+  /*
+   * De kolom stond in de database en niet in het type. Daarmee kón het scherm
+   * niet filteren, ook al wilde het.
+   */
+  check('de app weet bij welke bv een rekening hoort',
+    /administratie\?: string/.test(types.slice(types.indexOf('interface Grootboek'))),
+    'Grootboek heeft geen administratie')
+
+  check('en het scherm laat alleen die van deze onderneming zien',
+    boeking.includes('export function rekeningenVoor(')
+    && (scherm.match(/rekeningenVoor\(/g) ?? []).length >= 2,
+    'niet elke rekeninglijst filtert op de bv')
+
+  /* Twee lijsten: de rekening van de bon, en die van elke regel van de
+     verdeling. Eén ervan filteren is de andere laten staan. */
+  check('ook bij de regels van een verdeling',
+    /rekeningenVoor\(rekeningen, bv, r\.grootboekCode\)/.test(scherm),
+    'de verdeling toont nog rekeningen van alle bv’s')
+
+  /*
+   * Welke bv het is, is dezelfde vraag als bon_administratie() in de database
+   * beantwoordt (0079). Twee plekken die hetzelfde moeten zeggen.
+   */
+  check('en de bv wordt op dezelfde volgorde bepaald als in de database',
+    boeking.includes('export function bvVanBon(')
+    && /opDeBon[\s\S]{0,400}viaVestiging[\s\S]{0,200}hoofd/.test(boeking),
+    'bvVanBon volgt niet bon → vestiging → hoofdadministratie')
+
+  /* Een lege lijst hoort te zeggen dat het aan DEZE bv ligt; anders zoek je
+     naar iets wat er voor een andere administratie wel is. */
+  check('een lege lijst noemt de onderneming',
+    /staat nog geen\s+rekeningschema klaar/.test(scherm),
+    'de lege lijst zegt niet dat het aan deze bv ligt')
+
+  /* --- 2. het dagboek en de btw vraag je niet meer --- */
+
+  /*
+   * 0089 haalt ze al bij Exact op, per bv en per crediteur. De blokkadelijst
+   * bleef intussen vragen of ze waren INGESTELD -- werk dat niemand hoeft te
+   * doen, twintig bv's lang.
+   */
+  check('een ontbrekend dagboek blokkeert niet meer',
+    !/'inkoopdagboek'/.test(m92) && !/'btw-code'/.test(m92),
+    'bon_niet_boekbaar vraagt nog om een ingesteld dagboek of btw-code')
+
+  /* En geen code meer lenen van een andere administratie: dagboek 70 bestaat
+     niet in elke bv, en waar het bestaat kan het iets anders zijn. */
+  check('en er wordt geen code van een andere bv geleend',
+    !/exact_dagboek'/.test(m92) && !/exact_btw_21'/.test(m92),
+    'bv_boekinstelling valt nog terug op de globale sleutel')
+
+  /* --- 3. en de verdeling past in zijn eigen vak --- */
+
+  check('de gegevenskolom mag meegroeien',
+    /grid-template-columns: minmax\(420px, 900px\) minmax\(0, 1fr\)/.test(systeem),
+    'de kolom staat nog op een vaste 420px')
+
+  /*
+   * De kern van de overloop: een VENSTER-mediaquery die een vak van 420px
+   * bestuurt. @container meet het vak zelf.
+   */
+  check('en de verdeling meet zijn eigen vak, niet het venster',
+    systeem.includes('container-type: inline-size')
+    && /@container \(max-width: 760px\)/.test(thema),
+    'de verdeling hangt nog alleen aan de vensterbreedte')
+
+  check('en kan krimpen in plaats van zijn kaart uit te duwen',
+    /\.verdeling \{[^}]*min-width: 0/.test(thema),
+    'het raster mag niet krimpen en loopt dus over')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
