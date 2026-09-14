@@ -1315,6 +1315,25 @@ function alsAdministratie(r: Partial<ExactAdministratie>): ExactAdministratie {
  * hij naar de verkeerde relatie wees -- en dan ziet de factuur er compleet
  * uit en gaat hij mee naar de boekhouding van iemand anders.
  */
+/**
+ * Het adres van een relatie in Exact Online zelf.
+ *
+ * Casper vroeg waar hij een crediteur in Exact terugvindt, en dat is een
+ * vraag die een programma beter kan beantwoorden dan een menupad: wij hebben
+ * het nummer van de relatie en het nummer van de administratie al.
+ *
+ * De schrijfwijze -- CRMAccountCard.aspx met _Division_ en AccountID tussen
+ * accolades -- komt uit de koppeldocumentatie van Exact en niet uit onszelf.
+ * Verandert Exact hem, dan kom je op een pagina die zegt dat hij niet bestaat;
+ * daarom staat het menupad er in het scherm naast.
+ */
+export function exactRelatieLink(basis: string, division: string, exactId: string): string {
+  const adres = (basis || 'https://start.exactonline.nl').replace(/\/+$/, '')
+  return `${adres}/docs/CRMAccountCard.aspx`
+    + `?_Division_=${encodeURIComponent(division)}`
+    + `&AccountID=${encodeURIComponent(`{${exactId}}`)}`
+}
+
 export interface ExactKoppeling {
   /** De kale naam waarop exact_facturen_wachtend() zoekt. */
   zoeknaam: string
@@ -1342,6 +1361,8 @@ export interface FacturenStand {
   crediteuren: number
   /** Alles wat al gekoppeld is, om na te kunnen kijken en terug te draaien. */
   koppelingen: ExactKoppeling[]
+  /** Het adres van Exact (per land), om naar een relatie te kunnen linken. */
+  exactBasis: string
   laatstAt: number | null
   laatsteFout: string | null
 }
@@ -1358,6 +1379,7 @@ function alsFacturen(uit: Partial<FacturenStand>): FacturenStand {
     mislukt: uit.mislukt ?? 0,
     crediteuren: uit.crediteuren ?? 0,
     koppelingen: uit.koppelingen ?? [],
+    exactBasis: uit.exactBasis ?? 'https://start.exactonline.nl',
     laatstAt: uit.laatstAt ?? null,
     laatsteFout: uit.laatsteFout ?? null,
   }

@@ -2094,6 +2094,14 @@ async function facturenStand() {
     verstuurd: gedaan.count ?? 0,
     mislukt: mislukt.count ?? 0,
     crediteuren: crediteuren ?? 0,
+    /*
+     * Het adres van Exact zelf, zodat het scherm naar een relatie kan
+     * doorlinken. Casper: "En waar in exact kan ik hem terugvinden?"
+     *
+     * Dit staat als instelling per land (start.exactonline.nl, .be, .de) en
+     * het scherm kent hem niet. Geen geheim -- het is de inlogpagina.
+     */
+    exactBasis: sleutelsVan(await koppeling()).basis,
     koppelingen: (koppels ?? []).map((r) => ({
       zoeknaam: String(r.zoeknaam ?? ''),
       administratie: String(r.administratie ?? ''),

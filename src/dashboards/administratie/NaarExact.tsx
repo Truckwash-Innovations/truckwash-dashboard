@@ -42,8 +42,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Check, ChevronDown, Clock, Link2, Loader2, RefreshCw, Search,
-  Send, X,
+  AlertTriangle, Check, ChevronDown, Clock, ExternalLink, Link2, Loader2,
+  RefreshCw, Search, Send, X,
 } from 'lucide-react'
 
 import { Card, Empty, Field, Knop, Modal } from '../../components/ui'
@@ -51,7 +51,7 @@ import { toast } from '../../store/useToasts'
 import { money, dateShort, relative } from '../../lib/format'
 import {
   exactCrediteuren, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
-  exactNietBoekbaar, exactStuurFacturen,
+  exactNietBoekbaar, exactRelatieLink, exactStuurFacturen,
   type ExactCrediteur, type ExactHistorie, type FacturenStand, type NietBoekbaar,
 } from '../../lib/trucksupply'
 import { zetInstelling } from '../../lib/instellingen'
@@ -694,7 +694,18 @@ function Koppelingen({ sleutel, koppel }: {
                     </td>
                     <td className="mono">{k.administratie}</td>
                     <td className="afgekapt">
-                      {k.exactNaam || '—'}
+                      {/* Doorklikken naar de relatie in Exact. Dat is waar je
+                          de betalingsconditie zet en waar je ziet of dit
+                          werkelijk de crediteur is die je bedoelde. */}
+                      <a
+                        href={exactRelatieLink(stand.exactBasis, k.administratie, k.exactId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Openen in Exact"
+                      >
+                        {k.exactNaam || '—'}
+                        <ExternalLink size={12} style={{ verticalAlign: -1, marginLeft: 4 }} />
+                      </a>
                       <div className="ts-sub">
                         {k.bron === 'handmatig' ? 'met de hand' : 'automatisch'}
                         {k.door ? ` · ${k.door}` : ''}
@@ -724,6 +735,19 @@ function Koppelingen({ sleutel, koppel }: {
               </tbody>
             </table>
           </div>
+
+          {/*
+            * Het menupad erbij, en niet alleen de link.
+            *
+            * De link is opgebouwd uit het adres dat Exact in zijn
+            * koppeldocumentatie noemt. Klopt die ooit niet meer, dan is dit
+            * het antwoord op dezelfde vraag zonder dat er iets aan hoeft.
+            */}
+          <p className="ts-sub" style={{ marginTop: 8 }}>
+            In Exact staat de betalingsconditie op de relatie zelf, op het
+            tabblad Boekhouding — het veld voor inkoop, naast dat voor verkoop.
+            Klik hierboven op de naam van de crediteur om er meteen heen te gaan.
+          </p>
 
           {lijst.length > 60 && (
             <p className="ts-sub" style={{ marginTop: 6 }}>

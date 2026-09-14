@@ -9977,6 +9977,27 @@ console.log('\n78. Een koppeling die verkeerd staat')
   check('maar er wordt niets op geblokkeerd',
     !/vreemd[\s\S]{0,80}disabled/.test(scherm),
     'een vreemd ogende naam zet een knop uit -- dat is een oordeel te ver')
+
+  /* --- 4. en waar het in Exact zelf staat --- */
+
+  /*
+   * Casper: "En waar in exact kan ik hem terugvinden?" Wij weten het nummer
+   * van de relatie en van de administratie al; dan is een link een beter
+   * antwoord dan een menupad uit het hoofd.
+   */
+  check('je klikt vanaf de crediteur door naar Exact',
+    api.includes('export function exactRelatieLink(')
+    && scherm.includes('exactRelatieLink(stand.exactBasis'),
+    'er is geen doorklik naar de relatie in Exact')
+
+  check('en dat gaat naar het adres van de juiste landversie',
+    api.includes('CRMAccountCard.aspx') && fn.includes('exactBasis: sleutelsVan('),
+    'de link gebruikt een vast adres in plaats van de ingestelde omgeving')
+
+  /* Een link kan verouderen, een menupad niet. Ze staan er allebei. */
+  check('het menupad staat er los van de link bij',
+    /tabblad Boekhouding/.test(scherm),
+    'zonder link is er geen antwoord meer op de vraag waar het in Exact staat')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
