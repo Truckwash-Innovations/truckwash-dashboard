@@ -800,24 +800,82 @@ async function naarPostvak(o: {
 
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ *  De tweede deur: een proefbericht van een ontwikkelaar
+ *
+ *  Casper: "daarna wil ik een aantal test facturen sturen (...) en dat ik via
+ *  ontwikkelaar deze test facturen kan versturen zodat het systeem ze gaan
+ *  bekijken."
+ *
+ *  Dat kán alleen hierlangs. Een tweede functie die "hetzelfde" doet, test
+ *  precies niet wat er in productie gebeurt: de bijlagecontrole, het
+ *  herkennen van de vestiging uit het adres, het lezen, de verkoopcontrole,
+ *  het indelen, het automatisch goedkeuren. Dat is allemaal wat hieronder
+ *  staat, en een proef die dat overslaat bewijst niets.
+ *
+ *  Dus gaat een proefbericht door dezelfde deur, met één verschil: in plaats
+ *  van de handtekening van Resend moet er een ingelogde ONTWIKKELAAR achter
+ *  zitten. Geen handtekening, geen tweede geheim, geen vlag die je zonder
+ *  account kunt zetten.
+ *
+ *  Waarom dit niet zomaar een gat is
+ *  ---------------------------------
+ *
+ *  Wie hier binnenkomt kan een kostenpost laten ontstaan die niet van een
+ *  echte leverancier komt. Dat is precies wat de handtekening tegenhoudt --
+ *  en daarom is de eis hier niet "een geldig token" maar "de rol developer".
+ *  Iemand met die rol kan sowieso al bij alles in dit systeem; hij wint er
+ *  niets mee.
+ * ------------------------------------------------------------------ */
+
+async function isOntwikkelaar(req: Request): Promise<boolean> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '').trim()
+  if (!token || token === (Deno.env.get('SUPABASE_ANON_KEY') ?? '')) return false
+
+  const { data, error } = await admin.auth.getUser(token)
+  if (error || !data.user) return false
+
+  const { data: profiel } = await admin
+    .from('profiles')
+    .select('roles, active, archived_at')
+    .eq('auth_id', data.user.id)
+    .maybeSingle()
+
+  if (!profiel?.active || profiel.archived_at) return false
+  return ((profiel.roles ?? []) as string[]).includes('developer')
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Alleen POST' }, 405)
 
   const ruw = await req.text()
-
-  if (!WEBHOOK_SECRET) {
-    console.error('[ontvang-mail] RESEND_WEBHOOK_SECRET ontbreekt; post wordt geweigerd.')
-    return json({ error: 'Webhook niet ingesteld' }, 500)
-  }
-  if (!(await handtekeningKlopt(req, ruw))) {
-    return json({ error: 'Handtekening klopt niet' }, 401)
-  }
 
   let payload: Willekeurig
   try {
     payload = JSON.parse(ruw)
   } catch {
     return json({ error: 'Onleesbaar verzoek' }, 400)
+  }
+
+  /*
+   * De gewone weg is de handtekening van Resend. Een proefbericht van een
+   * ontwikkelaar komt door dezelfde deur, met zijn eigen bewijs -- en alleen
+   * als hij dat zelf zegt te zijn; zonder de vlag wordt er niet eens gekeken.
+   */
+  const proef = payload.proef === true
+  if (proef) {
+    if (!(await isOntwikkelaar(req))) {
+      return json({ error: 'Een proefbericht kan alleen door een ontwikkelaar.' }, 403)
+    }
+    console.log('[ontvang-mail] PROEFBERICHT — dit is geen echte post')
+  } else {
+    if (!WEBHOOK_SECRET) {
+      console.error('[ontvang-mail] RESEND_WEBHOOK_SECRET ontbreekt; post wordt geweigerd.')
+      return json({ error: 'Webhook niet ingesteld' }, 500)
+    }
+    if (!(await handtekeningKlopt(req, ruw))) {
+      return json({ error: 'Handtekening klopt niet' }, 401)
+    }
   }
 
   const soort = String(payload.type ?? '')

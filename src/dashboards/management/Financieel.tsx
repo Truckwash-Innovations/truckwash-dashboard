@@ -1,13 +1,14 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { Clock, Euro, Receipt } from 'lucide-react'
+import { Clock, Euro, Receipt, RefreshCw } from 'lucide-react'
 import { db } from '../../lib/db'
 import type { Expense, WashJob } from '../../lib/types'
-import { money, moneyShort } from '../../lib/format'
-import { Card, Stat } from '../../components/ui'
+import { money, moneyShort, relative } from '../../lib/format'
+import { Badge, Card, Stat } from '../../components/ui'
+import { exactResultaat, type ExactResultaat } from '../../lib/trucksupply'
 import { expensesByCategory, managementKpis, startOfDay } from '../../lib/analytics'
 import { PALETTE, gridStroke, hoverFill, tooltipStyle } from '../../lib/charts'
 
@@ -119,6 +120,8 @@ export default function Financieel({ days }: { days: number }) {
             </div>
           </Card>
       </div>
+
+      <VolgensExact />
     </>
   )
 }
@@ -140,5 +143,188 @@ function PnlLine({ label, value, strong }: { label: string; value: number; stron
         {money(value)}
       </span>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Volgens Exact
+ *
+ *  Casper: "dingen zoals financieel bij managment er ook neerzetten op een
+ *  nette manier, zodat je daar het exacte resultaat kan zien."
+ *
+ *  Hierboven staat ONS getal: gereedgemelde wasbeurten min goedgekeurde
+ *  bonnen. Dat is bruikbaar voor de vraag "loopt het deze maand", en het is
+ *  niet het resultaat -- het mist loon, huur, afschrijving en rente, en het
+ *  telt een kostenpost op de dag dat iemand hem goedkeurt in plaats van op
+ *  de datum waarop hij hoort.
+ *
+ *  Dit blok staat er daarom náást en niet in de plaats. Twee getallen die
+ *  iets anders meten, allebei met hun naam erbij -- dat is eerlijker dan één
+ *  getal waarvan niemand meer weet wat het is.
+ *
+ *  Waarom het niet vanzelf laadt
+ *  -----------------------------
+ *
+ *  Elke keer dat dit scherm opengaat zou het een ronde langs Exact zijn, per
+ *  bv. Dat is traag, het telt mee voor hun limiet, en het cijfer verandert
+ *  niet per minuut. Eén knop, en erbij wanneer het is opgehaald.
+ * ------------------------------------------------------------------ */
+
+function VolgensExact() {
+  const [stand, setStand] = useState<ExactResultaat | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [openBv, setOpenBv] = useState<string | null>(null)
+
+  async function haal() {
+    setBezig(true)
+    setFout(null)
+    try {
+      setStand(await exactResultaat())
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'Ophalen lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  const MAAND = [
+    'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+    'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+  ]
+
+  return (
+    <Card
+      title="Volgens Exact"
+      hint={stand
+        ? `${stand.jaar} tot en met ${MAAND[Math.min(11, Math.max(0, stand.totPeriode - 1))]}`
+        : 'Het resultaat uit de boekhouding'}
+    >
+      {!stand && !fout && (
+        <p className="help" style={{ marginTop: 0 }}>
+          Hierboven staat wat dit systeem weet: wasbeurten min goedgekeurde
+          bonnen. Hieronder komt te staan wat er werkelijk in de boekhouding
+          staat — inclusief loon, huur en alles wat niet via deze app loopt.
+        </p>
+      )}
+
+      {fout && (
+        <p className="help danger" style={{ marginTop: 0, color: 'var(--text-danger)' }}>
+          {fout}
+        </p>
+      )}
+
+      {stand && (
+        <>
+          <div className="grid cols-3" style={{ gap: 10, marginBottom: 14 }}>
+            <Stat label="Omzet" value={money(stand.totaal.omzet)} />
+            <Stat label="Kosten" value={money(stand.totaal.kosten)} tone="warn" />
+            <Stat
+              label="Resultaat"
+              value={money(stand.totaal.resultaat)}
+              tone={stand.totaal.resultaat >= 0 ? 'ok' : 'danger'}
+            />
+          </div>
+
+          {/* Per bv, want dat is waar het bij meerdere vennootschappen om
+              draait: één optelsom zegt niets over welke het doet. */}
+          {stand.perBv.map((bv) => (
+            <div key={bv.code} style={{ marginBottom: 6 }}>
+              <button
+                className="verkenner-map"
+                onClick={() => setOpenBv(openBv === bv.code ? null : bv.code)}
+              >
+                <strong>{bv.naam}</strong>
+                <span className="spacer" />
+                {bv.fout ? (
+                  <Badge tone="danger">niet opgehaald</Badge>
+                ) : (
+                  <span className="mono" style={{
+                    color: bv.resultaat >= 0 ? 'var(--ok)' : 'var(--warn)',
+                  }}>
+                    {money(bv.resultaat)}
+                  </span>
+                )}
+              </button>
+
+              {bv.fout && (
+                <p className="ts-sub" style={{ margin: '4px 0 0 12px' }}>{bv.fout}</p>
+              )}
+
+              {openBv === bv.code && !bv.fout && (
+                <div style={{ padding: '8px 12px' }}>
+                  {bv.rekeningen.length === 0 ? (
+                    <p className="ts-sub" style={{ margin: 0 }}>
+                      Nog niets geboekt in {stand.jaar}.
+                    </p>
+                  ) : bv.rekeningen.map((r) => (
+                    <div
+                      key={r.code}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        fontSize: '.82rem', padding: '2px 0',
+                      }}
+                    >
+                      <span style={{ color: 'var(--text-2)' }}>
+                        <span className="mono">{r.code}</span> {r.naam}
+                      </span>
+                      <span
+                        className="mono"
+                        style={{ color: r.soort === 'omzet' ? 'var(--ok)' : 'var(--text)' }}
+                      >
+                        {money(r.bedrag)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* En wat er van hier nog onderweg is. Zonder dit lijkt het cijfer
+              compleet terwijl er nog een stapel ligt die er niet in zit. */}
+          <div
+            style={{
+              marginTop: 14, paddingTop: 12,
+              borderTop: '1px solid var(--line-soft)',
+              fontSize: '.82rem', color: 'var(--text-3)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Facturen geboekt in Exact</span>
+              <span className="mono">{stand.brug.geboekt}</span>
+            </div>
+            {stand.brug.wachtend > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>Goedgekeurd, nog niet geboekt</span>
+                <span className="mono">
+                  {stand.brug.wachtend} · {money(stand.brug.wachtendBedrag)}
+                </span>
+              </div>
+            )}
+            {stand.brug.mislukt > 0 && (
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                marginTop: 4, color: 'var(--warn)',
+              }}>
+                <span>Geweigerd door Exact</span>
+                <span className="mono">{stand.brug.mislukt}</span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div className="row" style={{ marginTop: 14 }}>
+        {stand && (
+          <span className="ts-sub">Opgehaald {relative(stand.gemetenOp)}</span>
+        )}
+        <span className="spacer" />
+        <button className="btn sm" disabled={bezig} onClick={() => void haal()}>
+          <RefreshCw size={14} className={bezig ? 'spin' : ''} />
+          {bezig ? 'Bezig…' : stand ? 'Opnieuw' : 'Ophalen uit Exact'}
+        </button>
+      </div>
+    </Card>
   )
 }

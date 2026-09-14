@@ -22,7 +22,7 @@ import Inkoopinstellingen from '../developer/Inkoop'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import MijnPostvak from '../../components/Postvak'
 import {
-  Administraties, Betalen, Facturen, Grootboek, Relaties, Verkoop,
+  Administraties, Betalen, Facturen, Grootboek, Proefrit, Relaties, Verkoop,
 } from '../developer/Exact'
 import { exactStatus } from '../../lib/trucksupply'
 import { telStuk, telWerk } from '../../lib/werklijst'
@@ -378,6 +378,9 @@ export default function AdministratieDashboard() {
       {page === 'boekhouding' && (
         <>
           <Inkoopinstellingen />
+          {/* De proefrit staat vóór de knop die facturen wegstuurt. Dat is de
+              volgorde waarin je het doet: eerst kijken of het aankomt. */}
+          <Proefrit verbonden={verbonden} />
           <Facturen verbonden={verbonden} />
         </>
       )}

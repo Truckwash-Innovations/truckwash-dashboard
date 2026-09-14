@@ -9073,5 +9073,135 @@ console.log('\n70. Gedeelde postvakken en eigen mappen')
   await db.outbox.clear()
 }
 
+/* ==================================================================== *
+ *  71. De proefrit en de proeffacturen
+ *
+ *  Twee dingen worden hier vastgehouden, en het eerste is het zwaarste.
+ *
+ *  1. De tweede deur in ontvang-mail.
+ *
+ *     Die webhook is de enige plek waar een kostenpost vanzelf ontstaat, en
+ *     hij staat open op internet -- daarom hangt er een handtekening van
+ *     Resend voor. Voor de proeffacturen is er een tweede weg naar binnen
+ *     gekomen, en dat is precies het soort deur dat een half jaar later
+ *     openstaat omdat iemand de voorwaarde heeft versoepeld.
+ *
+ *     Dus: zonder de vlag wordt er niet eens naar gekeken, en mét de vlag
+ *     moet er een ONTWIKKELAAR achter zitten. Geen "een geldig token", geen
+ *     tweede geheim.
+ *
+ *  2. De proeffacturen zelf.
+ *
+ *     Elk geval zet één beslissing op scherp en er staat bij wat er hoort te
+ *     gebeuren. Zonder dat laatste is het geen proef maar een demonstratie.
+ * ==================================================================== */
+
+console.log('\n71. De proefrit en de proeffacturen')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const webhook = readFileSync('supabase/functions/ontvang-mail/index.ts', 'utf8')
+  const exact = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+
+  const { TESTFACTUREN, testfactuurPdf } = await import('../src/lib/testfacturen')
+
+  /* ---- de tweede deur ---- */
+
+  check('een proefbericht moet van een ontwikkelaar komen',
+    /isOntwikkelaar/.test(webhook)
+    && webhook.includes("includes('developer')"))
+
+  /*
+   * Zonder de vlag geldt de handtekening onverkort. Zou de proefweg buiten
+   * die if vallen, dan is de handtekening optioneel geworden zonder dat het
+   * ergens staat.
+   */
+  const deur = webhook.slice(webhook.indexOf('const proef = payload.proef === true'),
+    webhook.indexOf('const soort = String(payload.type'))
+  check('zonder die vlag blijft de handtekening van Resend gelden',
+    deur.includes('handtekeningKlopt') && /}\s*else\s*{/.test(deur),
+    deur.replace(/\s+/g, ' ').slice(0, 90))
+  check('en een proefbericht zonder ontwikkelaar wordt geweigerd',
+    deur.includes('403'))
+
+  /* ---- de proefrit boekt niet ---- */
+
+  const rit = exact.slice(exact.indexOf('async function proefrit()'),
+    exact.indexOf('async function resultaat('))
+  check('de proefrit doet alleen vragen aan Exact',
+    rit.length > 0 && !rit.includes('exactPost('),
+    rit.length ? 'er staat een exactPost in' : 'proefrit niet gevonden')
+  check('en schrijft niets in onze eigen tabellen',
+    !/\.update\(|\.insert\(|\.upsert\(|\.delete\(/.test(rit))
+
+  /*
+   * En opnieuw ophalen laat de koppelingen met rust. exact_leverancier en
+   * company_exact zijn met de hand gelegd; die zijn niet opnieuw op te halen
+   * en horen dus nooit in een "alles weg"-knop te zitten.
+   */
+  const ronde = exact.slice(exact.indexOf('async function opnieuwOphalen('),
+    exact.indexOf('async function opnieuwOphalen(') + 3000)
+  const wist = [...ronde.matchAll(/from\('(\w+)'\)\s*\.delete\(/g)].map((m) => m[1])
+  check('opnieuw ophalen gooit alleen de kopieën weg',
+    wist.every((t) => ['exact_grootboek', 'exact_relatie', 'exact_personeel'].includes(t)),
+    wist.join(', ') || '(niets)')
+  check('en raakt de handgelegde koppelingen niet aan',
+    !wist.includes('exact_leverancier') && !wist.includes('company_exact')
+    && !wist.includes('exact_administratie'))
+
+  /* ---- de gevallen ---- */
+
+  check('elke proeffactuur zegt wat hij test',
+    TESTFACTUREN.every((f) => f.test.trim().length > 10))
+  check('en wat er hoort te gebeuren',
+    TESTFACTUREN.every((f) => f.verwacht.trim().length > 20),
+    TESTFACTUREN.filter((f) => f.verwacht.trim().length <= 20).map((f) => f.sleutel).join())
+  check('de sleutels zijn uniek',
+    new Set(TESTFACTUREN.map((f) => f.sleutel)).size === TESTFACTUREN.length)
+
+  const van = (sleutel: string) => TESTFACTUREN.find((f) => f.sleutel === sleutel)!
+
+  /*
+   * De dubbele moet echt dezelfde leverancier én hetzelfde nummer hebben.
+   * Wijkt er een van af, dan test hij niets -- en dat zie je niet, want er
+   * gebeurt dan precies wat er bij een gewone factuur gebeurt.
+   */
+  check('de dubbele is echt dezelfde als de gewone',
+    van('dubbel').nummer === van('gewoon').nummer
+    && van('dubbel').leverancier === van('gewoon').leverancier)
+
+  check('de verkoopfactuur staat op naam van Truckwash zelf',
+    /truckwash/i.test(van('eigen-verkoop').leverancier)
+    && Boolean(van('eigen-verkoop').kvk))
+
+  check('de factuur voor een andere bv is aan een andere bv gericht',
+    van('andere-bv').aan.some((r) => /vastgoed/i.test(r)))
+
+  check('de onleesbare heeft geen bedrag en geen nummer',
+    van('onleesbaar').excl === '' && van('onleesbaar').nummer === '')
+
+  /* ---- en het papier ---- */
+
+  const pdf = testfactuurPdf(van('gewoon'))
+  const tekst = Buffer.from(pdf).toString('latin1')
+
+  check('een proeffactuur is een geldige PDF',
+    tekst.startsWith('%PDF-') && tekst.trimEnd().endsWith('%%EOF'))
+  check('met het factuurnummer erop', tekst.includes('WT-2026-04412'))
+  check('en het bedrag', tekst.includes('1.494,35'))
+  check('en het rekeningnummer', tekst.includes('NL91 ABNA 0417 1643 00'))
+
+  /*
+   * Dat er PROEFFACTUUR op staat is geen nettigheid. Belandt er ooit een in
+   * een echte stapel, dan moet iemand die deze knop niet kent het kunnen
+   * zien -- op het papier zelf, niet in een veld in de database.
+   */
+  check('er staat PROEFFACTUUR op elke bladzijde', tekst.includes('PROEFFACTUUR'))
+
+  const leeg = Buffer.from(testfactuurPdf(van('onleesbaar'))).toString('latin1')
+  check('de onleesbare is ook een geldige PDF, maar zonder bedrag',
+    leeg.startsWith('%PDF-') && !/EUR/.test(leeg))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

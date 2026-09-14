@@ -1999,6 +1999,536 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
 }
 
 /* ------------------------------------------------------------------ *
+ *  De proefrit
+ *
+ *  Casper: "je moet de verbinding tussen exact en het systeem testen, of
+ *  facturen ect goed aan zouden komen in exact."
+ *
+ *  Die vraag is niet te beantwoorden met wat er in ONZE database staat. Die
+ *  is een kopie, en een kopie van een week geleden zegt niets over wat Exact
+ *  vandaag accepteert: een dagboek kan hernoemd zijn, een btw-code
+ *  ingetrokken, een rekening geblokkeerd, een crediteur samengevoegd. Dat
+ *  merk je nu pas op het moment dat een factuur wordt geweigerd -- en dan is
+ *  het een foutmelding bij een bon die weg had moeten zijn.
+ *
+ *  Dus vraagt deze proefrit het aan Exact zelf, stap voor stap, en boekt hij
+ *  niets. Elke stap is precies één ding dat straks moet kloppen, en er staat
+ *  bij wat je moet doen als het niet klopt.
+ *
+ *  Waarom hij niets boekt, ook niet "even één"
+ *  -------------------------------------------
+ *
+ *  Een proefboeking is een boeking. Hij staat in het dagboek, telt mee in de
+ *  btw-aangifte, en moet met de hand worden teruggedraaid door iemand die
+ *  weet hoe dat moet. Alles wat een boeking nodig heeft is ook zónder te
+ *  boeken na te kijken -- en dan blijft de eerste echte factuur ook echt de
+ *  eerste.
+ * ------------------------------------------------------------------ */
+
+interface Stap {
+  wat: string
+  ok: boolean
+  /* Leeg als het klopt. Anders: wat er mis is, in gewone taal. */
+  reden?: string
+  /* Wat je eraan doet. Alleen als er iets te doen valt. */
+  doen?: string
+}
+
+async function proefrit(): Promise<Response> {
+  const stappen: Stap[] = []
+  const zet = (wat: string, ok: boolean, reden?: string, doen?: string) =>
+    stappen.push({ wat, ok, reden, doen })
+
+  /* ---- 1. is er überhaupt een lijn ---- */
+
+  let lijn: ExactLijn
+  try {
+    lijn = await geldigToken(admin)
+    zet('De koppeling met Exact leeft', true)
+  } catch (e) {
+    zet('De koppeling met Exact leeft', false,
+      e instanceof Error ? e.message : String(e),
+      'Koppel opnieuw bij Ontwikkeling, Exact.')
+    return json({ ok: false, stappen, klaar: false })
+  }
+
+  zet(`Omgeving: ${lijn.omgeving === 'echt' ? 'de echte administratie' : 'een proefomgeving'}`,
+    true,
+    undefined,
+    lijn.omgeving === 'echt'
+      ? 'Let op: wat hier wordt geboekt staat in de echte boekhouding.'
+      : undefined)
+
+  /* ---- 2. antwoordt Exact, en op welke administratie staan we ---- */
+
+  const nu = await huidigeDivisie(lijn.basis, lijn.token)
+  zet('Exact antwoordt', nu !== null,
+    nu === null ? 'Geen antwoord op current/Me.' : undefined,
+    nu === null ? 'Het token is verlopen of ingetrokken. Koppel opnieuw.' : undefined)
+  if (nu === null) return json({ ok: false, stappen, klaar: false })
+
+  /* ---- 3. de administraties die wij gebruiken, bestaan die daar ---- */
+
+  const { data: onze } = await admin.from('exact_administratie')
+    .select('code, naam, actief, hoofd').eq('actief', true).order('code')
+  const actief = (onze ?? []).map((r) => String(r.code))
+
+  if (actief.length === 0) {
+    zet('Er is een administratie aangewezen', false,
+      'Geen enkele bv staat op actief.',
+      'Haal de administraties op en vink aan welke je gebruikt.')
+    return json({ ok: false, stappen, klaar: false })
+  }
+
+  const bijExact = await exactLijst<{ Code?: number; Description?: string }>(
+    lijn, 'system/Divisions', { $select: 'Code,Description' })
+  const bekend = new Set(bijExact.map((d) => String(d.Code ?? '')))
+  const kwijt = actief.filter((c) => !bekend.has(c))
+
+  zet(`De ${actief.length} aangevinkte administratie(s) bestaan in Exact`,
+    kwijt.length === 0,
+    kwijt.length ? `Onbekend bij Exact: ${kwijt.join(', ')}` : undefined,
+    kwijt.length ? 'Haal de administraties opnieuw op.' : undefined)
+
+  if (!(onze ?? []).some((r) => r.hoofd === true)) {
+    zet('Er is een hoofdadministratie aangewezen', false,
+      'Geen van de bv’s staat als hoofd.',
+      'Wijs er een aan; daar valt in wat nergens anders bij hoort.')
+  }
+
+  /* ---- 4. het inkoopdagboek, in elke bv waar we boeken ---- */
+
+  const inst = await instellingenVoorFacturen()
+
+  if (!inst.dagboek) {
+    zet('Het inkoopdagboek is ingesteld', false,
+      'Er staat geen dagboek.',
+      'Kies er een bij Ontwikkeling, Exact, Facturen.')
+  } else {
+    for (const bv of actief) {
+      let gevonden = false
+      let soort: number | null = null
+      try {
+        const rijen = await exactLijst<{ Code?: string; Type?: number }>(
+          lijn, 'financial/Journals', { $select: 'Code,Type' }, bv)
+        const raak = rijen.find((r) => String(r.Code ?? '').trim() === inst.dagboek)
+        gevonden = Boolean(raak)
+        soort = typeof raak?.Type === 'number' ? raak.Type : null
+      } catch (e) {
+        zet(`Dagboek ${inst.dagboek} in ${bv}`, false,
+          e instanceof Error ? e.message : String(e))
+        continue
+      }
+
+      zet(`Dagboek ${inst.dagboek} bestaat in ${bv}`, gevonden,
+        gevonden ? undefined : `Administratie ${bv} kent geen dagboek ${inst.dagboek}.`,
+        gevonden ? undefined
+          : 'Elke bv heeft zijn eigen dagboeken; kies er een die overal bestaat, '
+            + 'of boek in deze bv niet.')
+
+      /* Type 20 is inkoop. Een ander type neemt de boeking wél aan en zet
+         hem op de verkeerde plek -- dat is erger dan een weigering. */
+      if (gevonden && soort !== null && soort !== 20) {
+        zet(`Dagboek ${inst.dagboek} in ${bv} is een INKOOPdagboek`, false,
+          `Het is type ${soort}, niet 20.`,
+          'Exact neemt de boeking dan aan en zet hem verkeerd weg.')
+      }
+    }
+  }
+
+  /* ---- 5. de btw-codes ---- */
+
+  for (const [pct, code] of Object.entries(inst.btw)) {
+    if (!code) {
+      /* 21% moet; de andere twee alleen als er bonnen mee zijn, en dat weten
+         we hier niet. Dus melden, niet afkeuren. */
+      zet(`Btw-code voor ${pct}%`, pct !== '21',
+        `Niet ingesteld.`,
+        pct === '21' ? 'Zonder deze gaat er niets.' : 'Nodig zodra er een bon met dit tarief komt.')
+      continue
+    }
+    try {
+      const rijen = await exactLijst<{ Code?: string; Percentage?: number }>(
+        lijn, 'vat/VATCodes', { $select: 'Code,Percentage', $filter: `Code eq '${code}'` })
+      const raak = rijen[0]
+      const daar = typeof raak?.Percentage === 'number' ? Math.round(raak.Percentage * 100) : null
+      zet(`Btw-code ${code} bestaat in Exact`, Boolean(raak),
+        raak ? undefined : `Exact kent geen btw-code ${code}.`,
+        raak ? undefined : 'Kies er een uit de lijst bij Facturen.')
+      if (raak && daar !== null && daar !== Number(pct)) {
+        zet(`Btw-code ${code} staat op ${pct}%`, false,
+          `In Exact is het ${daar}%.`,
+          'Dan wordt er btw geboekt die niet op de factuur staat.')
+      }
+    } catch (e) {
+      zet(`Btw-code ${code} nakijken`, false, e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /* ---- 6. de bonnen die klaarstaan ---- */
+
+  const stand = await facturenStand()
+  const klaar = stand.wachtend.filter((b) => b.mist.length === 0)
+  const nietKlaar = stand.wachtend.filter((b) => b.mist.length > 0)
+
+  zet(`${stand.wachtend.length} goedgekeurde factuur(en) wachten op Exact`, true)
+
+  if (nietKlaar.length) {
+    /* Per soort tekort optellen. Tien keer "crediteur ontbreekt" is één
+       boodschap en geen tien regels. */
+    const perSoort = new Map<string, number>()
+    for (const b of nietKlaar) {
+      for (const m of b.mist) perSoort.set(m, (perSoort.get(m) ?? 0) + 1)
+    }
+    for (const [wat, hoeveel] of perSoort) {
+      zet(`${hoeveel} factuur(en) missen: ${wat}`, false, undefined,
+        wat === 'crediteur'
+          ? 'Koppel de leverancier bij Facturen, of haal de relaties opnieuw op.'
+          : wat === 'grootboekrekening'
+            ? 'Die code bestaat niet in de bv waar de bon in hoort.'
+            : wat === 'bv'
+              ? 'De vestiging van de bon hoort bij geen enkele bv.'
+              : undefined)
+    }
+  }
+
+  /*
+   * En van wat er wél klaarstaat: bestaan de rekening en de crediteur nog in
+   * Exact? Dat is de laatste stap waar het echt op misgaat -- onze kopie zegt
+   * ja en Exact is verder gegaan.
+   *
+   * Hoogstens vijf, want dit zijn twee vragen per bon aan Exact en dit is een
+   * controle, geen inventarisatie.
+   */
+  for (const bon of klaar.slice(0, 5)) {
+    if (!bon.administratie) continue
+    try {
+      const [rek, cred] = await Promise.all([
+        exactLijst<{ ID?: string }>(lijn, 'financial/GLAccounts',
+          { $select: 'ID', $filter: `ID eq guid'${bon.grootboekId}'` }, bon.administratie),
+        exactLijst<{ ID?: string }>(lijn, 'crm/Accounts',
+          { $select: 'ID', $filter: `ID eq guid'${bon.crediteurId}'` }, bon.administratie),
+      ])
+      const heel = rek.length > 0 && cred.length > 0
+      zet(`${bon.leverancier || bon.id}: rekening en crediteur bestaan nog`, heel,
+        heel ? undefined
+          : rek.length === 0
+            ? `Rekening ${bon.grootboek} is bij Exact niet meer te vinden.`
+            : 'De gekoppelde crediteur bestaat niet meer.',
+        heel ? undefined : 'Haal het grootboek en de relaties opnieuw op.')
+    } catch (e) {
+      zet(`${bon.leverancier || bon.id} nakijken`, false,
+        e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /* ---- 7. en staat de schakelaar aan ---- */
+
+  zet('Facturen versturen staat aan', inst.aan,
+    inst.aan ? undefined : 'De schakelaar staat uit; er gaat niets.',
+    inst.aan ? undefined : 'Dat is geen fout -- zet hem aan als je zover bent.')
+
+  const mis = stappen.filter((s) => !s.ok)
+  return json({
+    ok: true,
+    stappen,
+    /* "Klaar" betekent: een goedgekeurde factuur zou nu aankomen. De
+       schakelaar telt daar niet in mee -- die is een besluit en geen gebrek. */
+    klaar: mis.filter((s) => s.wat !== 'Facturen versturen staat aan').length === 0,
+    klaarstaand: klaar.length,
+    gemetenOp: Date.now(),
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Alles opnieuw ophalen
+ *
+ *  Casper: "daarnaast moet je de huidige opgehaalde exact dingen, ook
+ *  weghalen en opnieuw ophalen uit exact, zodat we niet op oude dingen
+ *  verder gaan."
+ *
+ *  Wat er WEL leeg gaat: de drie kopieën. Het rekeningschema, de relaties en
+ *  het personeel worden bij elke ophaalronde in hun geheel opnieuw gevuld;
+ *  daar valt niets aan verloren te gaan.
+ *
+ *  Wat er NIET leeg gaat, en waarom dat belangrijker is
+ *  ---------------------------------------------------
+ *
+ *  De koppelingen. exact_leverancier en company_exact zijn met de hand
+ *  gelegd -- iemand heeft uitgezocht dat "Shell Nederland Verkoopmij B.V." op
+ *  onze bon dezelfde is als die ene crediteur bij Exact. Dat is niet opnieuw
+ *  op te halen; dat is werk.
+ *
+ *  En de eigen velden op exact_administratie: welke bv actief is, welke de
+ *  hoofdadministratie is, het rekeningnummer waarvan hij betaalt, het
+ *  KvK-nummer. Die staan in dezelfde tabel als de kopie maar zijn van ons.
+ *
+ *  Wat een nieuwe ophaalronde wél kan opleveren is een koppeling die nergens
+ *  meer naar wijst -- een crediteur die bij Exact is samengevoegd of
+ *  verwijderd. Die worden niet stilletjes weggegooid maar geteld en
+ *  teruggemeld, want dat is iets om naar te kijken en niet om op te ruimen.
+ * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ *  Het resultaat, zoals Exact het kent
+ *
+ *  Casper: "daarnaast moet je dingen zoals financieel bij managment er ook
+ *  neerzetten op een nette manier, zodat je daar het exacte resultaat kan
+ *  zien."
+ *
+ *  Wat er nu bij Financieel staat is óns getal: gereedgemelde wasbeurten min
+ *  goedgekeurde kosten. Dat is bruikbaar en het is niet het resultaat. Het
+ *  mist alles wat niet via dit systeem loopt -- loon, huur, afschrijving,
+ *  rente -- en het telt kosten op het moment dat iemand ze goedkeurt in
+ *  plaats van op de datum waarop ze horen.
+ *
+ *  Het echte antwoord staat in de boekhouding. Dit haalt het daar op.
+ *
+ *  Waarom ReportingBalance en niet de boekingen zelf
+ *  -------------------------------------------------
+ *
+ *  Je zou alle boekingen kunnen ophalen en zelf optellen. Dat is duizenden
+ *  regels verkeer voor een getal dat Exact al heeft uitgerekend -- en het
+ *  zou ons eigen optelling worden, die bij het eerste beginbalansje of de
+ *  eerste correctieboeking anders uitkomt dan de jaarrekening. Dan staat er
+ *  een tweede waarheid op het scherm, en dat is erger dan geen.
+ *
+ *  ReportingBalance geeft per grootboekrekening per periode wat Exact zelf
+ *  als saldo hanteert. Wat hier staat is dus wat de accountant ook ziet.
+ *
+ *  Het teken
+ *  ---------
+ *
+ *  Exact boekt opbrengsten als negatief en kosten als positief -- dat is hoe
+ *  dubbel boekhouden werkt en niet hoe een mens het leest. Hieronder wordt
+ *  het één keer omgedraaid, met die uitleg erbij, zodat het scherm er niet
+ *  nog eens een min voor hoeft te zetten.
+ * ------------------------------------------------------------------ */
+
+interface ExactSaldo {
+  GLAccountCode?: string
+  GLAccountDescription?: string
+  BalanceType?: string
+  Amount?: number
+  ReportingPeriod?: number
+  Type?: number
+}
+
+async function resultaat(body: Record<string, unknown>): Promise<Response> {
+  const lijn = await geldigToken(admin)
+
+  /* Standaard het lopende jaar. Een ander jaar mag, want de vraag "hoe ging
+     het vorig jaar" is precies zo geldig. */
+  const nu = new Date()
+  const jaar = Number(body.jaar) || nu.getFullYear()
+  const totPeriode = Number(body.periode) || (jaar === nu.getFullYear() ? nu.getMonth() + 1 : 12)
+
+  const { data: onze } = await admin.from('exact_administratie')
+    .select('code, naam, hoofd').eq('actief', true).order('code')
+  const bvs = (onze ?? [])
+
+  if (bvs.length === 0) {
+    return json({
+      ok: false,
+      reden: 'Geen enkele administratie staat op actief. Haal ze op bij Ontwikkeling, Exact.',
+    }, 409)
+  }
+
+  const perBv: {
+    code: string
+    naam: string
+    omzet: number
+    kosten: number
+    resultaat: number
+    fout?: string
+    rekeningen: { code: string; naam: string; bedrag: number; soort: 'omzet' | 'kosten' }[]
+  }[] = []
+
+  for (const bv of bvs) {
+    const code = String(bv.code)
+    try {
+      const rijen = await exactLijst<ExactSaldo>(lijn, 'financial/ReportingBalance', {
+        $select: 'GLAccountCode,GLAccountDescription,BalanceType,Amount,ReportingPeriod',
+        $filter: `ReportingYear eq ${jaar} and ReportingPeriod le ${totPeriode}`,
+      }, code)
+
+      /*
+       * Alleen de winst-en-verliesrekening. BalanceType 'W' is bij Exact de
+       * resultatenrekening; 'B' is de balans en hoort hier niet bij op te
+       * tellen -- dan zou een banksaldo in het resultaat belanden.
+       */
+      const wv = rijen.filter((r) => String(r.BalanceType ?? '').toUpperCase() === 'W')
+
+      const perRekening = new Map<string, { naam: string; bedrag: number }>()
+      for (const r of wv) {
+        const rc = String(r.GLAccountCode ?? '').trim()
+        if (!rc) continue
+        const bij = perRekening.get(rc) ?? {
+          naam: String(r.GLAccountDescription ?? '').trim(),
+          bedrag: 0,
+        }
+        bij.bedrag += Number(r.Amount) || 0
+        perRekening.set(rc, bij)
+      }
+
+      let omzet = 0
+      let kosten = 0
+      const rekeningen: { code: string; naam: string; bedrag: number; soort: 'omzet' | 'kosten' }[] = []
+
+      for (const [rc, r] of perRekening) {
+        /* Zie de kop: negatief is bij Exact een opbrengst. Hier één keer
+           omgedraaid zodat alles verderop gewoon een positief bedrag is. */
+        if (r.bedrag < 0) {
+          const bedrag = -r.bedrag
+          omzet += bedrag
+          rekeningen.push({ code: rc, naam: r.naam, bedrag, soort: 'omzet' })
+        } else if (r.bedrag > 0) {
+          kosten += r.bedrag
+          rekeningen.push({ code: rc, naam: r.naam, bedrag: r.bedrag, soort: 'kosten' })
+        }
+      }
+
+      rekeningen.sort((a, b) => b.bedrag - a.bedrag)
+
+      perBv.push({
+        code,
+        naam: String(bv.naam ?? code),
+        omzet: Math.round(omzet * 100) / 100,
+        kosten: Math.round(kosten * 100) / 100,
+        resultaat: Math.round((omzet - kosten) * 100) / 100,
+        /* Hoogstens vijftien; wie de hele lijst wil kijkt in Exact. Een
+           scherm met tweehonderd rekeningen leest niemand. */
+        rekeningen: rekeningen.slice(0, 15),
+      })
+    } catch (e) {
+      /*
+       * Eén bv die niet meewerkt mag de rest niet wegvagen. Dat gebeurt echt:
+       * een administratie waar dit account geen rechten op heeft geeft 403, en
+       * dan is het antwoord "van de andere vier weten we het wel".
+       */
+      perBv.push({
+        code,
+        naam: String(bv.naam ?? code),
+        omzet: 0,
+        kosten: 0,
+        resultaat: 0,
+        fout: e instanceof Error ? e.message : String(e),
+        rekeningen: [],
+      })
+    }
+  }
+
+  const gelukt = perBv.filter((b) => !b.fout)
+
+  return json({
+    ok: true,
+    jaar,
+    totPeriode,
+    perBv,
+    totaal: {
+      omzet: Math.round(gelukt.reduce((a, b) => a + b.omzet, 0) * 100) / 100,
+      kosten: Math.round(gelukt.reduce((a, b) => a + b.kosten, 0) * 100) / 100,
+      resultaat: Math.round(gelukt.reduce((a, b) => a + b.resultaat, 0) * 100) / 100,
+    },
+    /* Hoe de brug ervoor staat: wat er nog aan onze kant wacht. Zonder dit
+       cijfer lijkt het resultaat compleet terwijl er nog een stapel ligt. */
+    brug: await brugStand(),
+    gemetenOp: Date.now(),
+  })
+}
+
+/** Wat er van hier naar Exact onderweg is, of blijft liggen. */
+async function brugStand() {
+  const [geboekt, wacht, mislukt] = await Promise.all([
+    admin.from('expenses').select('id', { count: 'exact', head: true })
+      .not('exact_id', 'is', null),
+    admin.from('expenses').select('amount_excl')
+      .eq('status', 'goedgekeurd').is('exact_id', null),
+    admin.from('expenses').select('id', { count: 'exact', head: true })
+      .eq('status', 'goedgekeurd').is('exact_id', null).not('exact_fout', 'is', null),
+  ])
+
+  const wachtend = (wacht.data ?? []) as { amount_excl: number | null }[]
+
+  return {
+    geboekt: geboekt.count ?? 0,
+    wachtend: wachtend.length,
+    wachtendBedrag: Math.round(
+      wachtend.reduce((a, r) => a + (Number(r.amount_excl) || 0), 0) * 100) / 100,
+    mislukt: mislukt.count ?? 0,
+  }
+}
+
+async function opnieuwOphalen(beller: Beller): Promise<Response> {
+  /* Eerst kijken of er een lijn is. Anders staan de kopieën straks leeg en
+     is er niets om ze mee te vullen -- dat is erger dan oude gegevens. */
+  await geldigToken(admin)
+
+  const weg = { grootboek: 0, relaties: 0, personeel: 0 }
+  for (const [tabel, sleutel] of [
+    ['exact_grootboek', 'grootboek'],
+    ['exact_relatie', 'relaties'],
+    ['exact_personeel', 'personeel'],
+  ] as const) {
+    const { count } = await admin.from(tabel)
+      .select('*', { count: 'exact', head: true })
+    weg[sleutel] = count ?? 0
+    /* Een delete zonder filter weigert PostgREST. "Alles waar de sleutel niet
+       leeg is" is hier hetzelfde als alles, en wel toegestaan. */
+    const { error } = await admin.from(tabel).delete().not(
+      tabel === 'exact_grootboek' ? 'code' : tabel === 'exact_relatie' ? 'exact_id' : 'employee_hid',
+      'is', null)
+    if (error) throw new ExactFout(`${tabel} legen: ${error.message}`)
+  }
+
+  /* En dan opnieuw vullen, in de volgorde waarin ze van elkaar afhangen:
+     eerst welke bv's er zijn, dan wat daarin staat. */
+  await syncAdministraties()
+  await syncGrootboek(beller)
+  await syncRelaties(beller)
+  try {
+    await syncPersoneel(beller)
+  } catch (e) {
+    /* Het personeel is een aparte module bij Exact en lang niet elk account
+       heeft hem. Dat mag de rest niet ophouden. */
+    console.warn('[exact] personeel opnieuw ophalen: ' + String(e))
+  }
+
+  /* ---- wat wijst er nergens meer naar ---- */
+
+  const [levs, bedrijven, medewerkers] = await Promise.all([
+    admin.from('exact_leverancier').select('zoeknaam, exact_id, exact_naam'),
+    admin.from('company_exact').select('company_id, division, exact_id, exact_naam'),
+    admin.from('exact_medewerker').select('user_id, employee_hid'),
+  ])
+
+  const { data: relaties } = await admin.from('exact_relatie').select('exact_id')
+  const bekend = new Set((relaties ?? []).map((r) => String(r.exact_id)))
+
+  const { data: personen } = await admin.from('exact_personeel').select('employee_hid')
+  const bekendeMensen = new Set((personen ?? []).map((r) => Number(r.employee_hid)))
+
+  const wezen = {
+    leveranciers: (levs.data ?? [])
+      .filter((r) => !bekend.has(String(r.exact_id)))
+      .map((r) => String(r.exact_naam ?? r.zoeknaam)),
+    bedrijven: (bedrijven.data ?? [])
+      .filter((r) => !bekend.has(String(r.exact_id)))
+      .map((r) => String(r.exact_naam ?? r.company_id)),
+    medewerkers: (medewerkers.data ?? [])
+      .filter((r) => !bekendeMensen.has(Number(r.employee_hid)))
+      .length,
+  }
+
+  return json({
+    ok: true,
+    weg,
+    wezen,
+    ...await facturenStand(),
+  })
+}
+
+/* ------------------------------------------------------------------ *
  *  Het personeel
  *
  *  Exporteren kan niet, en dat is geen keuze van ons: payroll/Employees in
@@ -2482,10 +3012,18 @@ Deno.serve(async (req) => {
     if (actie === 'sync-relaties' || actie === 'facturen-stand'
         || actie === 'stuur-facturen' || actie === 'koppel-leverancier'
         || actie === 'koppel-bedrijf' || actie === 'relaties-stand'
-        || actie === 'dagboeken' || actie === 'btw-codes') {
+        || actie === 'dagboeken' || actie === 'btw-codes'
+        || actie === 'proefrit' || actie === 'opnieuw-ophalen'
+        || actie === 'resultaat') {
       if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
+      /* De proefrit boekt niets en leest alleen; opnieuw ophalen gooit de
+         kopieën weg en vult ze opnieuw. Allebei achter dezelfde deur als de
+         rest van de boekhouding. */
+      if (actie === 'proefrit') return await proefrit()
+      if (actie === 'opnieuw-ophalen') return await opnieuwOphalen(beller)
+      if (actie === 'resultaat') return await resultaat(body)
       if (actie === 'sync-relaties') return await syncRelaties(beller)
       if (actie === 'koppel-bedrijf') return await koppelBedrijf(body, beller)
       if (actie === 'relaties-stand') return json({ ok: true, ...await relatiesStand() })

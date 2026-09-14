@@ -1606,3 +1606,114 @@ export async function exactZetBetaald(
 ): Promise<void> {
   await roepFunctie<{ ok: boolean }>('exact', { actie: 'zet-betaald', ...wat })
 }
+
+/* ================================================================== *
+ *  De proefrit, het resultaat, en alles opnieuw ophalen
+ * ================================================================== */
+
+export interface ProefritStap {
+  wat: string
+  ok: boolean
+  reden?: string
+  doen?: string
+}
+
+export interface Proefrit {
+  stappen: ProefritStap[]
+  /** Zou een goedgekeurde factuur nu aankomen bij Exact? */
+  klaar: boolean
+  klaarstaand: number
+  gemetenOp: number
+}
+
+/**
+ * Kijken of een factuur zou aankomen, zonder er een te boeken.
+ *
+ * Vraagt het aan Exact zelf: bestaat het dagboek daar, kloppen de btw-codes,
+ * zijn de rekening en de crediteur van de wachtende bonnen nog te vinden. Dat
+ * is de enige manier om het te weten -- onze eigen tabellen zijn een kopie, en
+ * een kopie van vorige week zegt niets over wat Exact vandaag aanneemt.
+ */
+export async function exactProefrit(): Promise<Proefrit> {
+  const uit = await roepFunctie<Partial<Proefrit>>('exact', { actie: 'proefrit' })
+  return {
+    stappen: Array.isArray(uit.stappen) ? uit.stappen : [],
+    klaar: uit.klaar === true,
+    klaarstaand: Number(uit.klaarstaand) || 0,
+    gemetenOp: Number(uit.gemetenOp) || Date.now(),
+  }
+}
+
+export interface ResultaatRekening {
+  code: string
+  naam: string
+  bedrag: number
+  soort: 'omzet' | 'kosten'
+}
+
+export interface ResultaatBv {
+  code: string
+  naam: string
+  omzet: number
+  kosten: number
+  resultaat: number
+  fout?: string
+  rekeningen: ResultaatRekening[]
+}
+
+export interface ExactResultaat {
+  jaar: number
+  totPeriode: number
+  perBv: ResultaatBv[]
+  totaal: { omzet: number; kosten: number; resultaat: number }
+  brug: { geboekt: number; wachtend: number; wachtendBedrag: number; mislukt: number }
+  gemetenOp: number
+}
+
+/**
+ * Het resultaat volgens de boekhouding.
+ *
+ * Niet ons eigen sommetje van wasbeurten min bonnen -- dat mist alles wat
+ * niet via deze app loopt. Dit is wat Exact zelf als saldo hanteert, en dus
+ * wat de accountant ook ziet.
+ */
+export async function exactResultaat(jaar?: number): Promise<ExactResultaat> {
+  const uit = await roepFunctie<Partial<ExactResultaat>>('exact', {
+    actie: 'resultaat',
+    ...(jaar ? { jaar } : {}),
+  })
+  const leeg = { omzet: 0, kosten: 0, resultaat: 0 }
+  return {
+    jaar: Number(uit.jaar) || new Date().getFullYear(),
+    totPeriode: Number(uit.totPeriode) || 12,
+    perBv: Array.isArray(uit.perBv) ? uit.perBv : [],
+    totaal: uit.totaal ?? leeg,
+    brug: uit.brug ?? { geboekt: 0, wachtend: 0, wachtendBedrag: 0, mislukt: 0 },
+    gemetenOp: Number(uit.gemetenOp) || Date.now(),
+  }
+}
+
+/**
+ * De kopieën weggooien en opnieuw ophalen.
+ *
+ * Alleen wat een kopie is: het rekeningschema, de relaties en het personeel.
+ * De koppelingen die met de hand zijn gelegd blijven staan -- die zijn niet
+ * opnieuw op te halen. Wat er daarna nergens meer naar wijst komt terug als
+ * "wezen": iets om naar te kijken, niet om stilletjes op te ruimen.
+ */
+export async function exactOpnieuwOphalen(): Promise<
+  FacturenStand & {
+    weg: { grootboek: number; relaties: number; personeel: number }
+    wezen: { leveranciers: string[]; bedrijven: string[]; medewerkers: number }
+  }
+> {
+  const uit = await roepFunctie<FacturenStand & {
+    weg?: { grootboek: number; relaties: number; personeel: number }
+    wezen?: { leveranciers: string[]; bedrijven: string[]; medewerkers: number }
+  }>('exact', { actie: 'opnieuw-ophalen' })
+  return {
+    ...alsFacturen(uit),
+    weg: uit.weg ?? { grootboek: 0, relaties: 0, personeel: 0 },
+    wezen: uit.wezen ?? { leveranciers: [], bedrijven: [], medewerkers: 0 },
+  }
+}

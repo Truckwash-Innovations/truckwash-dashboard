@@ -62,6 +62,7 @@ import {
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
+  exactProefrit, exactOpnieuwOphalen, type Proefrit as ProefritUitslag,
   exactBatchUitvoeren, exactBetaalStand, exactKoppelBedrijf,
   exactRelatiesStand, exactSepaMaken, exactStuurVerkoop,
   exactSyncAdministraties, exactSyncPersoneel, exactSyncRelaties,
@@ -568,6 +569,14 @@ export default function Exact() {
         0054 herhaalt dat met zoveel woorden. Een ruimere deur hier zou die
         afspraak omzeilen -- de database laat het ook niet toe.
       */}
+      {/* De proefrit hoort wél hier: hij gaat over de koppeling en niet over
+          een factuur. Wie hem gebruikt wil weten of de lijn deugt, en dat is
+          precies wat er op dit scherm thuishoort. Hij staat ook bij
+          Administratie, boven de knop die facturen wegstuurt. */}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <Proefrit verbonden={stand?.verbonden === true} />
+      </div>
+
       <div style={{ gridColumn: '1 / -1' }}>
         <Card title="De rest staat bij de administratie" hint="Verhuisd">
           <p className="help" style={{ marginTop: 0 }}>
@@ -3256,5 +3265,196 @@ function Veld({ label, waarde, mono }: { label: string; waarde?: string; mono?: 
         {waarde || '—'}
       </span>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ *  De proefrit
+ *
+ *  Casper: "je moet de verbinding tussen exact en het systeem testen, of
+ *  facturen ect goed aan zouden komen in exact."
+ *
+ *  Deze knop boekt niets. Hij vraagt aan Exact zelf of alles klaarstaat wat
+ *  een boeking nodig heeft: het dagboek, de btw-codes, de rekening en de
+ *  crediteur van de bonnen die wachten. Dat is de enige manier om het te
+ *  weten -- onze eigen tabellen zijn een kopie, en een kopie van vorige week
+ *  zegt niets over wat Exact vandaag aanneemt.
+ *
+ *  Waarom hij niet "even één boekt om te kijken"
+ *  ---------------------------------------------
+ *
+ *  Een proefboeking is een boeking. Hij staat in het dagboek, telt mee in de
+ *  btw-aangifte en moet met de hand worden teruggedraaid door iemand die weet
+ *  hoe dat moet. Alles wat een boeking nodig heeft is ook zonder te boeken na
+ *  te kijken.
+ * ------------------------------------------------------------------ */
+
+export function Proefrit({ verbonden }: { verbonden: boolean }) {
+  const [uit, setUit] = useState<ProefritUitslag | null>(null)
+  const [bezig, setBezig] = useState(false)
+  const [fout, setFout] = useState<string | null>(null)
+  const [opnieuw, setOpnieuw] = useState(false)
+  const [ophaalUit, setOphaalUit] = useState<string | null>(null)
+
+  async function rijd() {
+    setBezig(true)
+    setFout(null)
+    try {
+      setUit(await exactProefrit())
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De proefrit liep vast.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  async function haalAllesOpnieuw() {
+    setBezig(true)
+    setFout(null)
+    try {
+      const r = await exactOpnieuwOphalen()
+      const wezen = r.wezen.leveranciers.length + r.wezen.bedrijven.length + r.wezen.medewerkers
+      setOphaalUit(
+        `Weggegooid en opnieuw opgehaald: ${r.weg.grootboek} rekeningen, `
+        + `${r.weg.relaties} relaties, ${r.weg.personeel} medewerkers.`
+        + (wezen
+          ? ` Let op: ${wezen} koppeling(en) wijzen nergens meer naar — `
+            + [
+              ...r.wezen.leveranciers.map((n) => `leverancier ${n}`),
+              ...r.wezen.bedrijven.map((n) => `klant ${n}`),
+              ...(r.wezen.medewerkers ? [`${r.wezen.medewerkers} medewerker(s)`] : []),
+            ].slice(0, 6).join(', ')
+          : ' Alle koppelingen wijzen nog ergens naar.'))
+      setOpnieuw(false)
+      toast.ok('Opnieuw opgehaald uit Exact.')
+      /* En meteen kijken of het daarmee klopt. */
+      setUit(await exactProefrit())
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'Opnieuw ophalen lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  if (!verbonden) {
+    return (
+      <Card title="Proefrit" hint="Zou een factuur aankomen bij Exact?" className="mb">
+        <Empty text="Koppel eerst met Exact." />
+      </Card>
+    )
+  }
+
+  const mis = (uit?.stappen ?? []).filter((s) => !s.ok)
+
+  return (
+    <Card
+      title="Proefrit"
+      hint="Zou een factuur aankomen bij Exact? Er wordt niets geboekt."
+      className="mb"
+    >
+      {fout && <div className="waarschuwing mb"><TriangleAlert size={14} /><span>{fout}</span></div>}
+
+      {!uit && !fout && (
+        <p className="help" style={{ marginTop: 0 }}>
+          Vraagt aan Exact zelf of alles klaarstaat: bestaat het dagboek daar,
+          kloppen de btw-codes, zijn de rekening en de crediteur van de
+          wachtende bonnen nog te vinden. Er wordt geen enkele boeking gemaakt.
+        </p>
+      )}
+
+      {uit && (
+        <>
+          <div
+            className={`waarschuwing mb ${uit.klaar ? 'ok' : ''}`}
+            style={{
+              borderColor: uit.klaar ? 'var(--ok)' : undefined,
+              color: uit.klaar ? 'var(--ok)' : undefined,
+            }}
+          >
+            {uit.klaar ? <Check size={15} /> : <TriangleAlert size={15} />}
+            <span>
+              {uit.klaar
+                ? `Alles staat klaar. ${uit.klaarstaand} factuur(en) zouden nu aankomen.`
+                : `${mis.length} ding(en) staan een boeking in de weg.`}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gap: 5 }}>
+            {uit.stappen.map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', gap: 9, alignItems: 'flex-start',
+                  fontSize: '.84rem',
+                  color: s.ok ? 'var(--text-2)' : 'var(--text)',
+                }}
+              >
+                <span style={{ flex: 'none', marginTop: 2 }}>
+                  {s.ok
+                    ? <Check size={13} style={{ color: 'var(--ok)' }} />
+                    : <X size={13} style={{ color: 'var(--warn)' }} />}
+                </span>
+                <span style={{ minWidth: 0 }}>
+                  {s.wat}
+                  {s.reden && (
+                    <span style={{ color: 'var(--warn)' }}> — {s.reden}</span>
+                  )}
+                  {s.doen && (
+                    <div className="ts-sub" style={{ marginTop: 1 }}>{s.doen}</div>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {ophaalUit && (
+        <p className="help" style={{ marginTop: 12 }}>{ophaalUit}</p>
+      )}
+
+      <div className="row" style={{ marginTop: 14 }}>
+        {uit && <span className="ts-sub">Gemeten {relative(uit.gemetenOp)}</span>}
+        <span className="spacer" />
+        <button className="btn ghost sm" disabled={bezig} onClick={() => setOpnieuw(true)}>
+          <RefreshCw size={14} /> Alles opnieuw ophalen
+        </button>
+        <button className="btn sm primary" disabled={bezig} onClick={() => void rijd()}>
+          {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Proefrit'}
+        </button>
+      </div>
+
+      <Modal
+        open={opnieuw}
+        title="Alles opnieuw ophalen uit Exact"
+        onClose={() => setOpnieuw(false)}
+        width={480}
+      >
+        <p style={{ marginTop: 0 }}>
+          Het rekeningschema, de relaties en het personeel worden weggegooid en
+          opnieuw opgehaald. Dat zijn kopieën; daar gaat niets aan verloren.
+        </p>
+        <p className="help">
+          Wat blijft staan: de koppelingen die met de hand zijn gelegd
+          (welke leverancier welke crediteur is), en de eigen velden bij de
+          bv’s — welke actief is, het rekeningnummer waarvan hij betaalt, het
+          KvK-nummer. Die zijn niet opnieuw op te halen.
+        </p>
+        <p className="help">
+          Wijst een koppeling daarna nergens meer naar, dan wordt dat gemeld en
+          niet stilletjes opgeruimd.
+        </p>
+        <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+          <button className="btn ghost" onClick={() => setOpnieuw(false)}>Annuleren</button>
+          <button
+            className="btn primary"
+            disabled={bezig}
+            onClick={() => void haalAllesOpnieuw()}
+          >
+            {bezig ? <><Loader2 size={14} className="spin" /> Bezig…</> : 'Weggooien en ophalen'}
+          </button>
+        </div>
+      </Modal>
+    </Card>
   )
 }

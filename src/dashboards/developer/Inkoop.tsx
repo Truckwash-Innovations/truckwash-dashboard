@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Check, Copy, Mail, Plus, Save, Tag, TriangleAlert, Wallet, X,
+  Check, Copy, Loader2, Mail, Plus, Save, Send, Tag, TriangleAlert, Wallet, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import { enqueue } from '../../lib/sync'
@@ -29,6 +29,9 @@ import {
   zetInstelling,
 } from '../../lib/instellingen'
 import { relative } from '../../lib/format'
+import {
+  TESTFACTUREN, stuurTestfactuur, type Testfactuur,
+} from '../../lib/testfacturen'
 import type { Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
 import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
@@ -75,6 +78,7 @@ export default function Inkoop() {
   return (
     <>
       <Adressen />
+      <Proeffacturen />
       <Rekeningen />
       <Etiketten />
     </>
@@ -797,6 +801,160 @@ function Etiketten() {
           ))}
         </div>
       )}
+    </Card>
+  )
+}
+
+/* ================================================================== *
+ *  4. Proeffacturen
+ *
+ *  Casper: "daarna wil ik een aantal test facturen sturen (...) en dat ik via
+ *  ontwikkelaar deze test facturen kan versturen zodat het systeem ze gaan
+ *  bekijken."
+ *
+ *  Elke factuur hieronder zet één beslissing op scherp, en er staat bij wat
+ *  er hoort te gebeuren. Dat laatste is het halve werk: een proef waarvan je
+ *  vooraf niet hebt opgeschreven wat je verwacht, is geen proef maar een
+ *  demonstratie -- je kijkt naar het scherm en vindt het er goed uitzien.
+ *
+ *  Ze gaan door de echte webhook naar binnen. Alles wat er daarna gebeurt is
+ *  precies wat er met post van een leverancier gebeurt.
+ * ================================================================== */
+
+function Proeffacturen() {
+  const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
+  const [domein, setDomein] = useState('')
+  const [voorvoegsel, setVoorvoegsel] = useState('inkoop')
+  const [waarheen, setWaarheen] = useState('')
+  const [bezig, setBezig] = useState<string | null>(null)
+  const [uitslag, setUitslag] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let levend = true
+    void leesInstellingen().then((alle) => {
+      if (!levend) return
+      setDomein(alle[SLEUTELS.inkoopDomein] ?? '')
+      setVoorvoegsel(alle[SLEUTELS.inkoopVoorvoegsel] || 'inkoop')
+    })
+    return () => { levend = false }
+  }, [])
+
+  const metSlug = useMemo(
+    () => vestigingen.filter((l) => l.active !== false && l.websiteSlug)
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
+    [vestigingen])
+
+  /* Het adres bepaalt de vestiging, en daarmee de bv waarin geboekt zou
+     worden. Dat is bij een proef precies zo belangrijk als bij een echte. */
+  const adres = waarheen
+    ? inkoopAdres(domein, voorvoegsel, metSlug.find((l) => l.id === waarheen)?.websiteSlug)
+    : inkoopAdres(domein, voorvoegsel)
+
+  async function stuur(f: Testfactuur) {
+    setBezig(f.sleutel)
+    try {
+      const uit = await stuurTestfactuur(f, adres)
+      setUitslag((o) => ({
+        ...o,
+        [f.sleutel]: uit.kostenpost
+          ? 'Binnen, en er is een kostenpost van gemaakt.'
+          : 'Binnen. Er is geen kostenpost van gemaakt — kijk in de postbus waarom.',
+      }))
+      toast.ok('Verstuurd. Kijk bij Inkoop wat het systeem ervan maakte.')
+    } catch (e) {
+      const reden = e instanceof Error ? e.message : 'Versturen lukte niet.'
+      setUitslag((o) => ({ ...o, [f.sleutel]: reden }))
+      toast.error(reden)
+    } finally {
+      setBezig(null)
+    }
+  }
+
+  if (!domein) {
+    return (
+      <Card title="Proeffacturen" className="mb">
+        <Empty
+          text="Er staat nog geen inkoopdomein. Vul dat hierboven in; zonder adres
+                weet de webhook niet bij welke vestiging een factuur hoort."
+        />
+      </Card>
+    )
+  }
+
+  return (
+    <Card
+      title="Proeffacturen"
+      hint="Door de echte webhook, zodat het systeem ze net zo behandelt als post"
+      className="mb"
+    >
+      <div className="grid cols-2 mb">
+        <Field
+          label="Bezorgen op"
+          help="Het adres bepaalt de vestiging, en daarmee de bv waarin hij zou boeken."
+        >
+          <select className="input" value={waarheen} onChange={(e) => setWaarheen(e.target.value)}>
+            <option value="">Algemeen ({inkoopAdres(domein, voorvoegsel)})</option>
+            {metSlug.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name} ({inkoopAdres(domein, voorvoegsel, l.websiteSlug)})
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      <p className="help" style={{ marginTop: 0 }}>
+        Op elke PDF staat onderaan <strong>PROEFFACTUUR</strong>. Belandt er
+        ooit een in een echte stapel, dan is dat meteen te zien — ook door
+        iemand die deze knop niet kent. Weggooien doe je bij Inkoop, zoals bij
+        elke andere bon.
+      </p>
+
+      <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+        {TESTFACTUREN.map((f) => (
+          <div
+            key={f.sleutel}
+            style={{
+              padding: '11px 13px',
+              border: '1px solid var(--line-soft)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface-2)',
+            }}
+          >
+            <div className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ fontSize: '.9rem' }}>{f.naam}</strong>
+                <div className="ts-sub" style={{ marginTop: 2 }}>{f.test}</div>
+              </div>
+              <button
+                className="btn sm"
+                disabled={bezig !== null}
+                onClick={() => void stuur(f)}
+              >
+                {bezig === f.sleutel
+                  ? <><Loader2 size={14} className="spin" /> Bezig…</>
+                  : <><Send size={14} /> Versturen</>}
+              </button>
+            </div>
+
+            <div
+              style={{
+                marginTop: 8, paddingTop: 8,
+                borderTop: '1px solid var(--line-soft)',
+                fontSize: '.8rem', color: 'var(--text-3)',
+              }}
+            >
+              <strong style={{ color: 'var(--text-2)' }}>Verwacht:</strong> {f.verwacht}
+            </div>
+
+            {uitslag[f.sleutel] && (
+              <div style={{ marginTop: 6, fontSize: '.8rem', color: 'var(--text-2)' }}>
+                → {uitslag[f.sleutel]}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </Card>
   )
 }
