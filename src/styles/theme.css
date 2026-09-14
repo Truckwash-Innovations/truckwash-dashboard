@@ -5888,3 +5888,47 @@ table.data tr.aan td { font-weight: 600; }
   .postvak-mappen .mappen-lijst { flex-direction: row; flex-wrap: wrap; }
   .postvak-lijst { max-height: 40vh; }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Een document schrijven (0083)
+ *
+ *  Eén regel per blok: links de soort, in het midden de tekst, rechts de
+ *  knoppen om hem te verplaatsen. De soort staat vóór de tekst en niet
+ *  erachter, omdat je hem kiest voordat je typt.
+ * ------------------------------------------------------------------ */
+
+.doc-schrijf { display: flex; flex-direction: column; gap: 6px; }
+
+.doc-blok {
+  display: grid;
+  grid-template-columns: 126px minmax(0, 1fr) auto;
+  align-items: start; gap: 8px;
+}
+
+.doc-blok-soort { padding: 7px 8px; font-size: .8rem; }
+
+.doc-blok-tekst { resize: vertical; min-height: 0; }
+.doc-blok-tekst.kop1 { font-size: 1.05rem; font-weight: 650; }
+.doc-blok-tekst.kop2 { font-weight: 620; }
+
+.doc-blok-leeg {
+  padding: 8px 2px; font-size: .8rem; color: var(--text-3);
+  letter-spacing: .05em;
+}
+
+.doc-blok-knoppen { display: flex; gap: 2px; }
+.doc-blok-knoppen .btn { padding: 6px; }
+
+/* En zoals het eruitziet voor wie het alleen leest. */
+.doc-lees { margin-bottom: 14px; }
+.doc-lees h3 { font-size: 1.05rem; margin: 14px 0 6px; }
+.doc-lees h4 { font-size: .95rem; margin: 12px 0 4px; }
+.doc-lees p { margin: 0 0 7px; }
+.doc-lees hr { border: 0; border-top: 1px solid var(--line-soft); margin: 10px 0; }
+
+@media (max-width: 700px) {
+  /* De soort boven de tekst: drie kolommen op een telefoon laat van het
+     tekstveld een streepje over. */
+  .doc-blok { grid-template-columns: minmax(0, 1fr) auto; }
+  .doc-blok-soort { grid-column: 1 / -1; }
+}

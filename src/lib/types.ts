@@ -2394,7 +2394,25 @@ export interface DocMap {
  */
 export type DocZichtbaarheid = 'prive' | 'personen' | 'vestiging' | 'rollen' | 'iedereen'
 
-export type DocBron = 'upload' | 'mail' | 'scan'
+export type DocBron = 'upload' | 'mail' | 'scan' | 'gemaakt'
+
+/**
+ * De blokken van een document dat hier is geschreven (0083).
+ *
+ * Bewust een korte lijst. Een tekstverwerker met alles erin is een project op
+ * zich -- dit is wat een brief, een verslag of een protocol nodig heeft, en
+ * niet meer. Wat er niet in zit (tabellen, plaatjes, letterkeuze) hoort bij
+ * Word, en daarvoor staat OnlyOffice op de lijst.
+ */
+export type DocBlokSoort =
+  | 'kop1' | 'kop2' | 'alinea' | 'punt' | 'genummerd' | 'wit' | 'streep'
+
+export interface DocBlok {
+  /** Eigen id, zodat React de regels uit elkaar houdt bij het slepen. */
+  id: string
+  soort: DocBlokSoort
+  tekst: string
+}
 
 export interface DocBestand {
   id: string
@@ -2404,12 +2422,23 @@ export interface DocBestand {
   mapId?: string
 
   /** Waar het bestand ligt. 'nas' bestaat nog niet, maar de plek is een
-   *  gegeven en geen aanname -- zie migratie 0071. */
-  opslag: 'supabase' | 'nas'
+   *  gegeven en geen aanname -- zie migratie 0071. 'app' is een document dat
+   *  hier is geschreven: dat staat in `inhoud` en heeft geen bestand. */
+  opslag: 'supabase' | 'nas' | 'app'
   emmer: string
   pad: string
   mime?: string
   grootte?: number
+
+  /**
+   * De inhoud, bij een document dat hier is gemaakt (0083).
+   *
+   * In de rij en niet als bestand in de emmer: zo is het te doorzoeken, te
+   * bewerken, en komt het mee met de gewone synchronisatie. De PDF wordt
+   * gemaakt op het moment dat je hem vraagt -- hem opslaan zou een tweede
+   * versie geven die stilletjes veroudert.
+   */
+  inhoud?: DocBlok[]
 
   bron: DocBron
   /** Bij bron 'mail': het bericht waar hij uit kwam. */

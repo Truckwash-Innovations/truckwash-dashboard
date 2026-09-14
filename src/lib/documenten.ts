@@ -2,7 +2,7 @@ import { db, uid } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
 import type {
-  DocBestand, DocMap, DocToegang, DocZichtbaarheid, Role, TaakDocument, User,
+  DocBestand, DocBlok, DocMap, DocToegang, DocZichtbaarheid, Role, TaakDocument, User,
 } from './types'
 
 /* ------------------------------------------------------------------ *
@@ -267,6 +267,46 @@ export const documenten = {
   },
 
   /**
+   * Een document dat hier wordt geschreven (0083).
+   *
+   * Geen bestand, geen emmer, geen upload: de inhoud staat in de rij. Dus
+   * werkt dit ook zonder verbinding -- anders dan uploaden hierboven, dat
+   * meteen afbreekt omdat een bestand nergens heen kan. Dat verschil is de
+   * hele reden dat de inhoud in de rij staat en niet in de opslag.
+   */
+  async maken(input: {
+    naam: string
+    inhoud?: DocBlok[]
+    mapId?: string
+    locationId?: string
+    zichtbaarheid?: DocZichtbaarheid
+    door: Pick<User, 'id' | 'name'>
+  }): Promise<DocBestand> {
+    const doc: DocBestand = {
+      id: uid('doc'),
+      naam: input.naam.trim() || 'Naamloos document',
+      mapId: input.mapId,
+      opslag: 'app',
+      emmer: '',
+      /* Leeg, en de database houdt dat vast: doc_bestand_app_zonder_pad
+         (0083). Een pad dat nergens naar wijst laat iemand zoeken. */
+      pad: '',
+      mime: 'application/vnd.truckwash.document',
+      bron: 'gemaakt',
+      inhoud: input.inhoud ?? [],
+      zichtbaarheid: input.zichtbaarheid ?? 'vestiging',
+      eigenaar: input.door.id,
+      locationId: input.locationId,
+      rollen: [],
+      door: input.door.id,
+      doorNaam: input.door.name,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+    return put('docBestanden', db.docBestanden, doc)
+  },
+
+  /**
    * Bijwerken.
    *
    * `wie` is optioneel maar hoort meegegeven te worden zodra er een vestiging
@@ -394,10 +434,18 @@ export function leesbaarFormaat(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** Staat dit document hier geschreven in plaats van dat het is geüpload? */
+export function isGemaakt(doc: DocBestand): boolean {
+  return doc.opslag === 'app'
+}
+
 /** Een grove soort voor het icoontje. Niet meer dan dat. */
-export function soortVan(doc: DocBestand): 'pdf' | 'beeld' | 'blad' | 'tekst' | 'overig' {
+export function soortVan(
+  doc: DocBestand,
+): 'gemaakt' | 'pdf' | 'beeld' | 'blad' | 'tekst' | 'overig' {
   const m = (doc.mime ?? '').toLowerCase()
   const n = doc.naam.toLowerCase()
+  if (isGemaakt(doc)) return 'gemaakt'
   if (m === 'application/pdf' || n.endsWith('.pdf')) return 'pdf'
   if (m.startsWith('image/')) return 'beeld'
   if (/sheet|excel|csv/.test(m) || /\.(xlsx?|csv)$/.test(n)) return 'blad'

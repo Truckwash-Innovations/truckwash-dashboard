@@ -9,6 +9,7 @@ import {
   grootteVan, haalBytes, haalTekst, MAX_TONEN, soortVan, TeGroot, watIsDit,
   type Bekijkbaar, type BestandSoort,
 } from '../lib/bekijken'
+import { bewaarBestand } from '../lib/download'
 import { laadPdfjs } from '../lib/pdf'
 
 import { toast } from '../store/useToasts'
@@ -136,15 +137,7 @@ export default function Bekijker({ bestanden, index, onSluiten, onWissel }: Prop
     if (!bestand) return
     try {
       const adres = await bestand.haal()
-      const blob = await haalBytes(adres)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = bestand.naam
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 30_000)
+      bewaarBestand(bestand.naam, await haalBytes(adres))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Opslaan lukte niet')
     }

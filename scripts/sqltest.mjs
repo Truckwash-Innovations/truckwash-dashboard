@@ -7664,5 +7664,123 @@ console.log('\n61. Het postvak is van de medewerker')
   await pv.close()
 }
 
+/* ================================================================== *
+ *  62. Een document dat hier is geschreven
+ *
+ *  Migratie 0083 doet drie dingen en belooft er één ding bij, en dat vierde
+ *  is waar deze controles vooral over gaan.
+ *
+ *  De drie: er komt een kolom `inhoud` bij, `opslag` mag 'app' zijn, en
+ *  `bron` mag 'gemaakt' zijn.
+ *
+ *  Het vierde staat in de kop van die migratie als tekst: "Wie mag een
+ *  document maken -- dezelfde grens als uploaden. De insertregel uit 0071
+ *  dekt dit al." Dat is een bewering over gedrag, niet over een kolom, en
+ *  zulke beweringen verdwijnen. Vandaar dat hier ook gewoon nagerekend wordt
+ *  dat een medewerker zonder documentrechten er geen kan neerzetten -- want
+ *  als dat ooit wél kan, is er stilzwijgend een tweede deur bij gekomen.
+ * ================================================================== */
+
+console.log('\n62. Een document dat hier is geschreven')
+
+{
+  const dc = await fresh()
+  await dc.exec(sqlFile('supabase/setup.sql'))
+  await dc.exec('grant select, insert, update, delete on all tables in schema public to authenticated;')
+  await asServer(dc)
+
+  await dc.exec(`
+    insert into public.locations (id, code, name, kind, active)
+      values ('loc_a', 'TST-A', 'Aalsmeer', 'vestiging', true)
+      on conflict (code) do nothing;
+
+    /* Eerst het dossier, dan het inlogaccount -- zie hoofdstuk 61 voor waarom. */
+    insert into public.profiles (id, email, name, roles, active, location_id) values
+      ('p_lead', 'lead@prive.nl', 'Leidinggevende', array['supervisor'], true, 'loc_a'),
+      ('p_was',  'was@prive.nl',  'Wasser',         array['employee'],   true, 'loc_a');
+    insert into auth.users (id, email) values
+      ('00000000-0000-0000-0000-0000000000c1', 'lead@prive.nl'),
+      ('00000000-0000-0000-0000-0000000000c2', 'was@prive.nl');
+  `)
+
+  const botsDoc = async (sql) => {
+    try { await dc.exec(sql); return null } catch (e) { return String(e.message ?? e) }
+  }
+
+  /* --- de drie kolomregels --- */
+
+  const schrijf = (id, extra) => `
+    insert into public.doc_bestand
+      (id, naam, opslag, emmer, pad, bron, zichtbaarheid, location_id, rollen, inhoud)
+    values ('${id}', 'Protocol', ${extra})`
+
+  check('een geschreven document mag zonder bestand bestaan',
+    await botsDoc(schrijf('d_ok',
+      `'app', '', '', 'gemaakt', 'vestiging', 'loc_a', '{}',
+       '[{"id":"b1","soort":"kop1","tekst":"Protocol"}]'::jsonb`)) === null)
+
+  /*
+   * En dan mét een pad. Dat is de fout die je niet ziet: er staat een
+   * document met een pad naar een bestand dat niet bestaat, en dan gaat
+   * iemand dat bestand zoeken.
+   */
+  const metPad = await botsDoc(schrijf('d_pad',
+    `'app', 'documenten', '2026-09/iets.pdf', 'gemaakt', 'vestiging', 'loc_a', '{}', null`))
+  check('maar niet met een pad erbij',
+    metPad?.includes('doc_bestand_app_zonder_pad') === true, String(metPad).slice(0, 90))
+
+  check('een geüpload bestand houdt gewoon zijn pad',
+    await botsDoc(schrijf('d_up',
+      `'supabase', 'documenten', '2026-09/echt.pdf', 'upload', 'vestiging', 'loc_a', '{}', null`))
+      === null)
+
+  const verzonnen = await botsDoc(schrijf('d_bron',
+    `'app', '', '', 'verzonnen', 'vestiging', 'loc_a', '{}', null`))
+  check('een herkomst die niet bestaat wordt geweigerd',
+    verzonnen?.includes('doc_bestand_bron_check') === true, String(verzonnen).slice(0, 90))
+
+  const plek = await botsDoc(schrijf('d_plek',
+    `'ergens', '', '', 'gemaakt', 'vestiging', 'loc_a', '{}', null`))
+  check('en een opslagplek die niet bestaat ook',
+    plek?.includes('doc_bestand_opslag_check') === true, String(plek).slice(0, 90))
+
+  /* --- de inhoud komt er weer uit zoals hij erin ging --- */
+
+  const terug = (await dc.query(
+    `select inhoud -> 0 ->> 'tekst' as t, jsonb_array_length(inhoud) as n
+       from public.doc_bestand where id = 'd_ok'`)).rows[0]
+  check('de blokken komen er terug uit', terug.t === 'Protocol' && Number(terug.n) === 1,
+    JSON.stringify(terug))
+
+  /*
+   * Dat de inhoud doorzoekbaar is, is de hele reden dat hij in de rij staat
+   * en niet als bestand in de emmer. Dat is geen theorie: het zoekveld in de
+   * app doet het, en de database hoort het ook te kunnen.
+   */
+  const gevonden = Number((await dc.query(
+    `select count(*)::int as n from public.doc_bestand
+      where inhoud::text ilike '%protocol%'`)).rows[0].n)
+  check('en zijn te doorzoeken', gevonden === 1, String(gevonden))
+
+  /* --- en de deur eromheen is dezelfde als bij uploaden --- */
+
+  await asUser(dc, '00000000-0000-0000-0000-0000000000c1')
+  await dc.exec('set role authenticated;')
+  const doorLead = await botsDoc(schrijf('d_lead',
+    `'app', '', '', 'gemaakt', 'vestiging', 'loc_a', '{}', '[]'::jsonb`))
+  await dc.exec('reset role;')
+  check('een leidinggevende mag er een schrijven', doorLead === null, String(doorLead).slice(0, 90))
+
+  await asUser(dc, '00000000-0000-0000-0000-0000000000c2')
+  await dc.exec('set role authenticated;')
+  const doorWasser = await botsDoc(schrijf('d_was',
+    `'app', '', '', 'gemaakt', 'vestiging', 'loc_a', '{}', '[]'::jsonb`))
+  await dc.exec('reset role;')
+  check('een wasser niet -- dezelfde grens als bij uploaden',
+    doorWasser?.includes('row-level security') === true, String(doorWasser).slice(0, 90))
+
+  await dc.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

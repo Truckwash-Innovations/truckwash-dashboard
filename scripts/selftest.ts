@@ -8586,5 +8586,210 @@ console.log('\n67. Je verstuurt vanaf je eigen adres')
   check('en in de afzender', zoekIn(post, 'van dijk').length === 3)
 }
 
+/* ==================================================================== *
+ *  68. Een document schrijven, en er een PDF van maken
+ *
+ *  De PDF wordt met de hand geschreven (src/lib/pdfmaken.ts), en daar zit
+ *  precies één soort fout in die je niet ziet en niet kunt debuggen: de
+ *  xref-tabel. Dat is een lijst byteposities waarmee een lezer de objecten
+ *  terugvindt. Wijst er één een byte te ver, dan weigert Acrobat het hele
+ *  bestand met "damaged" -- niet die ene alinea, het hele stuk.
+ *
+ *  De valkuil daarbij is UTF-8. De posities worden geteld terwijl de tekst
+ *  nog een string is, dus in TEKENS; zodra één teken twee bytes wordt,
+ *  schuift alles erna op. Vandaar dat er hier op wordt gestaan dat er geen
+ *  byte boven 127 in het bestand voorkomt: een accent en een liggend
+ *  streepje horen als octale ontsnapping mee te gaan en niet als teken.
+ *
+ *  Die twee dingen -- de posities kloppen, en alles is ASCII -- zijn met het
+ *  oog niet na te kijken en met een test in twee regels.
+ * ==================================================================== */
+
+console.log('\n68. Een document schrijven, en er een PDF van maken')
+
+{
+  const { breedte, breekAf, maakPdf, nummering } =
+    await import('../src/lib/pdfmaken')
+  const {
+    alsBlokken, alsHtml, alsTekst, bestandsnaam, haalWeg, nieuwBlok,
+    verplaats, voegToe, zetSoort, zetTekst,
+  } = await import('../src/lib/documentmaken')
+
+  /* ---- regelafbreking ---- */
+
+  const RUIMTE = 200
+  const lap = 'De wasstraat in Aalsmeer is op werkdagen geopend van zeven uur '
+    + "'s ochtends tot zeven uur 's avonds, en op zaterdag tot drie uur."
+  const regels = breekAf(lap, 10.5, false, RUIMTE)
+
+  check('een lange regel wordt opgebroken', regels.length > 1, String(regels.length))
+  check('en geen enkele regel loopt buiten de bladspiegel',
+    regels.every((r) => breedte(r, 10.5, false) <= RUIMTE),
+    regels.map((r) => Math.round(breedte(r, 10.5, false))).join(' '))
+  check('er gaat geen woord verloren',
+    regels.join(' ').replace(/\s+/g, ' ') === lap.replace(/\s+/g, ' '))
+
+  /*
+   * Eén woord dat in zijn eentje te lang is. Dat is lelijk om hard af te
+   * breken en het alternatief is erger: een regel die buiten het papier
+   * doorloopt en bij het printen wordt afgesneden zonder dat iemand het op
+   * het scherm heeft gezien.
+   */
+  const url = 'https://truckwash1group.nl/vestigingen/aalsmeer/openingstijden'
+  const gehakt = breekAf(url, 10.5, false, 100)
+  check('een woord dat alleen al te lang is wordt hard afgebroken',
+    gehakt.length > 1 && gehakt.every((r) => breedte(r, 10.5, false) <= 100))
+  check('en er raakt ook daar niets kwijt', gehakt.join('') === url)
+
+  check('een eigen regeleinde blijft een regeleinde',
+    breekAf('een\ntwee\ndrie', 10.5, false, 400).length === 3)
+  check('vet is breder dan gewoon',
+    breedte('Openingstijden', 11, true) > breedte('Openingstijden', 11, false))
+
+  /* ---- de PDF zelf ---- */
+
+  const blokken = [
+    nieuwBlok('kop1', 'Protocol wasstraat'),
+    nieuwBlok('alinea', 'Geldig vanaf 1 oktober — voor álle vestigingen.'),
+    nieuwBlok('streep', ''),
+    nieuwBlok('kop2', 'Voorbereiding'),
+    nieuwBlok('punt', 'Controleer de doseerpomp.'),
+    nieuwBlok('genummerd', 'Zet de hoofdkraan open.'),
+    nieuwBlok('genummerd', 'Start het spoelprogramma.'),
+    nieuwBlok('wit', ''),
+    nieuwBlok('alinea', lap),
+  ]
+
+  const bytes = maakPdf({ titel: 'Protocol', blokken, voet: 'Truckwash 1 Group' })
+  const rauw = Buffer.from(bytes).toString('latin1')
+
+  check('het bestand begint als een PDF', rauw.startsWith('%PDF-'))
+  check('en eindigt netjes', rauw.trimEnd().endsWith('%%EOF'))
+
+  /*
+   * Geen enkele byte boven 127.
+   *
+   * Dit is de controle waar het om gaat. Zou er een accent als UTF-8 in staan,
+   * dan is dat twee bytes waar de teller er één heeft geteld, en wijst elke
+   * xref-positie daarna een byte te vroeg. Het bestand ziet er dan nog
+   * normaal uit en gaat bij de lezer niet open.
+   */
+  const hoog = bytes.findIndex((b) => b > 127)
+  check('alles gaat als ASCII de deur uit', hoog < 0,
+    hoog < 0 ? '' : `byte ${bytes[hoog]} op ${hoog}`)
+  check('een accent gaat mee als octale ontsnapping', rauw.includes('\\341'))
+  check('en een liggend streepje ook', rauw.includes('\\227'))
+
+  /* En dan de posities zelf nakijken, precies zoals een lezer dat doet. */
+  const na = rauw.lastIndexOf('startxref')
+  const begin = Number(rauw.slice(na).split('\n')[1])
+  const tabel = rauw.slice(begin)
+  const posities = [...tabel.matchAll(/^(\d{10}) \d{5} n /gm)].map((m) => Number(m[1]))
+
+  check('de xref-tabel noemt elk object', posities.length >= 5, String(posities.length))
+  const misser = posities.findIndex(
+    (p, i) => !rauw.slice(p).startsWith(`${i + 1} 0 obj`))
+  check('en elke positie wijst op zijn eigen object', misser < 0,
+    misser < 0 ? '' : `object ${misser + 1} zou op ${posities[misser]} staan`)
+
+  /* ---- meer dan één bladzijde ---- */
+
+  const veel = Array.from({ length: 120 }, (_, i) =>
+    nieuwBlok('alinea', `Regel ${i + 1}. ${lap}`))
+  const dik = Buffer.from(maakPdf({ titel: 'Lang stuk', blokken: veel })).toString('latin1')
+  const telling = Number(/\/Count (\d+)/.exec(dik)?.[1] ?? 0)
+
+  check('een lang stuk loopt door op een volgende bladzijde', telling > 1, String(telling))
+  check("en het aantal pagina's klopt met wat erin staat",
+    (dik.match(/\/Type \/Page[^s]/g) ?? []).length === telling)
+  check('onderaan staat welke bladzijde het is', dik.includes(`(1 van ${telling})`))
+  check('en de voettekst staat er alleen als hij is meegegeven',
+    !dik.includes('Truckwash 1 Group') && rauw.includes('Truckwash 1 Group'))
+
+  /* ---- nummeren ---- */
+
+  const reeks = nummering([
+    nieuwBlok('genummerd', 'een'),
+    nieuwBlok('genummerd', 'twee'),
+    nieuwBlok('alinea', 'tussendoor'),
+    nieuwBlok('genummerd', 'weer een'),
+  ])
+  check('een genummerde lijst telt door', reeks[0] === 1 && reeks[1] === 2)
+  check('en begint opnieuw na een alinea ertussen',
+    reeks[2] === 0 && reeks[3] === 1, reeks.join(','))
+
+  /* ---- de blokken ---- */
+
+  const rommel = alsBlokken([
+    null,
+    'gewoon een string',
+    { soort: 'bestaat-niet', tekst: 'weg hiermee' },
+    { soort: 'alinea' },
+    { id: 'x', soort: 'kop1', tekst: 'Dit blijft' },
+  ])
+  check('wat geen blok is valt weg', rommel.length === 2, String(rommel.length))
+  check('een blok zonder tekst krijgt een lege tekst', rommel[0].tekst === '')
+  check('en een blok zonder id krijgt er een', Boolean(rommel[0].id))
+  check('een kolom die geen lijst is geeft een lege lijst',
+    alsBlokken(null).length === 0 && alsBlokken({ soort: 'alinea' }).length === 0)
+
+  /*
+   * Nooit tot nul. Een document zonder blokken geeft een scherm zonder
+   * invoervelden, en dan is er geen manier meer om er iets in te typen.
+   */
+  const een = [nieuwBlok('alinea', 'de laatste')]
+  check('het laatste blok weghalen laat er een leeg blok staan',
+    haalWeg(een, een[0].id).length === 1)
+  check('en dat is niet meer de oude', haalWeg(een, een[0].id)[0].tekst === '')
+
+  const drie = [nieuwBlok('alinea', 'a'), nieuwBlok('alinea', 'b'), nieuwBlok('alinea', 'c')]
+  check('omhoog aan de bovenkant doet niets',
+    verplaats(drie, drie[0].id, -1) === drie)
+  check('omlaag aan de onderkant ook niet',
+    verplaats(drie, drie[2].id, 1) === drie)
+  check('en ertussenin wisselt hij van plek',
+    verplaats(drie, drie[1].id, -1).map((b) => b.tekst).join('') === 'bac')
+
+  check('een nieuw blok komt achter het blok waar je stond',
+    voegToe(drie, drie[0].id, nieuwBlok('alinea', 'x')).map((b) => b.tekst).join('') === 'axbc')
+  check('en zonder plek onderaan',
+    voegToe(drie, undefined, nieuwBlok('alinea', 'x')).map((b) => b.tekst).join('') === 'abcx')
+
+  /*
+   * Een nieuwe lijst terug en niet dezelfde. React vergelijkt op verwijzing;
+   * een lijst die je ter plekke wijzigt ziet er voor hem hetzelfde uit, en
+   * dan blijft het scherm staan terwijl de tekst allang veranderd is.
+   */
+  const gewijzigd = zetTekst(drie, drie[0].id, 'nieuw')
+  check('wijzigen geeft een nieuwe lijst terug', gewijzigd !== drie)
+  check('en laat de oude met rust', drie[0].tekst === 'a')
+  check('de soort wijzigen ook',
+    zetSoort(drie, drie[0].id, 'kop1')[0].soort === 'kop1' && drie[0].soort === 'alinea')
+
+  check('witregels en strepen tellen niet mee in de tekst',
+    !alsTekst(blokken).includes('\n\n') && alsTekst(blokken).includes('Protocol wasstraat'))
+
+  /* ---- printen ---- */
+
+  const html = alsHtml('Protocol', [
+    nieuwBlok('alinea', '<script>alert(1)</script> & "aanhalingstekens"'),
+    nieuwBlok('punt', 'een'),
+    nieuwBlok('punt', 'twee'),
+    nieuwBlok('genummerd', 'drie'),
+  ])
+  check('een stukje HTML in de tekst blijft tekst',
+    !html.includes('<script>') && html.includes('&lt;script&gt;'))
+  check('en een ampersand ook', html.includes('&amp;'))
+  check('twee punten onder elkaar worden één lijst',
+    (html.match(/<ul>/g) ?? []).length === 1 && (html.match(/<li>/g) ?? []).length === 3)
+  check('en een genummerde regel begint een eigen lijst', html.includes('<ol>'))
+
+  check('de bestandsnaam houdt geen rare tekens over',
+    bestandsnaam('Protocol: wasstraat/2026 *definitief*') === 'Protocol wasstraat2026 definitief.pdf',
+    bestandsnaam('Protocol: wasstraat/2026 *definitief*'))
+  check('en een naam die niets overhoudt wordt niet leeg',
+    bestandsnaam('///') === 'document.pdf')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

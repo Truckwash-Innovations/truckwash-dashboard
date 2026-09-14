@@ -42,6 +42,7 @@ import {
 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../../lib/db'
+import { bewaarBestand } from '../../lib/download'
 import { enqueue } from '../../lib/sync'
 /* Location moet hier bij naam staan: zonder deze import pakt TypeScript de
    Location van de browser, en dan klopt er niets van de foutmeldingen. */
@@ -2533,25 +2534,9 @@ export function Betalen() {
     }
   }
 
-  /**
-   * Het bestand aan de gebruiker geven.
-   *
-   * Via een blob en een onzichtbare link. De app draait ook als
-   * Windows-programma en op een tablet; een gewone download is het enige dat
-   * daar overal hetzelfde werkt.
-   */
+  /** Het SEPA-bestand aan de gebruiker geven. Zie src/lib/download.ts. */
   function bewaar(naam: string, inhoud: string) {
-    const blob = new Blob([inhoud], { type: 'application/xml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = naam
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    /* Even wachten voordat we hem weggooien: sommige browsers hebben de blob
-       nog nodig als de download net begint. */
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    bewaarBestand(naam, new Blob([inhoud], { type: 'application/xml' }))
   }
 
   const voorBv = (stand?.openstaand ?? []).filter((r) => !bv || r.administratie === bv)

@@ -1,21 +1,28 @@
 import { useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ChevronRight, Download, FileSpreadsheet, FileText, FolderPlus, Folder, HardDrive,
-  Image as ImageIcon, Inbox, Lock, Search, Trash2, Upload, Users, X,
+  ArrowDown, ArrowUp, ChevronRight, Download, FilePlus2, FileSpreadsheet, FileText,
+  FolderPlus, Folder, HardDrive, Image as ImageIcon, Inbox, Lock, PenLine, Plus,
+  Printer, Save, Search, Trash2, Upload, Users, X,
 } from 'lucide-react'
 import { db } from '../lib/db'
 import { useAuth } from '../store/useAuth'
 import { toast } from '../store/useToasts'
 import { dateShort } from '../lib/format'
 import {
-  ZICHTBAARHEID, delen as deelRepo, documenten as docRepo, leesbaarFormaat,
+  ZICHTBAARHEID, delen as deelRepo, documenten as docRepo, isGemaakt, leesbaarFormaat,
   magDocumentbeheer, magMap, magZien, mappen as mapRepo, mijnVestigingen,
   padNaar, soortVan,
 } from '../lib/documenten'
+import {
+  SOORTEN, VOET, ZONDER_TEKST, alsBlokken, alsTekst, eersteRegels, haalWeg,
+  leegDocument, nieuwBlok, nummering, pdfDownloaden, printen, verplaats, voegToe,
+  zetSoort, zetTekst,
+} from '../lib/documentmaken'
 import { Badge, Empty, Field, Modal } from './ui'
 import type {
-  DocBestand, DocMap, DocToegang, DocZichtbaarheid, Location, Role, User,
+  DocBestand, DocBlok, DocBlokSoort, DocMap, DocToegang, DocZichtbaarheid,
+  Location, Role, User,
 } from '../lib/types'
 
 /* ------------------------------------------------------------------ *
@@ -77,7 +84,11 @@ export default function Documenten() {
     const lijst = q
       ? zichtbaar.filter((d) =>
           d.naam.toLowerCase().includes(q) ||
-          (d.omschrijving ?? '').toLowerCase().includes(q))
+          (d.omschrijving ?? '').toLowerCase().includes(q) ||
+          /* En de tekst van wat hier geschreven is. Dat is de reden dat de
+             inhoud in de rij staat en niet als bestand in de emmer (0083):
+             een blob doorzoek je niet. */
+          (isGemaakt(d) && alsTekst(alsBlokken(d.inhoud)).toLowerCase().includes(q)))
       : hier
     return [...lijst].sort((a, b) => b.createdAt - a.createdAt)
   }, [zoek, zichtbaar, hier])
@@ -109,6 +120,28 @@ export default function Documenten() {
           <>
             <button className="btn ghost" onClick={() => setNieuweMap(true)}>
               <FolderPlus size={15} /> Map
+            </button>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                void docRepo.maken({
+                  naam: 'Naamloos document',
+                  inhoud: leegDocument(),
+                  mapId: plek.soort === 'map' ? plek.id : undefined,
+                  locationId: user.allLocations ? undefined : user.locationId,
+                  door: user,
+                }).then((d) => {
+                  /* Meteen open: een leeg document in een lijst is iets wat je
+                     daarna nog moet aanklikken, en dan sta je twee handelingen
+                     verder dan waar je naartoe wilde. */
+                  setOpen(d)
+                  if (plek.soort === 'postvak' || plek.soort === 'bijmij') {
+                    setPlek({ soort: 'map' })
+                  }
+                })
+              }}
+            >
+              <FilePlus2 size={15} /> Schrijven
             </button>
             <Uploaden plek={plek} />
           </>
@@ -287,6 +320,7 @@ function Boom({
  * ------------------------------------------------------------------ */
 
 const ICOON = {
+  gemaakt: PenLine,
   pdf: FileText, beeld: ImageIcon, blad: FileSpreadsheet, tekst: FileText, overig: FileText,
 }
 
@@ -317,7 +351,9 @@ function Regel({
             )}
             {doc.toegewezenNaam && <span>bij {doc.toegewezenNaam}</span>}
             {doc.bron === 'mail' && <span>per mail</span>}
-            <span>{leesbaarFormaat(doc.grootte)}</span>
+            {isGemaakt(doc)
+              ? <span>{eersteRegels(alsBlokken(doc.inhoud), 70) || 'Nog leeg'}</span>
+              : <span>{leesbaarFormaat(doc.grootte)}</span>}
           </span>
         </span>
       </button>
@@ -337,6 +373,31 @@ function Regel({
  */
 function Downloaden({ doc }: { doc: DocBestand }) {
   const [bezig, setBezig] = useState(false)
+
+  /*
+   * Een geschreven document heeft geen bestand om op te halen; de PDF wordt
+   * hier gemaakt uit de blokken die op dít moment in de rij staan. Daarom
+   * staat er nergens een opgeslagen PDF: dan zou je de versie van gisteren
+   * downloaden en dat is precies de versie die je niet rondstuurt.
+   */
+  if (isGemaakt(doc)) {
+    return (
+      <button
+        className="btn ghost sm"
+        title="Als PDF opslaan"
+        onClick={() => {
+          try {
+            pdfDownloaden(doc, alsBlokken(doc.inhoud), VOET)
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'De PDF maken lukte niet.')
+          }
+        }}
+      >
+        <Download size={14} />
+      </button>
+    )
+  }
+
   return (
     <button
       className="btn ghost sm"
@@ -419,15 +480,20 @@ function DocumentVenster({
   const user = useAuth((s) => s.user)!
   const [deelMet, setDeelMet] = useState('')
   const mag = magDocumentbeheer(user)
+  const geschreven = isGemaakt(doc)
 
   return (
-    <Modal open title={doc.naam} onClose={onSluiten} width={620}>
+    <Modal open title={doc.naam} onClose={onSluiten} width={geschreven ? 760 : 620}>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        <Badge tone="info">{leesbaarFormaat(doc.grootte)}</Badge>
+        {geschreven
+          ? <Badge tone="info">Hier geschreven</Badge>
+          : <Badge tone="info">{leesbaarFormaat(doc.grootte)}</Badge>}
         {doc.bron === 'mail' && <Badge>Per mail binnengekomen</Badge>}
         {doc.doorNaam && <Badge>van {doc.doorNaam}</Badge>}
         <Badge>{dateShort(doc.createdAt)}</Badge>
       </div>
+
+      {geschreven && <Schrijver doc={doc} lezen={!mag} />}
 
       {doc.omschrijving && <p style={{ whiteSpace: 'pre-wrap' }}>{doc.omschrijving}</p>}
 
@@ -575,11 +641,195 @@ function DocumentVenster({
           </button>
         )}
         <span className="spacer" />
+        {geschreven && (
+          <button
+            className="btn ghost"
+            title="Printen"
+            onClick={() => printen(doc.naam, alsBlokken(doc.inhoud), VOET)}
+          >
+            <Printer size={15} /> Printen
+          </button>
+        )}
         <Downloaden doc={doc} />
         <button className="btn primary" onClick={onSluiten}>Klaar</button>
       </div>
     </Modal>
   )
+}
+
+/* ------------------------------------------------------------------ *
+ *  Schrijven
+ *
+ *  Blok voor blok, want dat is het model (zie documentmaken.ts). Eén veld per
+ *  blok met zijn soort ernaast, en knoppen om hem te verplaatsen.
+ *
+ *  Waarom er een knop "Bewaren" staat en het niet vanzelf gaat
+ *  ----------------------------------------------------------
+ *
+ *  Vanzelf opslaan is prettiger en het kan hier niet zomaar: elke opslag zet
+ *  een regel in de wachtrij en die gaat naar de server. Bij elke toetsaanslag
+ *  zou dat honderden regels per alinea zijn, en op een tablet met een slechte
+ *  verbinding loopt die wachtrij dan vol met versies van dezelfde zin.
+ *
+ *  Dus met een knop, en met een merkteken erbij zolang er iets niet bewaard
+ *  is -- plus een waarschuwing als je het venster sluit. Een document dat je
+ *  kwijt bent omdat je op het kruisje drukte is erger dan een knop.
+ * ------------------------------------------------------------------ */
+
+function Schrijver({ doc, lezen }: { doc: DocBestand; lezen: boolean }) {
+  const [naam, setNaam] = useState(doc.naam)
+  const [blokken, setBlokken] = useState<DocBlok[]>(() => {
+    const uit = alsBlokken(doc.inhoud)
+    return uit.length ? uit : leegDocument()
+  })
+  const [vuil, setVuil] = useState(false)
+  const [bezig, setBezig] = useState(false)
+
+  function wijzig(nieuw: DocBlok[]) {
+    setBlokken(nieuw)
+    setVuil(true)
+  }
+
+  async function bewaren() {
+    setBezig(true)
+    try {
+      await docRepo.bijwerken(doc.id, {
+        naam: naam.trim() || 'Naamloos document',
+        inhoud: blokken,
+      })
+      setVuil(false)
+      toast.ok('Bewaard')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Bewaren lukte niet.')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  if (lezen) {
+    /* Wie het document wel mag zien maar niet beheren, leest het gewoon --
+       en kan het printen en als PDF opslaan; die knoppen staan onderaan het
+       venster. Bewerken hoort bij het documentbeheer, net als uploaden. */
+    const nummers = nummering(blokken)
+    return (
+      <div className="doc-lees">
+        {blokken.map((b, i) => <Vertoon key={b.id} blok={b} nummer={nummers[i]} />)}
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <Field label="Naam">
+        <input
+          className="input"
+          value={naam}
+          onChange={(e) => { setNaam(e.target.value); setVuil(true) }}
+          placeholder="Waar gaat het over?"
+        />
+      </Field>
+
+      <div className="doc-schrijf">
+        {blokken.map((b, i) => (
+          <div key={b.id} className="doc-blok">
+            <select
+              className="input doc-blok-soort"
+              value={b.soort}
+              onChange={(e) => wijzig(zetSoort(blokken, b.id, e.target.value as DocBlokSoort))}
+            >
+              {SOORTEN.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+
+            {ZONDER_TEKST.includes(b.soort) ? (
+              <span className="doc-blok-leeg">
+                {b.soort === 'streep' ? '───────────' : '(witregel)'}
+              </span>
+            ) : b.soort === 'kop1' || b.soort === 'kop2' ? (
+              <input
+                className={`input doc-blok-tekst ${b.soort}`}
+                value={b.tekst}
+                placeholder={b.soort === 'kop1' ? 'Kop' : 'Tussenkop'}
+                onChange={(e) => wijzig(zetTekst(blokken, b.id, e.target.value))}
+              />
+            ) : (
+              <textarea
+                className="input doc-blok-tekst"
+                value={b.tekst}
+                placeholder={b.soort === 'alinea' ? 'Typ hier…' : 'Regel'}
+                rows={Math.min(12, Math.max(2, b.tekst.split('\n').length))}
+                onChange={(e) => wijzig(zetTekst(blokken, b.id, e.target.value))}
+              />
+            )}
+
+            <div className="doc-blok-knoppen">
+              <button
+                className="btn ghost sm"
+                title="Omhoog"
+                disabled={i === 0}
+                onClick={() => wijzig(verplaats(blokken, b.id, -1))}
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                className="btn ghost sm"
+                title="Omlaag"
+                disabled={i === blokken.length - 1}
+                onClick={() => wijzig(verplaats(blokken, b.id, 1))}
+              >
+                <ArrowDown size={13} />
+              </button>
+              <button
+                className="btn ghost sm"
+                title="Regel eronder"
+                onClick={() => wijzig(voegToe(blokken, b.id, nieuwBlok(
+                  /* Een nieuwe regel onder een opsomming hoort weer een
+                     opsomming te zijn. Anders typ je bij elk punt eerst de
+                     soort opnieuw, en dat is precies waar een lijst voor
+                     bedoeld is. */
+                  b.soort === 'punt' || b.soort === 'genummerd' ? b.soort : 'alinea')))}
+              >
+                <Plus size={13} />
+              </button>
+              <button
+                className="btn ghost sm danger"
+                title="Regel weg"
+                onClick={() => wijzig(haalWeg(blokken, b.id))}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <button
+          className="btn ghost"
+          onClick={() => wijzig(voegToe(blokken, undefined, nieuwBlok('alinea')))}
+        >
+          <Plus size={14} /> Regel
+        </button>
+        <span className="spacer" />
+        {vuil && <span className="ts-sub">Nog niet bewaard</span>}
+        <button className="btn primary" disabled={bezig || !vuil} onClick={() => void bewaren()}>
+          <Save size={15} /> {bezig ? 'Bezig…' : 'Bewaren'}
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Eén blok, zoals het eruitziet voor wie het alleen leest. */
+function Vertoon({ blok, nummer }: { blok: DocBlok; nummer: number }) {
+  if (blok.soort === 'streep') return <hr />
+  if (blok.soort === 'wit') return <p>&nbsp;</p>
+  if (blok.soort === 'kop1') return <h3>{blok.tekst}</h3>
+  if (blok.soort === 'kop2') return <h4>{blok.tekst}</h4>
+  if (blok.soort === 'punt') return <p style={{ paddingLeft: 16 }}>• {blok.tekst}</p>
+  if (blok.soort === 'genummerd') {
+    return <p style={{ paddingLeft: 16 }}>{nummer}. {blok.tekst}</p>
+  }
+  return <p style={{ whiteSpace: 'pre-wrap' }}>{blok.tekst}</p>
 }
 
 /* ------------------------------------------------------------------ *
