@@ -750,12 +750,8 @@ async function naarPostvak(o: {
     aan: [o.aan],
     onderwerp: o.onderwerp,
     tekst: geweigerd.length
-      ? o.tekst + '
-
----
-Tegengehouden bijlagen:
-' + geweigerd.map((g) => '· ' + g).join('
-')
+      ? o.tekst + '\n\n---\nTegengehouden bijlagen:\n'
+        + geweigerd.map((g) => '· ' + g).join('\n')
       : o.tekst,
     had_html: Boolean(o.html),
     draad,
