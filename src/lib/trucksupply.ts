@@ -1242,6 +1242,15 @@ export interface WachtendeFactuur {
    * stond en de factuurdatum wordt genomen.
    */
   vervaldatum: number
+  /**
+   * De verdeling (0091): hoeveel regels, en wat ze samen zijn.
+   *
+   * Nul regels betekent niet gesplitst -- dan is het bedrag op de bon de
+   * boeking. Wel regels die niet optellen tot dat bedrag betekent dat er
+   * geboekt zou worden, maar niet alles.
+   */
+  regels: number
+  regelsSom: number
   /** Wat er nog ontbreekt voordat deze bon weg kan. Leeg = klaar. */
   mist: string[]
   fout: string | null

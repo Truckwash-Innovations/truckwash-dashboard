@@ -9595,12 +9595,21 @@ console.log('\n74. Eén factuur, meerdere posten')
   check('en niet meer middenin een woord, ook niet bij verkoop',
     !/\.slice\(0, 60\)/.test(exact),
     'er staat nog een harde slice(0, 60)')
+  /*
+   * Hier stond een telling: evenveel keer Description als kortVoorExact, min
+   * de definitie en min de varianten met ||. Die telde wat hij niet bedoelde.
+   * Zodra er een TWEEDE veld door de afkapper ging -- het onderwerp van een
+   * document, toen de factuur zelf meeging naar Exact (0091) -- viel hij om,
+   * terwijl dat juist goed was.
+   *
+   * De vraag is niet hoe váák de afkapper wordt aangeroepen maar of er een
+   * tekstveld naar Exact gaat dat er NIET langs komt. Dat is precies wat er
+   * nu staat, en het is meteen strenger: Subject telt mee.
+   */
   check('elke omschrijving die naar Exact gaat, gaat door die ene afkapper',
-    (exact.match(/Description:/g) ?? []).length
-      === (exact.match(/kortVoorExact\(/g) ?? []).length
-        - (exact.match(/function kortVoorExact\(/g) ?? []).length
-        - (exact.match(/\|\| kortVoorExact\(/g) ?? []).length,
-    'niet elke Description gaat door kortVoorExact')
+    (exact.match(/(Description|Subject):/g) ?? []).length
+      === (exact.match(/(Description|Subject):\s*kortVoorExact\(/g) ?? []).length,
+    'er gaat een Description of Subject naar Exact zonder kortVoorExact')
 
   /*
    * Waar de factuur over ging, in plaats van nog een keer het factuurnummer.
@@ -10083,6 +10092,105 @@ console.log('\n79. Het nummer waarop je een boeking terugvindt')
   check('behalve als er geen factuurnummer is',
     /if \(ref\) \{/.test(fn),
     'de dubbelcontrole draait ook zonder factuurnummer')
+}
+
+/* ==================================================================== *
+ *  80. Een boeking die niet optelt, en de factuur die meegaat
+ *
+ *  Casper: "hij heeft het doorgezet, maar heeft niet alle bedragen
+ *  meegestuurd. Kan je ook de documenten mee sturen?"
+ *
+ *  In Exact stond factuur VF261203080 van 143,76 geboekt voor 51,86 -- één
+ *  van de drie regels van de verdeling. De boeking was aangemaakt, er kwam
+ *  een boekstuknummer terug, en bij ons stond hij op doorgekomen. Aan niets
+ *  te zien dat er 91,90 ontbrak.
+ *
+ *  Dit is het enige soort tekort waarbij er WEL geboekt wordt en niet alles;
+ *  al het andere houdt de hele boeking tegen en valt vanzelf op. Daarom staan
+ *  er twee controles op: één om het te zien voordat er iets weggaat, en één
+ *  vlak voor de deur om het tegen te houden.
+ * ==================================================================== */
+
+console.log('\n80. Een boeking die niet optelt, en de factuur die meegaat')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const m91 = readFileSync('supabase/migrations/0091_een_boeking_die_niet_optelt.sql', 'utf8')
+  const bon = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+
+  /* --- 1. de harde stop --- */
+
+  /*
+   * Vlak voor de POST en niet ergens ervoor. 0062 rekende erop dat de
+   * database het bij het goedkeuren al ving, en dat doet hij -- alleen slaat
+   * die controle over als er op dat moment nog geen regels zijn.
+   */
+  check('een verdeling die niet optelt gaat niet naar Exact',
+    /const somLijnen = lijnen\.reduce/.test(fn)
+    && /Math\.abs\(somLijnen - hoort\) >= 0\.005/.test(fn),
+    'de verzendlus telt de regels niet na voor hij ze opstuurt')
+
+  check('en zegt hoeveel het scheelt',
+    fn.includes('de verdeling telt op tot'),
+    'de melding noemt de bedragen niet')
+
+  /* --- 2. en je ziet het aankomen --- */
+
+  check('de optelsom komt mee uit de wachtrij',
+    m91.includes('regels_som') && /regels\s+integer/.test(m91),
+    'exact_facturen_wachtend geeft de verdeling niet mee')
+
+  check('en staat bij wat er blokkeert',
+    m91.includes("then 'verdeling' end") && fn.includes("mist.push('verdeling')"),
+    'een scheve verdeling staat niet bij de blokkades')
+
+  /*
+   * Het scherm groepeert op het EERSTE tekort. Stond 'verdeling' achteraan in
+   * de lijst, dan kwam zo'n factuur onder de kop "crediteur" te staan met een
+   * zin over de verdeling eronder.
+   */
+  check('en staat vooraan, waar het scherm op groepeert',
+    /array\[[\s\S]{0,400}?then 'verdeling' end,[\s\S]{0,120}?'onderneming'/.test(m91),
+    "'verdeling' staat niet vooraan in wat[]")
+
+  /* --- 3. de factuur zelf gaat mee --- */
+
+  /* Twee stappen bij Exact; een boekingsregel heeft geen veld voor een
+     document. Nagekeken in hun documentatie, niet aangenomen. */
+  check('de PDF gaat als document naar Exact',
+    fn.includes("'documents/Documents'") && fn.includes("'documents/DocumentAttachments'"),
+    'er wordt geen document aangemaakt')
+
+  check('en hangt aan de boeking die net is gemaakt',
+    fn.includes('FinancialTransactionEntryID'),
+    'het document hangt nergens aan -- dan staat het los in het archief')
+
+  /*
+   * Het documenttype is een nummer per administratie. Een vast getal was
+   * precies de fout bij het dagboek (0089): daar werd 20 voor inkoop
+   * aangezien terwijl 20 verkoop is.
+   */
+  check('het documenttype komt uit Exact en niet uit ons hoofd',
+    fn.includes("'documents/DocumentTypes'") && fn.includes('DocumentIsCreatable'),
+    'het documenttype is een vast getal')
+
+  /* --- 4. en een bijlage laat de boeking nooit mislukken --- */
+
+  /*
+   * Dit is de belangrijkste van de vier. Op het moment dat de bijlage draait
+   * staat de boeking al in Exact. Zou een mislukte bijlage de bon laten
+   * mislukken, dan blijft exact_id leeg en boekt de volgende ronde dezelfde
+   * factuur nog een keer -- twee boekingen om een bestand dat niet paste.
+   */
+  check('een mislukte bijlage laat de boeking staan',
+    /catch \(e\) \{\s*return \{ document: null, fout:/.test(fn)
+    && m91.includes('exact_document_fout'),
+    'bijlageNaarExact kan gooien, en dan wordt de factuur dubbel geboekt')
+
+  check('en dat is terug te zien op de factuur',
+    bon.includes('De factuur zelf ging niet mee'),
+    'het scherm zegt niet of de PDF is meegegaan')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

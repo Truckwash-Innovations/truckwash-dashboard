@@ -2029,6 +2029,14 @@ async function facturenStand() {
        De join in exact_facturen_wachtend() kijkt op code én administratie. */
     if (!e.grootboek_id) mist.push('grootboekrekening')
     if (!Number(e.bedrag)) mist.push('bedrag')
+    /* Een verdeling die niet optelt tot het factuurbedrag (0091). Het enige
+       tekort waarbij er WEL geboekt zou worden, alleen niet alles -- en dus
+       het enige dat je niet aan een mislukte boeking ziet. */
+    const regelsAantal = Number(e.regels) || 0
+    const regelsSom = Number(e.regels_som) || 0
+    if (regelsAantal > 0 && Math.abs(regelsSom - (Number(e.bedrag) || 0)) >= 0.005) {
+      mist.push('verdeling')
+    }
     return {
       id: String(e.id),
       leverancier: String(e.leverancier ?? ''),
@@ -2043,6 +2051,8 @@ async function facturenStand() {
       datum: Number(e.datum) || 0,
       /* Voor DueDate: Exact eist een vervaldatum en kent hem niet. */
       vervaldatum: Number(e.vervaldatum) || 0,
+      regels: regelsAantal,
+      regelsSom,
       crediteur: (e.crediteur_naam as string) ?? null,
       /* Waar de factuur over gaat, van het papier (0085). Dit wordt de
          regelomschrijving in het inkoopdagboek als de bon niet gesplitst is. */
@@ -2526,6 +2536,142 @@ async function koppelLeverancier(body: Record<string, unknown>, beller: Beller):
 }
 
 /* ------------------------------------------------------------------ *
+ *  De factuur zelf mee naar Exact
+ *
+ *  Casper: "Kan je ook de documenten mee sturen?"
+ *
+ *  Bij Exact is dat een aparte stap en niet een veld op de boeking --
+ *  purchaseentry/PurchaseEntryLines heeft geen Document. Het gaat in twee
+ *  keer, nagekeken in hun documentatie:
+ *
+ *    documents/Documents            Subject en Type verplicht;
+ *                                   FinancialTransactionEntryID verwijst naar
+ *                                   de boeking die we net hebben gemaakt
+ *    documents/DocumentAttachments  Document, FileName en Attachment
+ *                                   (base64) verplicht
+ *
+ *  Het documenttype is een NUMMER PER ADMINISTRATIE en geen vaste waarde.
+ *  Daar is documents/DocumentTypes voor, en die wordt hier ook echt gevraagd
+ *  -- een getal uit het hoofd was precies de fout bij het dagboek (0089), waar
+ *  20 voor inkoop werd aangezien terwijl 20 verkoop is.
+ * ------------------------------------------------------------------ */
+
+interface ExactDocumentType { ID?: number; Description?: string; DocumentIsCreatable?: boolean }
+
+/**
+ * Welk documenttype hoort bij een inkoopfactuur in deze bv?
+ *
+ * Op de omschrijving, want de nummers verschillen per administratie. Eerst
+ * iets met "inkoop" of "purchase", anders iets met "factuur" of "invoice".
+ * Levert dat niets op, dan gebeurt er niets -- een willekeurig type kiezen
+ * zet de PDF in een map waar niemand hem zoekt.
+ */
+async function documentSoort(
+  lijn: ExactLijn, bv: string, geheugen: Map<string, number | null>,
+): Promise<number | null> {
+  const bekend = geheugen.get(bv)
+  if (bekend !== undefined) return bekend
+
+  const rijen = await exactLijst<ExactDocumentType>(
+    lijn, 'documents/DocumentTypes',
+    { $select: 'ID,Description,DocumentIsCreatable' }, bv)
+
+  const bruikbaar = rijen.filter((r) => r.DocumentIsCreatable !== false && r.ID != null)
+  const zoek = (patroon: RegExp) =>
+    bruikbaar.find((r) => patroon.test(String(r.Description ?? '')))
+
+  const raak = zoek(/inkoop|purchase/i) ?? zoek(/factuur|invoice/i)
+  const uit = raak?.ID ?? null
+  geheugen.set(bv, uit)
+  return uit
+}
+
+/** Bytes naar base64, in stukken -- in één keer loopt de stack over. */
+function naarBase64(bytes: Uint8Array): string {
+  let ruw = ''
+  const stap = 0x8000
+  for (let i = 0; i < bytes.length; i += stap) {
+    ruw += String.fromCharCode(...bytes.subarray(i, i + stap))
+  }
+  return btoa(ruw)
+}
+
+/* Exact neemt een bijlage aan tot ongeveer 10 MB. Groter proberen we niet:
+   dat kost een minuut wachten om daarna alsnog geweigerd te worden. */
+const MAX_BIJLAGE = 9 * 1024 * 1024
+
+/**
+ * De PDF aan de boeking hangen.
+ *
+ * Geeft het document-id terug, of een reden waarom het niet ging. Gooit NOOIT.
+ * Dat is hier het belangrijkste: op het moment dat dit draait staat de boeking
+ * al in Exact. Zou dit de bon laten mislukken, dan staat exact_id niet
+ * ingevuld en gaat dezelfde factuur de volgende ronde nog een keer heen --
+ * twee boekingen om een bijlage die niet paste.
+ */
+async function bijlageNaarExact(
+  lijn: ExactLijn, bon: { id: string; administratie: string; leverancier: string;
+    factuurnummer: string | null; crediteurId: string | null; datum: number },
+  entryId: string,
+  soorten: Map<string, number | null>,
+): Promise<{ document: string | null; fout: string | null }> {
+  try {
+    const { data: rij } = await admin.from('expenses')
+      .select('attachment_path, attachment_name').eq('id', bon.id).maybeSingle()
+
+    const pad = String(rij?.attachment_path ?? '').trim()
+    if (!pad) return { document: null, fout: 'Bij deze factuur zit geen bestand.' }
+
+    const soort = await documentSoort(lijn, bon.administratie, soorten)
+    if (soort == null) {
+      return {
+        document: null,
+        fout: `${bon.administratie} heeft geen documenttype voor inkoopfacturen `
+          + 'waar wij er een in mogen zetten.',
+      }
+    }
+
+    const { data: bestand, error: haalFout } = await admin.storage.from('post').download(pad)
+    if (haalFout || !bestand) return { document: null, fout: 'Het bestand is niet op te halen.' }
+    if (bestand.size > MAX_BIJLAGE) {
+      return {
+        document: null,
+        fout: `Het bestand is ${Math.round(bestand.size / 1024 / 1024)} MB; Exact neemt `
+          + 'ongeveer 10 MB aan.',
+      }
+    }
+
+    const naam = String(rij?.attachment_name ?? '').trim() || pad.split('/').pop() || 'factuur.pdf'
+    const b64 = naarBase64(new Uint8Array(await bestand.arrayBuffer()))
+
+    const doc = await exactPost<{ ID?: string }>(lijn, 'documents/Documents', {
+      Subject: kortVoorExact(
+        `${bon.leverancier}${bon.factuurnummer ? ' ' + bon.factuurnummer : ''}`),
+      Type: soort,
+      /* Aan de boeking hangen. Dit is het veld waarmee Exact het document bij
+         de transactieregels laat zien in plaats van los in het archief. */
+      FinancialTransactionEntryID: entryId,
+      /* En aan de crediteur, zodat hij ook bij de relatie terug te vinden is. */
+      ...(bon.crediteurId ? { Account: bon.crediteurId } : {}),
+      DocumentDate: exactDatum(bon.datum || Date.now()),
+    }, bon.administratie)
+
+    const docId = String(doc.ID ?? '').trim()
+    if (!docId) return { document: null, fout: 'Exact gaf geen document-id terug.' }
+
+    await exactPost(lijn, 'documents/DocumentAttachments', {
+      Document: docId,
+      FileName: naam.slice(0, 250),
+      Attachment: b64,
+    }, bon.administratie)
+
+    return { document: docId, fout: null }
+  } catch (e) {
+    return { document: null, fout: (e instanceof Error ? e.message : String(e)).slice(0, 300) }
+  }
+}
+
+/* ------------------------------------------------------------------ *
  *  Versturen
  *
  *  Het slot zit hier en niet in het scherm. Casper wilde dit alvast
@@ -2569,6 +2715,9 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
      bonnen van dezelfde vestiging zijn anders vijftig gelijke vragen. */
   const basisPerBv = new Map<string, BvBasis>()
   const credPerId = new Map<string, ExactCrediteurInfo>()
+  /* Het documenttype per bv. Eén vraag per administratie in plaats van één
+     per factuur; het is een instelling die tijdens een ronde niet verandert. */
+  const docSoortPerBv = new Map<string, number | null>()
 
   let gelukt = 0
   const mislukt: { id: string; reden: string }[] = []
@@ -2694,6 +2843,32 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       }
 
       /*
+       * En dan tellen.
+       *
+       * Casper: "hij heeft het doorgezet, maar heeft niet alle bedragen
+       * meegestuurd." In Exact stond een factuur van 143,76 geboekt voor
+       * 51,86 -- één van de drie regels. De boeking was aangemaakt, er kwam
+       * een boekstuknummer terug, en bij ons stond hij op doorgekomen.
+       *
+       * 0062 zegt dat dit hier geen zorg is omdat de database een bon met een
+       * verschil niet laat goedkeuren. Dat klopt en het is niet genoeg: die
+       * controle kijkt op het moment van goedkeuren en slaat over als er dan
+       * nog geen regels zijn. Komen ze daarna binnen, of komt er eentje wel
+       * aan en de rest niet, dan telt niemand het meer na.
+       *
+       * Dus hier, vlak voor de deur. Een cent marge omdat afronding per regel
+       * bestaat; meer dan dat is geld dat niet geboekt wordt.
+       */
+      const somLijnen = lijnen.reduce((t, l) => t + (Number(l.AmountFC) || 0), 0)
+      const hoort = Number(bon.bedrag) || 0
+      if (Math.abs(somLijnen - hoort) >= 0.005) {
+        throw new Error(
+          `de verdeling telt op tot ${somLijnen.toFixed(2)} en de factuur is `
+          + `${hoort.toFixed(2)}. Er is niets verstuurd; zet de verdeling recht `
+          + 'of haal hem weg.')
+      }
+
+      /*
        * De vervaldatum komt van het papier.
        *
        * Dit is het enige van de vijf dat Exact niet zelf weet: wanneer DEZE
@@ -2770,11 +2945,25 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
        * nummer en het dagboek staan ernaast om te tonen (0090); dagboek,
        * want boekstuknummers lopen per dagboek.
        */
+      /*
+       * De PDF erachteraan, en pas NA het wegschrijven van exact_id.
+       *
+       * De volgorde is het hele punt. Gaat de bijlage mis nadat de boeking is
+       * gemaakt maar voordat wij hem hebben opgeschreven, dan denkt de
+       * volgende ronde dat deze factuur nog moet en boekt hem nog een keer.
+       * Een ontbrekende bijlage is vervelend; een dubbele boeking is geld.
+       */
+      const mee = uit.EntryID
+        ? await bijlageNaarExact(lijn, bon, uit.EntryID, docSoortPerBv)
+        : { document: null, fout: 'Exact gaf geen EntryID terug om aan te hangen.' }
+
       await admin.from('expenses')
         .update({
           exact_id: id,
           exact_nummer: uit.EntryNumber != null ? String(uit.EntryNumber) : null,
           exact_dagboek: dagboek,
+          exact_document: mee.document,
+          exact_document_fout: mee.fout,
           exact_at: Date.now(),
           exact_fout: null,
           updated_at: Date.now(),

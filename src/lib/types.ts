@@ -686,6 +686,10 @@ export interface Expense {
   exactNummer?: string
   /** In welk dagboek hij terechtkwam. Boekstuknummers lopen per dagboek. */
   exactDagboek?: string
+  /** Het document in Exact waar de PDF aan hangt (0091). */
+  exactDocument?: string
+  /** Waarom de PDF niet meeging. De boeking zelf is dan gewoon doorgegaan. */
+  exactDocumentFout?: string
   exactAt?: number
   /** Waarom het niet lukte, als het niet lukte. */
   exactFout?: string

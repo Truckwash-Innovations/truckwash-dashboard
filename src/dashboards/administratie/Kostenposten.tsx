@@ -1950,11 +1950,27 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
       {bon.exactId && (
         <Field label="In Exact" help="Hierop vind je de boeking in Exact terug">
           {bon.exactNummer ? (
-            <p className="help" style={{ margin: 0 }}>
-              Boekstuk <strong className="mono">{bon.exactNummer}</strong>
-              {bon.exactDagboek && <> in dagboek <span className="mono">{bon.exactDagboek}</span></>}
-              {bon.administratie && <> van <span className="mono">{bon.administratie}</span></>}.
-            </p>
+            <>
+              <p className="help" style={{ margin: 0 }}>
+                Boekstuk <strong className="mono">{bon.exactNummer}</strong>
+                {bon.exactDagboek && <> in dagboek <span className="mono">{bon.exactDagboek}</span></>}
+                {bon.administratie && <> van <span className="mono">{bon.administratie}</span></>}.
+              </p>
+              {/*
+                * Of de PDF is meegegaan (0091).
+                *
+                * Een bijlage die niet aankwam laat de boeking met opzet
+                * doorgaan -- die staat er al, en hem laten mislukken zou
+                * betekenen dat dezelfde factuur nog een keer geboekt wordt.
+                * Maar dan hoort het wel ergens te staan, want anders zoekt
+                * iemand in Exact naar een stuk dat er nooit heen ging.
+                */}
+              <p className="ts-sub" style={{ margin: '4px 0 0' }}>
+                {bon.exactDocument
+                  ? 'De factuur zelf hangt eraan.'
+                  : `De factuur zelf ging niet mee: ${bon.exactDocumentFout || 'onbekend waarom'}`}
+              </p>
+            </>
           ) : (
             <p className="help" style={{ margin: 0 }}>
               Deze boeking is van voor we het boekstuknummer bewaarden. Zoek in
