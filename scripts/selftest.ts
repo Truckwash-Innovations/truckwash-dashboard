@@ -9691,6 +9691,27 @@ console.log('\n75. Het factuurscherm')
   check('de uitleg noemt waarom het is omgedraaid',
     plat.includes('de pdf aan de rechterkant hebben')
     && plat.includes('invoer links, document rechts'))
+
+  /*
+   * En de balk van de browser eroverheen staat uit.
+   *
+   * Casper: "Dat zwart vak met pagina nummers, dat kan je weghalen, als ze
+   * naar beneden scrollen kunnen ze alles wel netjes zien." Dat is een
+   * aanwijzing in het adres (#toolbar=0), en die is bij de eerste de beste
+   * wijziging aan die regel zo weg -- zonder dat iemand het merkt, want het
+   * document blijft gewoon staan. Vandaar hier.
+   *
+   * view=FitH hoort erbij te blijven: zonder dat begint de bon op honderd
+   * procent en zie je er een kwart van.
+   */
+  const doc = readFileSync('src/components/ui/document.tsx', 'utf8')
+  const bron = /src=\{`\$\{adres\}([^`]*)`\}/.exec(doc)
+  check('de zwarte balk van de pdf-weergave staat uit',
+    Boolean(bron) && bron[1].includes('toolbar=0'),
+    bron ? bron[1] : 'de iframe-bron is niet gevonden')
+  check('en de bon begint nog steeds op breedte',
+    Boolean(bron) && bron[1].includes('view=FitH'),
+    bron ? bron[1] : 'de iframe-bron is niet gevonden')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

@@ -188,9 +188,30 @@ export function Documentpaneel({
             </Knop>
           </div>
         ) : adres && soort === 'pdf' ? (
-          /* #view=FitH laat de PDF op breedte beginnen. Zonder dat begint hij
-             op honderd procent en zie je een kwart van de bon. */
-          <iframe src={`${adres}#view=FitH`} title={bestand?.naam ?? 'Document'} />
+          /*
+            Drie aanwijzingen aan de ingebouwde PDF-weergave van de browser.
+
+            view=FitH   begin op breedte. Zonder dat begint hij op honderd
+                        procent en zie je een kwart van de bon.
+            toolbar=0   weg met de zwarte balk erboven. Casper: "als ze naar
+                        beneden scrollen kunnen ze alles wel netjes zien."
+                        Wat daarin stond hadden we zelf al: de naam staat in
+                        de balk hierboven, en inzoomen op een regel die je
+                        niet kunt lezen doe je in een eigen venster -- daar
+                        is de knop ernaast voor.
+            navpanes=0  en dan ook de strook met miniaturen ernaast. Die
+                        hoort bij dezelfde balk (je zet hem daar aan) en
+                        neemt een derde van de breedte in beslag voor een
+                        bon van drie bladzijden.
+
+            Het zijn aanwijzingen en geen garanties: Chromium en Edge volgen
+            ze, Firefox negeert toolbar=0. In de Windows-app en in Chrome --
+            waar dit gebruikt wordt -- werkt het.
+          */
+          <iframe
+            src={`${adres}#view=FitH&toolbar=0&navpanes=0`}
+            title={bestand?.naam ?? 'Document'}
+          />
         ) : adres && soort === 'beeld' ? (
           <img src={adres} alt={bestand?.naam ?? 'Bijlage'} />
         ) : (
