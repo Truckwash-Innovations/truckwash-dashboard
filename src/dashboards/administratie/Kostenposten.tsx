@@ -22,11 +22,11 @@ import {
   bvVanBon,
   onthoudBoeking,
   rekeningNaam,
-  rekeningenVoor,
   vraagtAandacht,
   zetBoeking,
   zetOnderneming,
 } from '../../lib/boeking'
+import { useRekeningen } from '../../lib/rekeningen'
 import { historieVan } from '../../lib/factuurhistorie'
 import Stroombalk from '../../components/Stroombalk'
 import { stapVanStand, stroom, teLaat, type StapSleutel } from '../../lib/stroom'
@@ -1229,6 +1229,15 @@ function Splitsen({ bon, bedrijven }: {
     () => bvVanBon(bon, vestigingen, bedrijven),
     [bon, vestigingen, bedrijven])
 
+  /*
+   * De rekeningen van die bv, opgehaald in plaats van overgenomen.
+   *
+   * Eén keer per bv, gedeeld met de kaart Boeking hieronder: het geheugen
+   * zit in useRekeningen zelf, dus twee keuzelijsten op hetzelfde scherm
+   * sturen samen één vraag. Zie de kop van lib/rekeningen.ts.
+   */
+  const { opties: rekeningOpties } = useRekeningen(bv, rekeningen)
+
   const opVolgorde = useMemo(
     () => [...regels].sort((a, b) => a.volgorde - b.volgorde), [regels])
 
@@ -1417,9 +1426,7 @@ function Splitsen({ bon, bedrijven }: {
                 waarde={r.grootboekCode}
                 disabled={!mag}
                 zoekHint="Nummer of naam"
-                opties={rekeningenVoor(rekeningen, bv, r.grootboekCode).map((g) => ({
-                  waarde: g.code, label: `${g.code} · ${g.naam}`, sub: g.categorie,
-                }))}
+                opties={rekeningOpties}
                 onKies={(v) => void pas(r, { grootboekCode: v || undefined })}
               />
             </label>
@@ -1898,15 +1905,24 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
    * grootboekrekeningen laten zien.... want anders blijf ik bezig." Hier
    * stonden ze allemaal door elkaar: 0010 en 4040 van elke bv in één lijst,
    * en pas bij het boeken bleek dat de gekozen rekening in die administratie
-   * niet bestond. Zie rekeningenVoor() voor wat er blijft staan en waarom.
+   * niet bestond. useRekeningen() haalt ze nu per bv op; zonder verbinding
+   * valt hij terug op rekeningenVoor() over onze eigen kopie.
    */
   const bv = useMemo(
     () => bvVanBon(bon, vestigingen, bedrijven),
     [bon, vestigingen, bedrijven])
 
-  const bruikbaar = useMemo(
-    () => rekeningenVoor(rekeningen, bv, bon.grootboekCode),
-    [rekeningen, bv, bon.grootboekCode])
+  /*
+   * Opgehaald bij de bv en niet uit onze eigen kopie.
+   *
+   * Casper: "kan je niet zorgen dat je die grootboekrekeningen bij het zoeken
+   * dynamisch ophaalt?" Dat kan, en het is bovendien de juiste lijst: de
+   * boeking zoekt de rekening op in exact_grootboek (code + division), niet
+   * in onze eigen lijst. Wat Exact in die bv kent is dus boekbaar, of wij het
+   * hebben overgenomen of niet.
+   */
+  const { opties: bruikbaar, laden: rekeningenLaden } = useRekeningen(
+    bv, rekeningen, bon.grootboekCode)
 
   const beschikbaar = useMemo(
     () => [...new Set([...tags.map((t) => t.naam), ...(bon.tags ?? [])])].sort(),
@@ -1986,15 +2002,10 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
             disabled={bezig}
             leeg="— nog niet ingedeeld —"
             zoekHint="Nummer of naam, bijvoorbeeld 4000 of chemie"
-            legeLijst="Geen rekening met die tekst in deze onderneming"
-            opties={bruikbaar.map((g) => ({
-              waarde: g.code,
-              label: `${g.code} · ${g.naam}${g.actief ? '' : ' (uit)'}`,
-              sub: g.categorie,
-              /* De trefwoorden tellen mee bij het zoeken zonder in beeld te
-                 staan: wie "enexis" typt hoort bij Energie uit te komen. */
-              zoekwoorden: (g.trefwoorden ?? []).join(' '),
-            }))}
+            legeLijst={rekeningenLaden
+              ? 'Het schema van deze onderneming wordt opgehaald…'
+              : 'Geen rekening met die tekst in deze onderneming'}
+            opties={bruikbaar}
             onKies={(v) => void kiesRekening(v)}
           />
         </Field>
@@ -2114,18 +2125,17 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
         </Field>
       )}
 
-      {bruikbaar.length === 0 && (
+      {bruikbaar.length === 0 && !rekeningenLaden && (
         <p className="hint">
           <Wallet size={14} style={{ verticalAlign: -2 }} />{' '}
           {bv
-            /* Niet "er staan geen rekeningen" maar "niet voor DEZE bv". Dat
-               scheelt zoeken: het schema van een andere administratie staat
-               er meestal wel, en dan lijkt het alsof er iets stuk is. */
-            ? <>Voor onderneming <span className="mono">{bv}</span> staat nog geen
-                rekeningschema klaar. Neem het over bij Administratie →
-                Boekhouding, onder “Grootboek”.</>
-            : <>Er staan nog geen grootboekrekeningen klaar. Die neem je over
-                uit Exact bij Administratie → Boekhouding.</>}
+            /* Niet "er staan geen rekeningen" maar "niet voor DEZE bv". Het
+               schema van een andere administratie staat er meestal wel, en
+               dan lijkt het alsof er iets stuk is. */
+            ? <>Exact kent voor onderneming <span className="mono">{bv}</span> nog
+                geen rekeningen bij ons. Haal het rekeningschema op bij
+                Ontwikkeling → Exact, of kijk of die bv wel aanstaat.</>
+            : <>Er staan nog geen grootboekrekeningen klaar.</>}
         </p>
       )}
     </Card>

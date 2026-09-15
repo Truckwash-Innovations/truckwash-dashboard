@@ -10244,15 +10244,25 @@ console.log('\n81. Per onderneming, en niet meer door de PDF heen')
     /administratie\?: string/.test(types.slice(types.indexOf('interface Grootboek'))),
     'Grootboek heeft geen administratie')
 
+  /*
+   * Hier stond dat het scherm rekeningenVoor() moest aanroepen. Dat klopte
+   * één ronde lang: toen kwam de lijst uit onze eigen kopie en moest het
+   * scherm er zelf op filteren. Inmiddels haalt useRekeningen() het schema
+   * van die bv op, en is rekeningenVoor() de terugval voor als er geen
+   * verbinding is -- getest in groep 83 en 84.
+   *
+   * Wat hier overblijft is de vraag die niet verandert: krijgt de lijst de bv
+   * van DEZE bon mee? Zonder dat is het weer één lijst voor alle
+   * administraties, met welk mechanisme dan ook.
+   */
   check('en het scherm laat alleen die van deze onderneming zien',
-    boeking.includes('export function rekeningenVoor(')
-    && (scherm.match(/rekeningenVoor\(/g) ?? []).length >= 2,
-    'niet elke rekeninglijst filtert op de bv')
+    (scherm.match(/useRekeningen\(\s*\n?\s*bv,/g) ?? []).length >= 2,
+    'niet elke rekeninglijst krijgt de bv van deze bon mee')
 
   /* Twee lijsten: de rekening van de bon, en die van elke regel van de
-     verdeling. Eén ervan filteren is de andere laten staan. */
+     verdeling. Eén ervan goed zetten is de andere laten staan. */
   check('ook bij de regels van een verdeling',
-    /rekeningenVoor\(rekeningen, bv, r\.grootboekCode\)/.test(scherm),
+    /opties=\{rekeningOpties\}/.test(scherm),
     'de verdeling toont nog rekeningen van alle bv’s')
 
   /*
@@ -10267,7 +10277,7 @@ console.log('\n81. Per onderneming, en niet meer door de PDF heen')
   /* Een lege lijst hoort te zeggen dat het aan DEZE bv ligt; anders zoek je
      naar iets wat er voor een andere administratie wel is. */
   check('een lege lijst noemt de onderneming',
-    /staat nog geen\s+rekeningschema klaar/.test(scherm),
+    /Exact kent voor onderneming/.test(scherm),
     'de lege lijst zegt niet dat het aan deze bv ligt')
 
   /* --- 2. het dagboek en de btw vraag je niet meer --- */
@@ -10534,6 +10544,99 @@ console.log('\n83. Welke rekeningen bij welke onderneming horen')
 
   check('en anders de hoofdadministratie',
     bvVanBon(bon(), vestigingen, bedrijven) === '3050842')
+}
+
+/* ==================================================================== *
+ *  84. De rekeningen komen van de bv zelf
+ *
+ *  Casper: "maar kan je niet zorgen dat je die grootboekrekeningen bij het
+ *  zoeken dynamisch ophaalt?"
+ *
+ *  Dat kan, en het is bovendien de juiste lijst. Er staan twee schema's in
+ *  dit systeem en ze doen niet hetzelfde:
+ *
+ *    exact_grootboek   wat Exact kent, per administratie
+ *    public.grootboek  onze korte lijst met eigen namen en trefwoorden
+ *
+ *  En de boeking hangt aan de eerste: exact_facturen_wachtend() zoekt de guid
+ *  op in exact_grootboek (code + division). Wat Exact in die bv kent is dus
+ *  boekbaar, of wij het hebben overgenomen of niet -- "eerst overnemen" was
+ *  een tussenstap die alleen wij nodig hadden.
+ * ==================================================================== */
+
+console.log('\n84. De rekeningen komen van de bv zelf')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const lib = readFileSync('src/lib/rekeningen.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const naarExact = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+  const migratie = readFileSync('supabase/bijwerken.sql', 'utf8')
+
+  /*
+   * De aanname waar dit op rust. Zou de wachtrij de guid uit public.grootboek
+   * halen, dan MOET er eerst overgenomen worden en is deze hele wijziging
+   * fout. Daarom staat hij hier vast.
+   */
+  check('de boeking zoekt de rekening op in het schema van Exact',
+    /left join public\.exact_grootboek\s+g on g\.code = b\.grootboek_code/.test(migratie)
+      && /g\.division = b\.adm/.test(migratie),
+    'exact_facturen_wachtend haalt de rekening ergens anders vandaan')
+
+  /* --- 1. ophalen per bv --- */
+
+  check('het schema wordt per bv opgehaald',
+    lib.includes('exactGrootboekStand(bv)') && lib.includes('export function useRekeningen('),
+    'er wordt niets opgehaald')
+
+  check('en beide keuzelijsten gebruiken het',
+    (scherm.match(/useRekeningen\(/g) ?? []).length >= 2,
+    'de verdeling of de bon haalt zijn lijst nog ergens anders')
+
+  /*
+   * Eén vraag per bv, niet per toetsaanslag en niet per keuzelijst. Twee
+   * lijsten op hetzelfde scherm horen op dezelfde ronde te wachten.
+   */
+  check('één vraag per bv, ook bij twee lijsten op één scherm',
+    lib.includes('const onderweg = new Map<string, Promise<Regel[]>>()'),
+    'twee keuzelijsten sturen ieder hun eigen vraag')
+
+  /* --- 2. en het blijft werken zonder verbinding --- */
+
+  /*
+   * Dit is een offline-first app. Een lijst die leeg is omdat de server niet
+   * bereikbaar was, is erger dan een lijst die een dag oud is.
+   */
+  check('zonder verbinding blijft de lokale lijst staan',
+    lib.includes('rekeningenVoor(lokaal, bv, huidige)'),
+    'er is geen terugval op wat er lokaal staat')
+
+  check('en een mislukte ronde wordt niet onthouden',
+    /belofte\.catch\(\(\) => \{ onderweg\.delete\(bv\) \}\)/.test(lib),
+    'na één mislukte poging blijft de lijst leeg')
+
+  /* Een in Exact geblokkeerde rekening is niet te boeken; hem aanbieden is
+     een keuze die pas bij het versturen wordt geweigerd. */
+  check('een geblokkeerde rekening is niet te kiezen',
+    /!r\.geblokkeerd \|\| r\.code === huidige/.test(lib),
+    'een geblokkeerde rekening staat gewoon in de lijst')
+
+  /* --- 3. overnemen is iets anders geworden --- */
+
+  /*
+   * De knop blijft, maar niet meer als voorwaarde om te kunnen kiezen: hij
+   * geeft een rekening een eigen naam en de trefwoorden waarop de post een
+   * factuur zelf indeelt. Dat hoort op de kaart te staan, anders drukt
+   * niemand er ooit meer op.
+   */
+  check('overnemen gaat nu over namen en trefwoorden',
+    naarExact.includes('Eigen namen en trefwoorden per onderneming')
+      && naarExact.includes('niet te doen om een rekening te kúnnen kiezen'),
+    'de kaart belooft nog steeds dat overnemen nodig is om te kiezen')
+
+  check('en na overnemen klopt het geheugen weer',
+    naarExact.includes('vergeetRekeningen()') && lib.includes('export function vergeetRekeningen('),
+    'na overnemen blijven de oude namen staan tot de app opnieuw opent')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

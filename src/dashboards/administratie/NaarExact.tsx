@@ -48,6 +48,7 @@ import {
 } from 'lucide-react'
 
 import { db } from '../../lib/db'
+import { vergeetRekeningen } from '../../lib/rekeningen'
 import type { Grootboek } from '../../lib/types'
 
 import { Card, Empty, Field, Knop, Modal } from '../../components/ui'
@@ -540,19 +541,22 @@ function Koppelen({
 /* ------------------------------------------------------------------ *
  *  3a. Het rekeningschema per bv
  *
- *  Casper: "als ik naar een andere onderneming ga, moet je de
- *  grootboekrekening van die onderneming laten zien (...) want anders blijf
- *  ik bezig."
+ *  Waar dit voor is, en waar het NIET meer voor is
+ *  -----------------------------------------------
  *
- *  Het scherm filtert daar inmiddels op, en toch zag hij alles door elkaar.
- *  De reden: 0086 maakte het schema per bv, met grootboek_overnemen() om het
- *  per administratie binnen te halen -- en die functie werd door geen enkel
- *  scherm aangeroepen. Alle rekeningen stonden dus nog zonder bv, en een
- *  rekening zonder bv "geldt overal". Het filter deed precies wat het moest
- *  en had niets om op te filteren.
+ *  Het factuurscherm haalt de rekeningen van een bv sinds kort zelf op
+ *  (lib/rekeningen.ts). Kiezen kan dus zonder dat hier iets is gebeurd --
+ *  de boeking zoekt de rekening op in exact_grootboek, en dat is de kopie
+ *  die met "sync-grootboek" binnenkomt.
  *
- *  Dezelfde fout als bij het koppelen van een crediteur (0058): de
- *  serveractie bestond, maar er was geen knop.
+ *  Overnemen doet iets anders, en dat is het waard: het zet een rekening in
+ *  onze eigen lijst, met een eigen naam ("Inkoop wasmiddelen en chemie" in
+ *  plaats van "Kosten grond- en hulpstoffen") en met de trefwoorden waarop
+ *  factuur_indelen() de indeling van een nieuwe factuur raadt. Zonder dat
+ *  blijft elke bon met de hand ingedeeld worden.
+ *
+ *  De knop stond er eerst als voorwaarde om te kunnen kiezen. Dat was een
+ *  tussenstap die alleen wij nodig hadden.
  * ------------------------------------------------------------------ */
 
 function Schema({ na }: { na: () => void }) {
@@ -592,6 +596,10 @@ function Schema({ na }: { na: () => void }) {
     setBezig(code)
     try {
       const uit = await exactGrootboekOvernemen(code)
+      /* Het factuurscherm heeft het schema van deze bv in zijn geheugen, met
+         de namen van vóór het overnemen. Zonder dit blijven die staan tot
+         iemand de app opnieuw opent. */
+      vergeetRekeningen()
       toast.ok(`${naam}: ${uit.nieuw} rekeningen erbij, ${uit.uit} op inactief.`)
       na()
     } catch (e) {
@@ -603,8 +611,8 @@ function Schema({ na }: { na: () => void }) {
 
   return (
     <Card
-      title="Het rekeningschema per onderneming"
-      hint="Welke grootboekrekeningen er bij een factuur te kiezen zijn"
+      title="Eigen namen en trefwoorden per onderneming"
+      hint="Zodat de post een factuur zelf kan indelen"
       className="mb"
       action={
         <button className="btn ghost sm" disabled={bezig !== ''} onClick={() => void laad()}>
@@ -623,10 +631,10 @@ function Schema({ na }: { na: () => void }) {
           <AlertTriangle size={15} />
           <span>
             Er staan {perBv.overal} rekeningen zonder onderneming. Dat is de lijst
-            van vóór er meerdere bv’s waren. Zolang een bv nog geen eigen schema
-            heeft, is dat wat je bij een factuur te kiezen krijgt — ook rekeningen
-            die in díe administratie niet bestaan. Neem het schema hieronder over;
-            vanaf dat moment ziet die bv alleen nog zijn eigen rekeningen.
+            van vóór er meerdere bv’s waren. Ze doen geen kwaad — bij een factuur
+            wordt het schema van de bv zelf opgehaald — maar de trefwoorden erin
+            tellen alleen mee voor de bv waar ze bij horen. Neem ze hieronder over
+            per administratie, dan gaat het automatisch indelen daar ook werken.
           </span>
         </div>
       )}
@@ -691,9 +699,11 @@ function Schema({ na }: { na: () => void }) {
         * kan op geboekt zijn, en dan is de historie onleesbaar zonder naam.
         */}
       <p className="ts-sub" style={{ marginTop: 8 }}>
-        Overnemen laat je eigen namen en trefwoorden staan. Wat Exact niet meer
-        kent gaat op inactief en verdwijnt niet, zodat oude boekingen leesbaar
-        blijven. Opnieuw doen mag altijd.
+        Je hoeft dit niet te doen om een rekening te kúnnen kiezen: bij een
+        factuur wordt het schema van die bv opgehaald. Het is voor de eigen
+        namen en de trefwoorden waarmee de post een factuur zelf indeelt.
+        Overnemen laat bestaande namen en trefwoorden staan, en wat Exact niet
+        meer kent gaat op inactief in plaats van weg. Opnieuw doen mag altijd.
       </p>
     </Card>
   )
