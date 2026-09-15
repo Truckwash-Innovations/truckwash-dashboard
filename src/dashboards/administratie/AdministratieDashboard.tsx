@@ -387,7 +387,13 @@ export default function AdministratieDashboard() {
             er werkelijk is doorgekomen.
           */}
           <NaarExact verbonden={verbonden} />
-          <Inkoopinstellingen />
+          {/*
+            De grootboekrekeningen staan hier niet meer (0093). Bij een factuur
+            komt die lijst van Exact zelf, per onderneming; overnemen was een
+            tussenstap die alleen wij nodig hadden. De trefwoorden waarop de
+            post een factuur zelf indeelt staan bij Ontwikkeling → Inkoop.
+          */}
+          <Inkoopinstellingen rekeningen={false} />
           {/* De proefrit staat vóór de knop die facturen wegstuurt. Dat is de
               volgorde waarin je het doet: eerst kijken of het aankomt. */}
           <Proefrit verbonden={verbonden} />

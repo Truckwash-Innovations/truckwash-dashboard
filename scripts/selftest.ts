@@ -10398,23 +10398,21 @@ console.log('\n82. Vijf kleine dingen aan het factuurscherm')
   /* --- 5. en het schema komt per bv binnen --- */
 
   /*
-   * De serveractie bestond sinds 0086 en werd door geen enkel scherm
-   * aangeroepen -- dezelfde fout als bij het koppelen van een crediteur
-   * (0058). Zolang er geen knop is, staat elke rekening zonder bv.
+   * Hier stonden drie controles op een kaart die het schema per bv liet
+   * overnemen. Die kaart is weg, en dat is geen stap terug maar het einde van
+   * de tussenstap: bij een factuur komen de rekeningen van Exact zelf, en
+   * sinds 0093 deelt factuur_indelen() ook in zonder dat er iets is
+   * overgenomen. De kaart liet bij Casper overal 0 zien voor werk dat niet
+   * meer hoefde.
+   *
+   * Wat ervoor in de plaats komt wordt getest in groep 86: dat het indelen
+   * tegen exact_grootboek kijkt en dat de trefwoorden bij een code horen.
+   * Hier blijft staan dat de kaart echt weg is -- anders komt hij bij een
+   * volgende ronde terug omdat niemand meer weet waarom hij verdween.
    */
-  check('het rekeningschema is per bv over te nemen',
-    naarExact.includes('exactGrootboekOvernemen(') && naarExact.includes('<Schema'),
-    'grootboek_overnemen heeft nog steeds geen knop')
-
-  check('en er staat hoeveel rekeningen een bv al heeft',
-    naarExact.includes('perBv.telling.get(b.code)'),
-    'je ziet niet welke bv nog geen schema heeft')
-
-  /* Rekeningen zonder bv gelden overal en duiken dus op bij elke factuur.
-     Dat hoort te worden gemeld, niet stil te blijven. */
-  check('rekeningen zonder onderneming worden gemeld',
-    naarExact.includes('rekeningen zonder onderneming'),
-    'een rekening zonder bv verschijnt overal zonder dat iemand het weet')
+  check('de kaart die het schema per bv liet overnemen is weg',
+    !naarExact.includes('<Schema') && !naarExact.includes('exactGrootboekOvernemen('),
+    'de kaart met nullen staat er nog')
 
   /* --- 6. en de stijl staat erbij --- */
 
@@ -10624,19 +10622,18 @@ console.log('\n84. De rekeningen komen van de bv zelf')
   /* --- 3. overnemen is iets anders geworden --- */
 
   /*
-   * De knop blijft, maar niet meer als voorwaarde om te kunnen kiezen: hij
-   * geeft een rekening een eigen naam en de trefwoorden waarop de post een
-   * factuur zelf indeelt. Dat hoort op de kaart te staan, anders drukt
-   * niemand er ooit meer op.
+   * Eerst bleef de knop "overnemen" staan met een andere belofte: eigen namen
+   * en trefwoorden. Een ronde later bleek ook dat niet meer nodig -- 0093
+   * haalt de trefwoorden uit een weergave per CODE, los van de bv. Toen kon
+   * de kaart helemaal weg.
+   *
+   * Wat overblijft is dat het geheugen te wissen is. Dat hangt niet meer aan
+   * die kaart maar het blijft nodig: wie in Exact een rekening hernoemt of
+   * blokkeert, hoort dat te zien zonder de app opnieuw te openen.
    */
-  check('overnemen gaat nu over namen en trefwoorden',
-    naarExact.includes('Eigen namen en trefwoorden per onderneming')
-      && naarExact.includes('niet te doen om een rekening te kúnnen kiezen'),
-    'de kaart belooft nog steeds dat overnemen nodig is om te kiezen')
-
-  check('en na overnemen klopt het geheugen weer',
-    naarExact.includes('vergeetRekeningen()') && lib.includes('export function vergeetRekeningen('),
-    'na overnemen blijven de oude namen staan tot de app opnieuw opent')
+  check('het geheugen van de rekeningen is te wissen',
+    lib.includes('export function vergeetRekeningen('),
+    'een gewijzigd schema blijft staan tot de app opnieuw opent')
 }
 
 /* ==================================================================== *
@@ -10684,6 +10681,102 @@ console.log('\n85. Van onderneming wisselen laat geen verkeerde rekening achter'
     /export async function haalRekeningen\([^)]*\): Promise<\{ code: string \}\[\]> \{\s*return haal\(bv\)/
       .test(lib),
     'haalRekeningen doet zijn eigen ronde')
+}
+
+/* ==================================================================== *
+ *  86. De btw-code vraag je aan Exact, niet aan een instelling
+ *
+ *  Casper: "hij blijft kutten met exact en de codes inkoopdagboek, btwcodes
+ *  ect, kan dit niet automatisch per onderneming? nu loopt hij er elke keer
+ *  op vast..."
+ *
+ *  Hij liep vast op de laatste regel van kiesBtw(): zijn er meer inkoopcodes
+ *  voor 21%, dan "kies er een bij de bv". Dat is een instelling die iemand met
+ *  de hand moet zetten, twintig administraties lang -- precies wat er niet
+ *  moest.
+ *
+ *  Niet raden was wél goed: een btw-code gokken levert btw op die niet op de
+ *  factuur staat. Maar tussen raden en opgeven zit wat Exact zelf al weet, en
+ *  dat werd niet gevraagd. Twee velden, allebei nagekeken in hun
+ *  documentatie:
+ *
+ *      financial/GLAccounts.VATCode    "VAT Code linked to the G/L account"
+ *      crm/Accounts.PurchaseVATCode    "Default VAT code used for purchase
+ *                                       entries"
+ * ==================================================================== */
+
+console.log('\n86. De btw-code vraag je aan Exact, niet aan een instelling')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const m93 = readFileSync(
+    'supabase/migrations/0093_indelen_zonder_eerst_over_te_nemen.sql', 'utf8')
+  const naarExact = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+  const dash = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
+
+  /* --- 1. de twee bronnen die Exact al had --- */
+
+  check('de btw-code van de grootboekrekening wordt gevraagd',
+    fn.includes("'financial/GLAccounts'") && /\$select: 'VATCode'/.test(fn),
+    'GLAccounts.VATCode wordt niet opgehaald')
+
+  check('en die van de crediteur ook',
+    fn.includes('PurchaseVATCode') && /btwCode: String\(r\?\.PurchaseVATCode/.test(fn),
+    'Accounts.PurchaseVATCode wordt niet opgehaald')
+
+  check('en ze gaan allebei mee naar kiesBtw',
+    /\[rekeningBtw, cred\.btwCode\]/.test(fn) && /\[regelRekeningBtw, cred\.btwCode\]/.test(fn),
+    'de voorkeuren komen niet bij de keuze terecht')
+
+  /*
+   * Een voorkeur blijft een voorkeur. Zou hij klakkeloos gevolgd worden, dan
+   * is "niet raden" alsnog weg -- een verkeerd ingestelde standaard bij een
+   * crediteur levert dan btw op die niet op de factuur staat.
+   */
+  check('maar een voorkeur wordt nagekeken en niet gevolgd',
+    /const bruikbaarOp = \(code: string \| null \| undefined\)/.test(fn)
+      && /for \(const v of voorkeuren\) \{[\s\S]{0,120}?bruikbaarOp\(v\)/.test(fn),
+    'een voorkeur gaat er ongecontroleerd in')
+
+  /* En als er echt niets is, nog steeds niet gokken. */
+  check('en bij geen enkele aanwijzing wordt er niet gegokt',
+    /heeft \$\{passend\.length\} inkoop-btw-codes/.test(fn),
+    'er wordt een btw-code gekozen zonder aanwijzing')
+
+  /*
+   * De btw-code per rekening is een vraag per REKENING, niet per factuurregel.
+   * Zonder geheugen wordt dat bij 25 bonnen een regen van verzoeken.
+   */
+  check('en één vraag per rekening, niet per regel',
+    fn.includes('const btwPerRekening = new Map<string, string | null>()'),
+    'de btw-code van een rekening wordt per factuurregel opnieuw gevraagd')
+
+  /* --- 2. indelen hoeft niet meer te wachten op overnemen --- */
+
+  check('indelen kijkt naar wat Exact in die bv kent',
+    /from public\.exact_grootboek e\s*\n\s*where e\.division = administratie_in/.test(m93),
+    'factuur_indelen eist nog steeds onze eigen lijst per bv')
+
+  /* Een trefwoord hoort bij een CODE en niet bij een bv: "Enexis boekt op
+     4010" is waar in elke administratie. */
+  check('en de trefwoorden horen bij een code, niet bij een bv',
+    m93.includes('create or replace view public.grootboek_trefwoorden'),
+    'de trefwoorden hangen nog aan een administratie')
+
+  check('en de weergave staat niet open voor anon',
+    m93.includes('revoke all on public.grootboek_trefwoorden from public, anon'),
+    'Supabase geeft een nieuwe weergave aan anon; die deur staat open')
+
+  /* --- 3. en de kaarten die niets meer deden --- */
+
+  check('de kaart met nullen is weg',
+    !naarExact.includes('function Schema(') && !naarExact.includes('<Schema'),
+    'de kaart die overal 0 liet zien staat er nog')
+
+  check('en de grootboekrekeningen staan niet meer in Boekhouding',
+    /<Inkoopinstellingen rekeningen=\{false\} \/>/.test(dash),
+    'de grootboeklijst staat nog op het administratiescherm')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

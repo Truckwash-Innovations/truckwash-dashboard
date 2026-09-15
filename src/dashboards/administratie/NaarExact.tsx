@@ -41,21 +41,17 @@
  * ==================================================================== */
 
 import { useEffect, useMemo, useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, Check, ChevronDown, Clock, Download, ExternalLink, Link2,
-  Loader2, RefreshCw, Search, Send, X,
+  AlertTriangle, Check, ChevronDown, Clock, ExternalLink, Link2, Loader2,
+  RefreshCw, Search, Send, X,
 } from 'lucide-react'
 
-import { db } from '../../lib/db'
-import { vergeetRekeningen } from '../../lib/rekeningen'
-import type { Grootboek } from '../../lib/types'
 
 import { Card, Empty, Field, Knop, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 import { money, dateShort, relative } from '../../lib/format'
 import {
-  exactCrediteuren, exactGrootboekOvernemen, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
+  exactCrediteuren, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
   exactNietBoekbaar, exactRelatieLink, exactStuurFacturen,
   type ExactCrediteur, type ExactHistorie, type FacturenStand, type NietBoekbaar,
 } from '../../lib/trucksupply'
@@ -539,175 +535,21 @@ function Koppelen({
 }
 
 /* ------------------------------------------------------------------ *
- *  3a. Het rekeningschema per bv
+ *  Hier stond: "Het rekeningschema per onderneming"
  *
- *  Waar dit voor is, en waar het NIET meer voor is
- *  -----------------------------------------------
+ *  Een kaart om per bv het schema uit Exact over te nemen, met erachter
+ *  hoeveel rekeningen die bv had. Bij Casper stond er overal 0, en dat was
+ *  geen storing maar de kern van de zaak: dat overnemen had nooit iemand
+ *  gedaan, want tot die dag was er geen knop.
  *
- *  Het factuurscherm haalt de rekeningen van een bv sinds kort zelf op
- *  (lib/rekeningen.ts). Kiezen kan dus zonder dat hier iets is gebeurd --
- *  de boeking zoekt de rekening op in exact_grootboek, en dat is de kopie
- *  die met "sync-grootboek" binnenkomt.
+ *  En inmiddels hoeft het niet meer. Het factuurscherm haalt de rekeningen
+ *  van een bv rechtstreeks op, en sinds 0093 deelt factuur_indelen() ook in
+ *  tegen wat Exact in die bv kent -- met de trefwoorden per CODE, los van de
+ *  administratie, want "Enexis boekt op 4010" is overal waar.
  *
- *  Overnemen doet iets anders, en dat is het waard: het zet een rekening in
- *  onze eigen lijst, met een eigen naam ("Inkoop wasmiddelen en chemie" in
- *  plaats van "Kosten grond- en hulpstoffen") en met de trefwoorden waarop
- *  factuur_indelen() de indeling van een nieuwe factuur raadt. Zonder dat
- *  blijft elke bon met de hand ingedeeld worden.
- *
- *  De knop stond er eerst als voorwaarde om te kunnen kiezen. Dat was een
- *  tussenstap die alleen wij nodig hadden.
+ *  Een kaart die alleen nog nullen laat zien voor werk dat niet meer hoeft,
+ *  is een kaart die je weghaalt.
  * ------------------------------------------------------------------ */
-
-function Schema({ na }: { na: () => void }) {
-  const [stand, setStand] = useState<FacturenStand | null>(null)
-  const [bezig, setBezig] = useState('')
-  const [fout, setFout] = useState<string | null>(null)
-
-  /* Wat er lokaal staat; dat is precies wat het factuurscherm laat zien. */
-  const rekeningen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
-
-  async function laad() {
-    try {
-      setStand(await exactFacturenStand())
-      setFout(null)
-    } catch (e) {
-      setFout(e instanceof Error ? e.message : 'De bv’s zijn niet op te halen.')
-    }
-  }
-
-  useEffect(() => { void laad() }, [])
-
-  const perBv = useMemo(() => {
-    const telling = new Map<string, number>()
-    let overal = 0
-    for (const g of rekeningen) {
-      if (!g.actief) continue
-      const bv = (g.administratie ?? '').trim()
-      if (!bv) { overal++; continue }
-      telling.set(bv, (telling.get(bv) ?? 0) + 1)
-    }
-    return { telling, overal }
-  }, [rekeningen])
-
-  const bvs = (stand?.administraties ?? []).filter((b) => b.actief)
-
-  async function neemOver(code: string, naam: string) {
-    setBezig(code)
-    try {
-      const uit = await exactGrootboekOvernemen(code)
-      /* Het factuurscherm heeft het schema van deze bv in zijn geheugen, met
-         de namen van vóór het overnemen. Zonder dit blijven die staan tot
-         iemand de app opnieuw opent. */
-      vergeetRekeningen()
-      toast.ok(`${naam}: ${uit.nieuw} rekeningen erbij, ${uit.uit} op inactief.`)
-      na()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Overnemen lukte niet.')
-    } finally {
-      setBezig('')
-    }
-  }
-
-  return (
-    <Card
-      title="Eigen namen en trefwoorden per onderneming"
-      hint="Zodat de post een factuur zelf kan indelen"
-      className="mb"
-      action={
-        <button className="btn ghost sm" disabled={bezig !== ''} onClick={() => void laad()}>
-          <RefreshCw size={14} /> Nakijken
-        </button>
-      }
-    >
-      {fout && (
-        <div className="waarschuwing mb">
-          <AlertTriangle size={15} /><span>{fout}</span>
-        </div>
-      )}
-
-      {perBv.overal > 0 && (
-        <div className="waarschuwing mb">
-          <AlertTriangle size={15} />
-          <span>
-            Er staan {perBv.overal} rekeningen zonder onderneming. Dat is de lijst
-            van vóór er meerdere bv’s waren. Ze doen geen kwaad — bij een factuur
-            wordt het schema van de bv zelf opgehaald — maar de trefwoorden erin
-            tellen alleen mee voor de bv waar ze bij horen. Neem ze hieronder over
-            per administratie, dan gaat het automatisch indelen daar ook werken.
-          </span>
-        </div>
-      )}
-
-      {!stand && !fout && (
-        <p className="help" style={{ margin: 0 }}>
-          <Loader2 size={14} className="spin" /> Ophalen...
-        </p>
-      )}
-
-      {stand && bvs.length === 0 && (
-        <Empty text="Er staan nog geen actieve ondernemingen. Haal ze op bij Ontwikkeling, Exact." />
-      )}
-
-      {bvs.length > 0 && (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Onderneming</th>
-                <th style={{ width: 90 }}>Bv</th>
-                <th className="num" style={{ width: 130 }}>Rekeningen</th>
-                <th style={{ width: 190 }}>Uit Exact halen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bvs.map((b) => {
-                const hoeveel = perBv.telling.get(b.code) ?? 0
-                return (
-                  <tr key={b.code}>
-                    <td className="afgekapt">{b.naam}{b.hoofd ? ' · hoofd' : ''}</td>
-                    <td className="mono">{b.code}</td>
-                    <td className="num">
-                      {hoeveel > 0
-                        ? hoeveel
-                        : <span style={{ color: 'var(--warn)' }}>nog geen</span>}
-                    </td>
-                    <td>
-                      <button
-                        className="btn ghost sm"
-                        disabled={bezig !== ''}
-                        onClick={() => void neemOver(b.code, b.naam)}
-                      >
-                        {bezig === b.code
-                          ? <><Loader2 size={13} className="spin" /> Bezig…</>
-                          : <><Download size={13} /> {hoeveel > 0 ? 'Bijwerken' : 'Overnemen'}</>}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/*
-        * Wat overnemen NIET doet, want dat is de vraag die erbij hoort.
-        *
-        * Eigen namen en trefwoorden blijven staan (0086: het sjabloon), en
-        * wat Exact niet meer kent gaat op inactief in plaats van weg -- er
-        * kan op geboekt zijn, en dan is de historie onleesbaar zonder naam.
-        */}
-      <p className="ts-sub" style={{ marginTop: 8 }}>
-        Je hoeft dit niet te doen om een rekening te kúnnen kiezen: bij een
-        factuur wordt het schema van die bv opgehaald. Het is voor de eigen
-        namen en de trefwoorden waarmee de post een factuur zelf indeelt.
-        Overnemen laat bestaande namen en trefwoorden staan, en wat Exact niet
-        meer kent gaat op inactief in plaats van weg. Opnieuw doen mag altijd.
-      </p>
-    </Card>
-  )
-}
 
 /* ------------------------------------------------------------------ *
  *  3b. De koppelingen die er al staan
@@ -1132,8 +974,6 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
         opnieuw={() => void haal()}
         koppel={(leverancier, bv) => setKoppel({ leverancier, bv })}
       />
-
-      <Schema na={() => setRonde((n) => n + 1)} />
 
       <Koppelingen
         sleutel={ronde}

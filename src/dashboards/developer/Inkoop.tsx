@@ -74,12 +74,25 @@ const LEZER_STIL_NA_MS = 5 * 60_000
  */
 const ROOD = { color: 'var(--text-danger)' } as const
 
-export default function Inkoop() {
+export default function Inkoop({ rekeningen = true }: {
+  /*
+   * Of de kaart met grootboekrekeningen meekomt.
+   *
+   * Casper: "Kan je dan die grootboekrekeningen in boekhouding niet weghalen
+   * dan ook?" Op het administratiescherm heeft die lijst geen werk meer: de
+   * rekeningen bij een factuur komen van Exact zelf, en sinds 0093 deelt de
+   * post ook in zonder dat er iets is overgenomen.
+   *
+   * Bij Ontwikkeling blijft hij staan, want de trefwoorden eronder doen nog
+   * wél iets -- daarop raadt de post de indeling van een nieuwe factuur.
+   */
+  rekeningen?: boolean
+} = {}) {
   return (
     <>
       <Adressen />
       <Proeffacturen />
-      <Rekeningen />
+      {rekeningen && <Rekeningen />}
       <Etiketten />
     </>
   )

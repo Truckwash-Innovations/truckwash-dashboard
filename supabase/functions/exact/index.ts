@@ -2321,8 +2321,9 @@ async function crediteurBij(
 
   const rijen = await exactLijst<{
     ID?: string; Name?: string; PaymentConditionPurchase?: string; GLAP?: string
+    PurchaseVATCode?: string
   }>(lijn, 'crm/Accounts', {
-    $select: 'ID,Name,PaymentConditionPurchase,GLAP',
+    $select: 'ID,Name,PaymentConditionPurchase,GLAP,PurchaseVATCode',
     $filter: `ID eq guid'${exactId}'`,
   }, bv)
 
@@ -2331,6 +2332,7 @@ async function crediteurBij(
     naam: String(r?.Name ?? '').trim(),
     betaalconditie: String(r?.PaymentConditionPurchase ?? '').trim() || null,
     crediteuren: String(r?.GLAP ?? '').trim() || null,
+    btwCode: String(r?.PurchaseVATCode ?? '').trim() || null,
     gevonden: Boolean(r),
   }
   geheugen.set(sleutel, uit)
@@ -2341,6 +2343,15 @@ interface ExactCrediteurInfo {
   naam: string
   betaalconditie: string | null
   crediteuren: string | null
+  /*
+   * De btw-code die Exact bij DEZE relatie als standaard voor inkoop heeft
+   * staan (crm/Accounts.PurchaseVATCode).
+   *
+   * Casper: "kan dit niet automatisch per onderneming?" Dit is een van de
+   * plekken waar Exact het antwoord zelf al bewaart -- wij hoefden het alleen
+   * niet te vragen.
+   */
+  btwCode: string | null
   gevonden: boolean
 }
 
@@ -2356,6 +2367,43 @@ interface ExactCrediteurInfo {
  * Een eigen instelling (0086) gaat voor, maar alleen als hij mag: een dagboek
  * dat Exact weigert is geen keuze.
  */
+/**
+ * De btw-code die Exact aan een grootboekrekening heeft gehangen.
+ *
+ * financial/GLAccounts.VATCode -- "VAT Code linked to the G/L account". Dit is
+ * de nauwkeurigste bron die er is: de regel boekt op DIE rekening, en Exact
+ * weet zelf welk tarief daar normaal bij hoort. Bij een rekening voor
+ * verzekeringen is dat vrijgesteld, bij chemie 21%, en dat hoeft niemand hier
+ * in te stellen.
+ *
+ * Leeg is een geldig antwoord: lang niet elke rekening heeft er een. Dan
+ * beslist de volgende bron in de rij.
+ */
+async function btwVanRekening(
+  lijn: ExactLijn, bv: string, glId: string, geheugen: Map<string, string | null>,
+): Promise<string | null> {
+  const sleutel = `${bv}:${glId}`
+  const al = geheugen.get(sleutel)
+  if (al !== undefined) return al
+
+  let uit: string | null = null
+  try {
+    const rijen = await exactLijst<{ VATCode?: string }>(
+      lijn, 'financial/GLAccounts',
+      { $select: 'VATCode', $filter: `ID eq guid'${glId}'` }, bv)
+    uit = String(rijen[0]?.VATCode ?? '').trim() || null
+  } catch {
+    /* Stil: dit is een voorkeur, geen voorwaarde. Kan hij niet worden
+       opgehaald, dan beslist de volgende bron -- en die geeft desnoods een
+       nette foutmelding. Hierop de hele boeking laten struikelen zou een
+       hulpmiddel in een obstakel veranderen. */
+    uit = null
+  }
+
+  geheugen.set(sleutel, uit)
+  return uit
+}
+
 function kiesDagboek(
   basis: BvBasis, cred: ExactCrediteurInfo, ingesteld: string, bv: string,
 ): Inkoopdagboek {
@@ -2402,28 +2450,92 @@ function kiesDagboek(
  * "21% inkoop" naast "21% verlegd" -- dan wordt er niet gekozen maar
  * gevraagd. Raden levert btw op die niet op de factuur staat.
  */
-function kiesBtw(basis: BvBasis, pct: number, ingesteld: string, bv: string): string {
+/**
+ * Welke btw-code gaat er op deze regel?
+ *
+ * Casper: "hij blijft kutten met exact en de codes inkoopdagboek, btwcodes
+ * ect, kan dit niet automatisch per onderneming? nu loopt hij er elke keer op
+ * vast..."
+ *
+ * Hij liep vast op de laatste regel van de oude versie: zijn er meer
+ * inkoopcodes voor 21%, dan "kies er een bij de bv" -- en dat is een
+ * instelling per administratie die iemand met de hand moet zetten, twintig
+ * keer. Precies wat er niet moest.
+ *
+ * Niet raden was wél de juiste reflex: een btw-code gokken levert btw op die
+ * niet op de factuur staat. Maar tussen raden en opgeven zit wat Exact zelf
+ * weet, en dat werd niet gevraagd:
+ *
+ *   1. een eigen instelling bij de bv      een uitdrukkelijke keuze wint
+ *   2. de btw-code van de REKENING         GLAccounts.VATCode -- de regel
+ *                                          boekt daarop, en Exact weet welk
+ *                                          tarief daar hoort
+ *   3. de btw-code van de CREDITEUR        Accounts.PurchaseVATCode -- wat
+ *                                          Exact bij deze leverancier als
+ *                                          standaard voor inkoop heeft staan
+ *   4. is er maar één inkoopcode met dit   dan is er niets te kiezen
+ *      percentage
+ *
+ * Elke bron wordt nagekeken op hetzelfde: mag hij voor inkoop, en staat hij
+ * op het percentage van de factuur. Een voorkeur die daar niet aan voldoet
+ * wordt overgeslagen en niet gevolgd -- zo blijft "niet raden" staan terwijl
+ * er in de praktijk bijna altijd een antwoord is.
+ */
+function kiesBtw(
+  basis: BvBasis,
+  pct: number,
+  ingesteld: string,
+  bv: string,
+  voorkeuren: (string | null)[] = [],
+): string {
   const bruikbaar = basis.btw.filter((c) => c.voorInkoop)
 
+  /* Past deze code bij dit tarief, en mag hij voor inkoop? Een code zonder
+     percentage in Exact laten we staan: dat komt voor bij vrijgesteld. */
+  const bruikbaarOp = (code: string | null | undefined) => {
+    const schoon = String(code ?? '').trim()
+    if (!schoon) return null
+    const raak = bruikbaar.find((c) => c.code === schoon)
+    if (!raak) return null
+    return raak.pct === null || raak.pct === pct ? raak.code : null
+  }
+
+  /* 1. een uitdrukkelijke keuze bij de bv. */
   if (ingesteld) {
-    const raak = bruikbaar.find((c) => c.code === ingesteld)
-    if (raak && (raak.pct === null || raak.pct === pct)) return raak.code
-    if (!raak && basis.btw.some((c) => c.code === ingesteld)) {
+    const raak = bruikbaarOp(ingesteld)
+    if (raak) return raak
+    if (basis.btw.some((c) => c.code === ingesteld)
+        && !bruikbaar.some((c) => c.code === ingesteld)) {
       throw new Error(
         `btw-code ${ingesteld} is in ${bv} een verkoopcode; voor inkoop mag hij niet`)
     }
     /* Ingesteld op een code die er niet is of een ander percentage heeft:
-       niet stilzwijgend iets anders pakken, maar wel proberen wat Exact zegt. */
+       niet stilzwijgend volgen, maar wel doorlopen naar wat Exact zegt. */
   }
 
+  /* 2 en 3: wat Exact bij de rekening en bij de relatie heeft staan. */
+  for (const v of voorkeuren) {
+    const raak = bruikbaarOp(v)
+    if (raak) return raak
+  }
+
+  /* 4: is er maar één, dan valt er niets te kiezen. */
   const passend = bruikbaar.filter((c) => c.pct === pct)
   if (passend.length === 1) return passend[0].code
   if (passend.length === 0) {
     throw new Error(`${bv} heeft geen inkoop-btw-code voor ${pct}%`)
   }
+
+  /*
+   * En anders nog steeds niet raden. Maar nu met een reden die zegt wat er
+   * gebeurd is: Exact heeft bij deze rekening en bij deze leverancier geen
+   * voorkeur staan, en dan is elke keuze een gok over het bedrag.
+   */
   throw new Error(
     `${bv} heeft ${passend.length} inkoop-btw-codes voor ${pct}% `
-    + `(${passend.map((c) => c.code).join(', ')}). Kies er een bij de bv.`)
+    + `(${passend.map((c) => c.code).join(', ')}), en Exact heeft er bij deze `
+    + 'rekening en bij deze leverancier geen als standaard staan. Zet er een '
+    + 'bij de crediteur of bij de grootboekrekening in Exact, of kies er een bij de bv.')
 }
 
 /* ------------------------------------------------------------------ *
@@ -2718,6 +2830,10 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
   /* Het documenttype per bv. Eén vraag per administratie in plaats van één
      per factuur; het is een instelling die tijdens een ronde niet verandert. */
   const docSoortPerBv = new Map<string, number | null>()
+  /* De btw-code die Exact aan een grootboekrekening heeft gehangen, per bv en
+     per rekening. Eén vraag per rekening in plaats van één per factuurregel;
+     binnen een ronde verandert hij niet. */
+  const btwPerRekening = new Map<string, string | null>()
 
   let gelukt = 0
   const mislukt: { id: string; reden: string }[] = []
@@ -2755,9 +2871,20 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
       const gekozen = kiesDagboek(basis, cred, bvInst.dagboek, bon.administratie)
       const dagboek = gekozen.code
 
+      /*
+       * Wat Exact bij deze rekening en bij deze leverancier als standaard
+       * heeft staan. Allebei een voorkeur, geen voorwaarde: kiesBtw kijkt na
+       * of ze voor inkoop mogen en op het juiste tarief staan, en slaat ze
+       * anders over.
+       */
+      const rekeningBtw = bon.grootboekId
+        ? await btwVanRekening(lijn, bon.administratie, bon.grootboekId, btwPerRekening)
+        : null
+
       const btwCode = kiesBtw(
         basis, bon.btwPct === 9 || bon.btwPct === 0 ? bon.btwPct : 21,
-        bvInst.btw[bon.btwPct as 21 | 9 | 0] || '', bon.administratie)
+        bvInst.btw[bon.btwPct as 21 | 9 | 0] || '', bon.administratie,
+        [rekeningBtw, cred.btwCode])
 
       /*
        * De betalingsconditie staat bij de crediteur in Exact en nergens bij
@@ -2826,11 +2953,16 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           }
 
           /* Ook per regel langs Exact: een gesplitste bon kan een regel van 9%
-             hebben, en die code moet net zo goed voor inkoop mogen. */
+             hebben, en die code moet net zo goed voor inkoop mogen. En de
+             voorkeur van de REKENING is hier per regel een andere -- dat is
+             juist waar een verdeling voor bestaat. */
           const pct = Number(r.btw_pct)
           const tarief = pct === 9 || pct === 0 ? pct : 21
+          const regelRekeningBtw = await btwVanRekening(
+            lijn, bon.administratie, String(rek.exact_id), btwPerRekening)
           const regelBtw = kiesBtw(
-            basis, tarief, bvInst.btw[tarief as 21 | 9 | 0] || '', bon.administratie)
+            basis, tarief, bvInst.btw[tarief as 21 | 9 | 0] || '', bon.administratie,
+            [regelRekeningBtw, cred.btwCode])
 
           lijnen.push({
             AmountFC: Number(r.bedrag_excl) || 0,
