@@ -2404,8 +2404,23 @@ async function btwVanRekening(
   return uit
 }
 
+/**
+ * Welk inkoopdagboek?
+ *
+ * `ingesteld` is de keuze bij DEZE bv en `voorkeur` de algemene instelling.
+ * Die laatste kwam er in 0094 bij, en dat is het terugdraaien van iets wat ik
+ * een migratie te vroeg weghaalde: 0092 haalde de terugval op de globale
+ * sleutel uit bv_boekinstelling(), met als reden dat een dagboekcode uit de
+ * ene administratie in de andere een gok is.
+ *
+ * Dat was in 0086 waar en sinds 0089 niet meer. Hier wordt elke code namelijk
+ * nagekeken: hij moet in DEZE bv een inkoopdagboek zijn én op de
+ * crediteurenrekening van deze relatie staan. Wat die controle doorstaat is
+ * geen gok maar een antwoord, en dan is "70" van het scherm gewoon bruikbaar.
+ */
 function kiesDagboek(
   basis: BvBasis, cred: ExactCrediteurInfo, ingesteld: string, bv: string,
+  voorkeur = '',
 ): Inkoopdagboek {
   if (basis.dagboeken.length === 0) {
     throw new Error(`${bv} heeft geen inkoopdagboek (Type ${DAGBOEK_INKOOP}) in Exact`)
@@ -2430,6 +2445,13 @@ function kiesDagboek(
     throw new Error(
       `de crediteurenrekening van ${cred.naam || 'deze relatie'} hoort bij geen enkel `
       + `inkoopdagboek van ${bv}. Zet ze in Exact gelijk.`)
+  }
+
+  /* Niets bij deze bv ingesteld: dan de algemene instelling, mits hij hier
+     een inkoopdagboek is en bij deze relatie past. */
+  if (voorkeur) {
+    const raak = basis.dagboeken.find((d) => d.code === voorkeur && past(d))
+    if (raak) return raak
   }
 
   const raak = basis.dagboeken.find(past)
@@ -2868,7 +2890,8 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           + 'Haal de relaties opnieuw op en koppel opnieuw.')
       }
 
-      const gekozen = kiesDagboek(basis, cred, bvInst.dagboek, bon.administratie)
+      const gekozen = kiesDagboek(
+        basis, cred, bvInst.dagboek, bon.administratie, inst.dagboek)
       const dagboek = gekozen.code
 
       /*
@@ -2881,10 +2904,18 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
         ? await btwVanRekening(lijn, bon.administratie, bon.grootboekId, btwPerRekening)
         : null
 
+      const tariefBon = bon.btwPct === 9 || bon.btwPct === 0 ? bon.btwPct : 21
       const btwCode = kiesBtw(
-        basis, bon.btwPct === 9 || bon.btwPct === 0 ? bon.btwPct : 21,
-        bvInst.btw[bon.btwPct as 21 | 9 | 0] || '', bon.administratie,
-        [rekeningBtw, cred.btwCode])
+        basis, tariefBon,
+        bvInst.btw[tariefBon as 21 | 9 | 0] || '', bon.administratie,
+        /*
+         * De volgorde is de bedoeling. Wat Exact bij de rekening en bij de
+         * relatie heeft staan gaat vóór de algemene instelling: dat is
+         * specifieker, en het is van Exact zelf. De algemene instelling
+         * sluit de rij -- hij is van ons, maar wordt wel nagekeken op
+         * inkoop en percentage voordat hij gebruikt wordt.
+         */
+        [rekeningBtw, cred.btwCode, inst.btw[tariefBon as 21 | 9 | 0] || ''])
 
       /*
        * De betalingsconditie staat bij de crediteur in Exact en nergens bij
@@ -2962,7 +2993,7 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
             lijn, bon.administratie, String(rek.exact_id), btwPerRekening)
           const regelBtw = kiesBtw(
             basis, tarief, bvInst.btw[tarief as 21 | 9 | 0] || '', bon.administratie,
-            [regelRekeningBtw, cred.btwCode])
+            [regelRekeningBtw, cred.btwCode, inst.btw[tarief as 21 | 9 | 0] || ''])
 
           lijnen.push({
             AmountFC: Number(r.bedrag_excl) || 0,

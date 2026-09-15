@@ -420,6 +420,26 @@ function Blokkades({
  * uit een andere administratie koppelen is geen keuze maar een fout, en de
  * server weigert hem ook.
  */
+/**
+ * Delen deze twee namen een woord dat ergens op slaat?
+ *
+ * Woorden van drie letters of korter tellen niet mee: "de", "van", "b.v." en
+ * "nv" staan in half Nederland en zouden alles op elkaar laten lijken. Het
+ * omgekeerde -- geen enkel gedeeld woord -- is wat we zoeken.
+ *
+ * Op twee plekken in gebruik: bij het MAKEN van een koppeling om te vragen of
+ * het klopt, en in de lijst eronder om te tonen wat er al scheef staat. Die
+ * twee horen dezelfde vraag te stellen, dus staat hij hier één keer.
+ */
+function lijktOp(a: string, b: string): boolean {
+  const woorden = (t: string) => new Set(
+    t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 3))
+  const links = woorden(a)
+  if (links.size === 0) return true
+  for (const w of woorden(b)) if (links.has(w)) return true
+  return false
+}
+
 function Koppelen({
   open, leverancier, bv, sluit, klaar,
 }: {
@@ -455,7 +475,28 @@ function Koppelen({
     return () => { weg = true; clearTimeout(t) }
   }, [open, bv, zoek])
 
+  /*
+   * Een keuze die er niet uitziet als een vergissing, maar het wel is.
+   *
+   * In de lijst stond "Gemeente Venlo" gekoppeld aan "Pinpas/CC Klaus", en
+   * "Vitens N.V." aan "Gemeente Rijssen-Holten". Allebei met de hand gelegd,
+   * allebei uit een lijst waarin je twee regels langs elkaar kunt schieten.
+   * Daarna boekt de factuur bij een ander op de rekening, en dat merk je pas
+   * als er iets anders misgaat.
+   *
+   * De lijst eronder meldt het al, maar dat is achteraf. Hier is het moment
+   * waarop iemand ernaar kijkt. Vragen en niet weigeren: Shell heet in Exact
+   * geregeld anders dan op de bon, en een bv mag haar crediteuren noemen
+   * zoals ze wil.
+   */
+  const [twijfel, setTwijfel] = useState<ExactCrediteur | null>(null)
+
   async function kies(c: ExactCrediteur) {
+    if (!lijktOp(leverancier, c.naam) && twijfel?.exactId !== c.exactId) {
+      setTwijfel(c)
+      return
+    }
+    setTwijfel(null)
     setBezig(true)
     setFout(null)
     try {
@@ -484,6 +525,18 @@ function Koppelen({
       </p>
 
       {fout && <div className="waarschuwing mb"><AlertTriangle size={14} /><span>{fout}</span></div>}
+
+      {twijfel && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={15} />
+          <span style={{ flex: 1 }}>
+            “{twijfel.naam}” lijkt niet op “{leverancier}”. Klopt dit? Vanaf nu
+            gaat elke factuur van {leverancier} in {bv} op deze crediteur.
+          </span>
+          <Knop soort="gewoon" onClick={() => setTwijfel(null)}>Nee</Knop>
+          <Knop soort="hoofd" onClick={() => void kies(twijfel)}>Ja, koppel</Knop>
+        </div>
+      )}
 
       <Field label="Zoeken">
         <div className="row" style={{ gap: 6 }}>
@@ -566,22 +619,6 @@ function Koppelen({
  *  elkaar en delen geen hele naam, en een bv mag haar crediteuren noemen zoals
  *  ze wil. Er wordt hier dus niets geweigerd of stilgezet.
  * ------------------------------------------------------------------ */
-
-/**
- * Delen deze twee namen een woord dat ergens op slaat?
- *
- * Woorden van drie letters of korter tellen niet mee: "de", "van", "b.v." en
- * "nv" staan in half Nederland en zouden alles op elkaar laten lijken. Het
- * omgekeerde -- geen enkel gedeeld woord -- is wat we zoeken.
- */
-function lijktOp(a: string, b: string): boolean {
-  const woorden = (t: string) => new Set(
-    t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 3))
-  const links = woorden(a)
-  if (links.size === 0) return true
-  for (const w of woorden(b)) if (links.has(w)) return true
-  return false
-}
 
 function Koppelingen({ sleutel, koppel }: {
   sleutel: number

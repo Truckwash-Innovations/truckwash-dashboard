@@ -10725,8 +10725,11 @@ console.log('\n86. De btw-code vraag je aan Exact, niet aan een instelling')
     fn.includes('PurchaseVATCode') && /btwCode: String\(r\?\.PurchaseVATCode/.test(fn),
     'Accounts.PurchaseVATCode wordt niet opgehaald')
 
+  /* De rij groeide in 87 met de algemene instelling erachter; daarom niet op
+     het einde van de lijst vastspijkeren maar op het begin ervan. */
   check('en ze gaan allebei mee naar kiesBtw',
-    /\[rekeningBtw, cred\.btwCode\]/.test(fn) && /\[regelRekeningBtw, cred\.btwCode\]/.test(fn),
+    /\[rekeningBtw, cred\.btwCode[,\]]/.test(fn)
+      && /\[regelRekeningBtw, cred\.btwCode[,\]]/.test(fn),
     'de voorkeuren komen niet bij de keuze terecht')
 
   /*
@@ -10777,6 +10780,97 @@ console.log('\n86. De btw-code vraag je aan Exact, niet aan een instelling')
   check('en de grootboekrekeningen staan niet meer in Boekhouding',
     /<Inkoopinstellingen rekeningen=\{false\} \/>/.test(dash),
     'de grootboeklijst staat nog op het administratiescherm')
+}
+
+/* ==================================================================== *
+ *  87. De instelling die ik een migratie te vroeg weghaalde
+ *
+ *  Casper: "maar hij laat nog steeds dingen vastlopen... kan je zorgen dat
+ *  hij de verbinding maakt? automatisch? Nu doet hij alsnog niks."
+ *
+ *  Op zijn scherm stond het antwoord er allebei bij. De melding:
+ *
+ *      3630506 heeft 3 inkoop-btw-codes voor 0% (01, 0, 5), en Exact heeft er
+ *      bij deze rekening en bij deze leverancier geen als standaard staan.
+ *
+ *  En in het instellingenveld eronder: btw-code 0% = 5. Dus hij HAD het
+ *  ingevuld, en 5 is er één van de drie. Alleen werd dat veld niet meer
+ *  gelezen: 0092 haalde de terugval op de globale sleutel uit
+ *  bv_boekinstelling().
+ *
+ *  Die redenering was in 0086 juist -- een code uit de ene administratie in de
+ *  andere is een gok -- en sinds 0089 niet meer. kiesBtw() en kiesDagboek()
+ *  kijken elke code na tegen wat Exact in DIE bv heeft: mag hij voor inkoop,
+ *  klopt het percentage, hoort het dagboek bij de crediteurenrekening. Wat die
+ *  controle doorstaat is geen gok maar een antwoord.
+ *
+ *  Vandaar terug, maar achteraan in de rij: wat Exact zelf bij de rekening en
+ *  de relatie heeft staan is specifieker en gaat voor.
+ * ==================================================================== */
+
+console.log('\n87. De instelling die ik een migratie te vroeg weghaalde')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const naarExact = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+
+  /* --- 1. de algemene instelling telt weer mee --- */
+
+  check('de algemene btw-instelling wordt weer gebruikt',
+    /inst\.btw\[tariefBon as 21 \| 9 \| 0\]/.test(fn)
+      && /inst\.btw\[tarief as 21 \| 9 \| 0\]/.test(fn),
+    'het ingevulde veld bij Boekhouding doet nog steeds niets')
+
+  check('en het algemene dagboek ook',
+    /kiesDagboek\([\s\S]{0,120}?inst\.dagboek\)/.test(fn),
+    'het ingevulde inkoopdagboek doet niets')
+
+  /*
+   * De volgorde is de bedoeling: Exact weet het specifieker dan wij. Staat de
+   * algemene instelling vooraan, dan overrulet één veld van ons wat Exact bij
+   * elke rekening apart heeft staan.
+   */
+  check('maar achter wat Exact bij de rekening en de relatie heeft staan',
+    /\[rekeningBtw, cred\.btwCode, inst\.btw\[/.test(fn),
+    'de algemene instelling gaat vóór wat Exact zelf weet')
+
+  /* En nog steeds nagekeken, anders is het alsnog een gok. */
+  check('en hij wordt nagekeken als elke andere bron',
+    /for \(const v of voorkeuren\) \{[\s\S]{0,120}?bruikbaarOp\(v\)/.test(fn),
+    'een voorkeur gaat er ongecontroleerd in')
+
+  /* Het dagboek uit de algemene instelling moet in DEZE bv een inkoopdagboek
+     zijn én bij de crediteurenrekening van deze relatie passen. */
+  check('het algemene dagboek moet in die bv passen',
+    /basis\.dagboeken\.find\(\(d\) => d\.code === voorkeur && past\(d\)\)/.test(fn),
+    'het algemene dagboek wordt niet nagekeken')
+
+  /* --- 2. en een koppeling die er niet uitziet als een vergissing --- */
+
+  /*
+   * In zijn lijst stond "Gemeente Venlo" gekoppeld aan "Pinpas/CC Klaus" en
+   * "Vitens N.V." aan "Gemeente Rijssen-Holten". Allebei met de hand, allebei
+   * uit een lijst waarin je twee regels langs elkaar schiet. De melding
+   * achteraf stond er al; dit is het moment waarop iemand er nog naar kijkt.
+   */
+  check('bij het koppelen wordt gevraagd of een vreemde naam klopt',
+    naarExact.includes('const [twijfel, setTwijfel] = useState<ExactCrediteur | null>(null)')
+      && /if \(!lijktOp\(leverancier, c\.naam\)/.test(naarExact),
+    'een koppeling aan een heel andere naam gaat er zonder vraag in')
+
+  /* Vragen en niet weigeren: Shell heet in Exact geregeld anders dan op de
+     bon, en een bv mag haar crediteuren noemen zoals ze wil. */
+  check('en het blijft een vraag, geen verbod',
+    naarExact.includes('Ja, koppel'),
+    'er is geen manier om toch te koppelen')
+
+  /* Dezelfde vraag op beide plekken: bij het maken en in de lijst erna. Twee
+     eigen versies gaan uit elkaar lopen. */
+  check('en het is dezelfde vraag als in de lijst eronder',
+    (naarExact.match(/function lijktOp\(/g) ?? []).length === 1
+      && (naarExact.match(/lijktOp\(/g) ?? []).length >= 3,
+    'er staan twee versies van dezelfde vergelijking')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
