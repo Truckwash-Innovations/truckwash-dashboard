@@ -11716,6 +11716,31 @@ console.log('\n95. De hele keten in één scherm')
     ne.includes('stuurEen('),
     'alleen de hele stapel kan opnieuw')
 
+  /*
+   * En nee zeggen kan vanaf dezelfde regel als ja.
+   *
+   * Casper, nadat goedkeuren naar de werklijst was verhuisd: "ik kan niks
+   * meer afkeuren." Afkeuren stond nog op het andere scherm, achter Openen.
+   * Daarmee was goedkeuren een klik en afkeuren er drie -- een werklijst die
+   * de makkelijke uitkomst makkelijker maakt dan de moeilijke, duwt. Juist
+   * bij een factuur die niet deugt hoort de rem net zo dichtbij te zitten
+   * als het gaspedaal.
+   */
+  check('en afkeuren kan vanaf dezelfde regel als goedkeuren',
+    /function Afkeuren\(/.test(tv) && /'afgekeurd'/.test(tv),
+    'afkeuren kan alleen nog op een ander scherm')
+
+  /* Met een reden, want die komt bij de factuur en in de historie te staan. */
+  check('met een reden erbij',
+    /Deze komt bij de factuur te staan/.test(tv),
+    'afkeuren kan zonder reden')
+
+  /* Maar niet meer als hij al in Exact staat: die boeking is er, en daar is
+     een creditnota voor. */
+  check('en niet meer zodra hij in Exact staat',
+    /if \(bon\.exactId\) return null/.test(tv),
+    'een geboekte factuur is met een knop hier af te keuren')
+
   /* De melding beloofde iets dat er niet stond. Een onjuiste verwijzing is
      erger dan geen verwijzing: je gaat zoeken naar iets dat er niet is. */
   /*

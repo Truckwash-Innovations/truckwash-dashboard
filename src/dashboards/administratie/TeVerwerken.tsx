@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, ArrowRight, Check, CheckCheck, Clock, RotateCcw, ScanText, Send,
+  AlertTriangle, ArrowRight, Check, CheckCheck, Clock, RotateCcw, ScanText, Send, X,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import type { Expense, MailBericht } from '../../lib/types'
@@ -10,7 +10,7 @@ import { leesOpnieuw, type Ladderuitkomst } from '../../lib/leesladder'
 import { STANDEN, isTeLezen, ontbreekt, standVan, verdeel } from '../../lib/werklijst'
 import { dateShort, money, relative } from '../../lib/format'
 import {
-  Knop, Lade, LeegStaat, Paginakop, Sectie, Tabel,
+  Field, Knop, Lade, LeegStaat, Modal, Paginakop, Sectie, Tabel,
 } from '../../components/ui'
 import type { Kolom } from '../../components/ui'
 import { toast } from '../../store/useToasts'
@@ -222,6 +222,7 @@ function Vak({ vak, nu, onOpen }: {
         <span className="rijacties" onClick={(e) => e.stopPropagation()}>
           {standVan(bon, nu) === 'vastgelopen' && isTeLezen(bon) && <OpnieuwLezen bon={bon} />}
           <Stap bon={bon} nu={nu} />
+          <Afkeuren bon={bon} nu={nu} />
           {onOpen && (
             <Knop klein soort="gewoon" onClick={() => onOpen(bon.id)}>
               Openen <ArrowRight size={13} />
@@ -364,6 +365,97 @@ function Stap({ bon, nu }: { bon: Expense; nu: number }) {
   }
 
   return null
+}
+
+/* ---------------------------- Afkeuren ----------------------------- */
+
+/**
+ * Nee zeggen, vanaf dezelfde regel als ja.
+ *
+ * Dit stond er eerst niet, met als redenering: afkeuren vraagt een reden, een
+ * reden vraagt een venster, en dat hoort bij de factuur zelf. Dat klopt voor
+ * het venster en niet voor de knop.
+ *
+ * Want het gevolg was scheef: goedkeuren werd één klik en afkeuren drie --
+ * openen, zoeken, afkeuren. Een werklijst die de makkelijke uitkomst
+ * makkelijker maakt dan de moeilijke, duwt. En juist bij een factuur die niet
+ * deugt wil je dat de rem net zo dichtbij zit als het gaspedaal.
+ *
+ * Het venster hangt nu aan de knop in plaats van aan het scherm: alleen deze
+ * factuur, alleen deze reden.
+ */
+function Afkeuren({ bon, nu }: { bon: Expense; nu: number }) {
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [reden, setReden] = useState('')
+  const [bezig, setBezig] = useState(false)
+  const stand = standVan(bon, nu)
+
+  if (!user) return null
+  /*
+   * Alleen zolang er nog iets te beslissen valt. Een bon die in Exact staat
+   * keur je niet meer af met een knop hier -- die boeking is er, en daar is
+   * een creditnota voor.
+   */
+  if (!['akkoord', 'tweede', 'aanvullen', 'vastgelopen', 'geweigerd'].includes(stand)) {
+    return null
+  }
+  if (bon.exactId) return null
+
+  return (
+    <>
+      <Knop
+        klein
+        soort="gevaar"
+        disabled={bezig}
+        onClick={() => { setReden(''); setOpen(true) }}
+        title="Afkeuren"
+        aria-label="Afkeuren"
+      >
+        <X size={13} />
+      </Knop>
+
+      <Modal
+        open={open}
+        title="Factuur afkeuren"
+        subtitle={`${bon.supplier || 'onbekende leverancier'} — ${money(bon.amountExcl)}`}
+        onClose={() => setOpen(false)}
+      >
+        <Field label="Reden" help="Deze komt bij de factuur te staan, en in de historie.">
+          <textarea
+            className="textarea"
+            value={reden}
+            onChange={(e) => setReden(e.currentTarget.value)}
+            placeholder="Bijv. dubbel ontvangen, of hoort bij een andere bv"
+            autoFocus
+          />
+        </Field>
+        <div className="row end">
+          <Knop soort="gewoon" onClick={() => setOpen(false)}>Annuleren</Knop>
+          <Knop
+            soort="gevaar"
+            disabled={bezig}
+            onClick={async () => {
+              setBezig(true)
+              try {
+                await expRepo.decide(
+                  bon.id, 'afgekeurd', { id: user.id, name: user.name },
+                  reden.trim() || 'Geen reden opgegeven')
+                toast.warn('Factuur afgekeurd.')
+                setOpen(false)
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Afkeuren lukte niet.')
+              } finally {
+                setBezig(false)
+              }
+            }}
+          >
+            Afkeuren
+          </Knop>
+        </div>
+      </Modal>
+    </>
+  )
 }
 
 /* --------------------- Wat er aan een bon mankeert ----------------- */
