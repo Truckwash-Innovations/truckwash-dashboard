@@ -90,6 +90,9 @@ export default function Inkoopadressen() {
     [bedrijven, adressen])
 
   const [vult, setVult] = useState(false)
+  /* Wat er niet lukte (0098). "Overgeslagen: 17" zonder reden is een getal
+     waar niemand iets mee kan; dan blijf je op de knop drukken. */
+  const [redenen, setRedenen] = useState<string[]>([])
 
   /*
    * Aanvullen gebeurt sinds 0097 vanzelf: een nieuwe vestiging of een bv die
@@ -103,8 +106,10 @@ export default function Inkoopadressen() {
       const uit = await inkoopAdressenAanvullen()
       /* Meteen een ronde inplannen, anders staan de nieuwe rijen er pas als
          de synchronisatie vanzelf langskomt en lijkt het of er niets is
-         gebeurd. */
+         gebeurd. De vestigingen kunnen ook aan een bv gehangen zijn, dus die
+         moeten net zo goed opnieuw opgehaald worden. */
       scheduleFlush(0)
+      setRedenen(uit.waarom)
       toast.ok(uit.gemaakt > 0
         ? `${uit.gemaakt} adres${uit.gemaakt === 1 ? '' : 'sen'} aangemaakt.`
         : 'Er viel niets aan te vullen; elk adres staat er al.')
@@ -152,6 +157,23 @@ export default function Inkoopadressen() {
             {' '}nog geen adres: {zonderAdres.map((b) => b.naam).join(', ')}. Facturen
             van die bv kunnen nergens binnenkomen. Druk op Aanvullen; dan maakt hij ze
             op de plaatsnaam of op een korte naam van de bv.
+          </span>
+        </div>
+      )}
+
+      {/*
+        * En als aanvullen iets NIET kon, dan staat hier wat. Een bv die
+        * nergens bij hoort blijft anders een rood getal waar je niets aan
+        * kunt doen omdat er niet bij staat wat eraan scheelt.
+        */}
+      {redenen.length > 0 && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={15} />
+          <span>
+            Dit lukte niet:
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              {redenen.map((w) => <li key={w}>{w}</li>)}
+            </ul>
           </span>
         </div>
       )}
@@ -220,8 +242,9 @@ export default function Inkoopadressen() {
 
       <p className="ts-sub" style={{ marginTop: 8 }}>
         Deze adressen maken zichzelf: een nieuwe vestiging krijgt er een op de
-        plaatsnaam (inkoop.roosendaal@), een bv zonder vestiging op een korte
-        naam (inkoop.vastgoed@). Hernoemen mag — wat je wijzigt blijft staan.
+        plaatsnaam (inkoop.roosendaal@) en komt in de bv die zo heet — Truckwash 1
+        Roosendaal B.V. Een bv zonder vestiging krijgt een korte naam
+        (inkoop.vastgoed@). Hernoemen mag — wat je wijzigt blijft staan.
         Een factuur die hier binnenkomt draagt meteen de onderneming van dit
         adres. Staat er op het stuk zelf een KvK- of btw-nummer van een andere
         bv, dan wint dat — dat is harder dan een adres.

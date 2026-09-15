@@ -1495,13 +1495,19 @@ export async function exactKoppelLeverancier(
  * het domein is net ingevuld, of iemand wil gewoon zien dat het klopt zonder
  * eerst iets te wijzigen.
  */
-export async function inkoopAdressenAanvullen(): Promise<{ gemaakt: number; overgeslagen: number }> {
+export async function inkoopAdressenAanvullen(): Promise<{
+  gemaakt: number
+  overgeslagen: number
+  /** Wat er niet lukte, in gewone taal (0098). Leeg als alles lukte. */
+  waarom: string[]
+}> {
   const { data, error } = await supabase().rpc('inkoop_adressen_aanvullen')
   if (error) throw new Error(error.message)
   const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
   return {
     gemaakt: Number(r?.gemaakt) || 0,
     overgeslagen: Number(r?.overgeslagen) || 0,
+    waarom: Array.isArray(r?.waarom) ? (r.waarom as unknown[]).map(String) : [],
   }
 }
 

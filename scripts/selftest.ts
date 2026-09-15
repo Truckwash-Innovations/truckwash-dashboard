@@ -11290,5 +11290,121 @@ console.log('\n91. De adressen maken zichzelf')
     'aanvullen kan alleen door iets anders te wijzigen')
 }
 
+/* ==================================================================== *
+ *  92. Een vestiging hoort bij de bv die zo heet
+ *
+ *  Casper, bij een scherm met acht adressen en een rode melding dat zeventien
+ *  ondernemingen er geen hebben: "? waarom dit dan".
+ *
+ *  Het antwoord: 0097 zocht de bv bij een vestiging op als
+ *  coalesce(vestiging.administratie, hoofdadministratie), en bij hem staat
+ *  die eerste leeg. Dus ging inkoop.venlo@ naar de holding, bleef Truckwash 1
+ *  Venlo B.V. zonder adres, en maakte de tweede ronde er inkoop.venlo2@ van.
+ *
+ *  Wat de functies DOEN staat in sqltest 65 -- daar draaien ze echt, tegen
+ *  een opstelling die op zijn administratie lijkt. Hier staat wat er omheen
+ *  moet kloppen.
+ * ==================================================================== */
+
+console.log('\n92. Een vestiging hoort bij de bv die zo heet')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const m98 = readFileSync(
+    'supabase/migrations/0098_een_vestiging_hoort_bij_de_bv_die_zo_heet.sql', 'utf8')
+  const m97 = readFileSync(
+    'supabase/migrations/0097_de_adressen_maken_zichzelf.sql', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Inkoopadressen.tsx', 'utf8')
+  const lib = readFileSync('src/lib/trucksupply.ts', 'utf8')
+
+  check('een vestiging zoekt zijn eigen bv op de naam',
+    m98.includes('create or replace function public.bv_van_vestiging'),
+    'de bv van een vestiging valt nog terug op de hoofdadministratie')
+
+  /*
+   * Op hele woorden. Een like op een stuk tekst laat Elsloo bij elke bv met
+   * "els" erin horen, en een verkeerde koppeling is hier erger dan geen: dan
+   * boekt elke factuur van die vestiging een jaar lang in de verkeerde bv.
+   */
+  check('op hele woorden en niet op een stuk tekst',
+    /regexp_split_to_array\(public\.kaal_bedrijf\(a\.naam\), '.s\+'\)/.test(m98),
+    'de naam wordt met een like vergeleken')
+
+  /* Twee kandidaten is geen antwoord. Liever niets dan de verkeerde. */
+  check('en bij twijfel gebeurt er niets',
+    /array_length\(codes, 1\) = 1/.test(m98),
+    'bij meer dan een bv wordt er alsnog een gekozen')
+
+  /*
+   * Dezelfde vraag ligt onder bon_administratie(). Het antwoord hoort dus bij
+   * de vestiging te landen, anders klopt de post wel en de bon niet.
+   */
+  check('en het antwoord landt bij de vestiging zelf',
+    m98.includes('create or replace function public.vestigingen_bv_aanvullen')
+      && /update public\.locations/.test(m98),
+    'alleen het adres wordt rechtgezet, de bon boekt nog in de verkeerde bv')
+
+  /* Maar alleen waar het leeg staat: een keuze van een mens blijft staan. */
+  check('alleen waar het leeg staat',
+    /coalesce\(trim\(l\.administratie\), ''\) = ''/.test(m98),
+    'een ingestelde administratie wordt overschreven')
+
+  /*
+   * Deze functie wijzigt locations, en er hangt een trigger op locations die
+   * hem aanroept. Zonder rem roept dat zichzelf eeuwig aan -- een UPDATE die
+   * nul rijen raakt vuurt de trigger namelijk gewoon af.
+   */
+  check('en hij roept zichzelf niet eeuwig aan',
+    /if not exists \([\s\S]{0,240}then\s*\n\s*return 0;/.test(m98),
+    'de trigger kan zichzelf blijven aanroepen')
+
+  /*
+   * Een cijfer achter een adres is de laatste uitweg. inkoop.maasvlakte@ en
+   * inkoop.maasvlakte2@ die naar verschillende vennootschappen leiden is een
+   * valstrik voor elke leverancier die het cijfer vergeet.
+   */
+  check('een tweede naam komt voor een cijfer',
+    m98.includes('inkoop_vrij_adres')
+      && /public\.inkoop_bv_slug\(a\.code, false\)/.test(m98),
+    'bij een bezette naam komt er meteen een cijfer achter')
+
+  /* Wat 0097 verkeerd neerzette hoort rechtgezet te worden; anders moet hij
+     twintig rijen met de hand omzetten. */
+  check('en wat er verkeerd staat wordt rechtgezet',
+    /update public\.inkoop_adres[\s\S]{0,400}set administratie = juist\.bv/.test(m98),
+    'de adressen die op de holding staan blijven daar staan')
+
+  /* Maar niet wat iemand zelf heeft gezet: dat is te herkennen aan de
+     omschrijving die de automaat er zelf bij schrijft. */
+  check('behalve wat iemand zelf heeft gezet',
+    /omschrijving like 'Vanzelf aangemaakt%'/.test(m98),
+    'ook adressen die met de hand zijn omgezet worden overruled')
+
+  /* Een adres waar al post op binnenkwam gaat nooit weg. */
+  check('en een adres waar al een bon aan hangt gaat nooit weg',
+    /not exists \(select 1 from public\.expenses e where e\.inkoop_adres_id = ia\.id\)/.test(m98),
+    'een gebruikt adres kan worden opgeruimd')
+
+  /*
+   * 0097 krijgt er een kolom bij. "create or replace" mag de vorm van het
+   * antwoord niet veranderen, dus moet 0097 zijn eigen functie eerst weghalen
+   * -- anders loopt een tweede ronde door alle migraties vast.
+   */
+  check('en alle migraties mogen nog een tweede keer',
+    /drop function if exists public\.inkoop_adressen_aanvullen\(\);/.test(m97),
+    'opnieuw draaien loopt vast op de gewijzigde retourvorm')
+
+  /* --- en het scherm zegt wat er misging --- */
+
+  check('wat niet lukte komt terug in gewone taal',
+    /returns table \(gemaakt integer, overgeslagen integer, waarom text\[\]\)/.test(m98)
+      && lib.includes('waarom: string[]'),
+    'het scherm krijgt alleen een getal terug')
+
+  check('en staat op het scherm',
+    scherm.includes('redenen') && /redenen\.map/.test(scherm),
+    'de reden blijft in de database hangen')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

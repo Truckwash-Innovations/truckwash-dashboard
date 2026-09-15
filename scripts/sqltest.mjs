@@ -8117,5 +8117,184 @@ console.log('\n64. De inkoopadressen maken zichzelf')
   await ia.close()
 }
 
+/* ==================================================================== *
+ *  65. Een vestiging hoort bij de bv die zo heet
+ *
+ *  Casper, bij een scherm met acht adressen en zeventien ondernemingen zonder:
+ *  "? waarom dit dan".
+ *
+ *  0097 hing elk vestigingsadres aan de HOOFDadministratie zodra
+ *  locations.administratie leeg stond. Dus kwam inkoop.venlo@ bij de holding
+ *  terecht, had Truckwash 1 Venlo B.V. nog steeds niets, en maakte de tweede
+ *  ronde daar inkoop.venlo2@ van.
+ *
+ *  Deze groep speelt zijn opstelling na -- bv's die naar een plaats heten,
+ *  vestigingen zonder administratie -- en kijkt wat eruit komt. Niet of de
+ *  tekst ergens staat: wat de functie DOET.
+ * ==================================================================== */
+
+console.log('\n65. Een vestiging hoort bij de bv die zo heet')
+
+{
+  const bv = await fresh()
+  await bv.exec(sqlFile('supabase/setup.sql'))
+  await asServer(bv)
+
+  await bv.exec(`
+    update public.instellingen set waarde = 'post.truckwash1.nl'
+      where sleutel = 'inkoop_domein';
+
+    delete from public.inkoop_adres;
+    delete from public.exact_administratie;
+
+    insert into public.exact_administratie (code, naam, actief, hoofd) values
+      ('900', 'Truckwash 1 Group Holding B.V.',      true,  true),
+      ('901', 'Truckwash 1 Venlo B.V.',              true,  false),
+      ('902', 'Truckwash 1 Roosendaal B.V.',         true,  false),
+      ('903', 'Truckwash 1 Maasvlakte B.V.',         true,  false),
+      ('904', 'Truckwash 1 Maasvlakte Holding B.V.', true,  false),
+      ('905', 'Truckwash 1 Vastgoed B.V.',           true,  false),
+      ('906', 'Truckwash 1 Elsloo B.V.',             true,  false);
+
+    /* Zoals bij Casper: geen enkele vestiging weet zelf in welke bv hij zit. */
+    update public.locations set administratie = null;
+    delete from public.inkoop_adres;
+  `)
+
+  const adres = async (code) => (await bv.query(
+    `select adres from public.inkoop_adres where administratie = '${code}' order by adres`
+  )).rows.map((r) => r.adres)
+
+  /* --- de vraag zelf: welke bv heet naar deze vestiging --- */
+
+  const vanVestiging = async (loc) => (await bv.query(
+    `select public.bv_van_vestiging('${loc}') as bv`)).rows[0].bv
+
+  check('de bv wordt bij de vestiging gezocht op de naam',
+    (await vanVestiging('loc_venlo')) === '901', String(await vanVestiging('loc_venlo')))
+
+  /*
+   * Elsloo mag niet aan Roosendaal blijven hangen en andersom. Op hele
+   * woorden zoeken en niet op een stukje tekst: "els" zit in van alles.
+   */
+  check('en op hele woorden, niet op een stuk tekst',
+    (await vanVestiging('loc_roosendaal')) === '902',
+    String(await vanVestiging('loc_roosendaal')))
+
+  /*
+   * Maasvlakte heeft er twee: de bv zelf en de holding erboven. Dan telt de
+   * bv die op het woord EINDIGT -- die heet ernaar, de ander hangt erboven.
+   */
+  check('bij twee namen wint degene die er op eindigt',
+    (await vanVestiging('loc_maasvlakte')) === '903',
+    String(await vanVestiging('loc_maasvlakte')))
+
+  /* Geen bv die zo heet: dan niets. Liever geen koppeling dan de verkeerde. */
+  await bv.exec(`
+    insert into public.locations (id, code, name, city, website_slug, active)
+    values ('tl_onbekend', 'TST-ONB', 'Truckwash Nergenshuizen', 'Nergenshuizen',
+            'nergenshuizen', true)
+    on conflict (id) do nothing;
+  `)
+  check('en zonder bv die zo heet: niets',
+    (await vanVestiging('tl_onbekend')) === null,
+    String(await vanVestiging('tl_onbekend')))
+
+  /* --- en dat staat daarna ook bij de vestiging zelf --- */
+
+  const venlo = (await bv.query(
+    "select administratie from public.locations where id = 'loc_venlo'")).rows[0]
+  check('de vestiging weet het daarna zelf ook',
+    venlo.administratie === '901', String(venlo.administratie))
+
+  /* --- de adressen komen in de goede bv --- */
+
+  check('het adres van Venlo hoort bij Truckwash 1 Venlo',
+    (await adres('901')).includes('inkoop.venlo@post.truckwash1.nl'),
+    (await adres('901')).join(', '))
+
+  check('en niet bij de holding',
+    !(await adres('900')).includes('inkoop.venlo@post.truckwash1.nl'),
+    (await adres('900')).join(', '))
+
+  /*
+   * En geen twee adressen meer die een cijfer schelen en naar VERSCHILLENDE
+   * bv's leiden. Dat was het gevaarlijkste van de oude uitkomst:
+   * inkoop.maasvlakte@ ging naar de holding en inkoop.maasvlakte2@ naar de
+   * werkmaatschappij. Een leverancier die het cijfer vergeet boekt dan in de
+   * verkeerde vennootschap, en niemand die dat ziet.
+   *
+   * Twee plaatsen die hetzelfde heten binnen DEZELFDE bv mag wel -- het
+   * hoofdkantoor en de wasstraat staan allebei in Utrecht, en dan is
+   * inkoop.utrecht2@ gewoon de tweede brievenbus van hetzelfde bedrijf.
+   */
+  const verwarrend = (await bv.query(`
+    select a.adres, b.adres as ander
+      from public.inkoop_adres a
+      join public.inkoop_adres b
+        on split_part(b.adres, '@', 1) ~ ('^' || split_part(a.adres, '@', 1) || '[0-9]+$')
+       and split_part(a.adres, '@', 2) = split_part(b.adres, '@', 2)
+     where a.administratie <> b.administratie`)).rows
+  check('en geen twee adressen die een cijfer schelen in verschillende bv\'s',
+    verwarrend.length === 0,
+    verwarrend.map((r) => `${r.adres} vs ${r.ander}`).join(', '))
+
+  /* De holding boven Maasvlakte krijgt de lange naam in plaats van een cijfer. */
+  check('een tweede bv op dezelfde naam krijgt de lange naam',
+    (await adres('904')).includes('inkoop.maasvlakteholding@post.truckwash1.nl'),
+    (await adres('904')).join(', '))
+
+  /* En elke actieve bv kan post ontvangen -- dat was de melding op zijn scherm. */
+  const zonder = (await bv.query(`
+    select a.code from public.exact_administratie a
+     where a.actief and not exists (
+       select 1 from public.inkoop_adres ia
+        where ia.administratie = a.code and ia.actief)`)).rows.map((r) => r.code)
+  check('en geen enkele actieve bv blijft zonder adres',
+    zonder.length === 0, zonder.join(', '))
+
+  /* --- wat een mens zelf heeft gekozen blijft staan --- */
+
+  await bv.exec(`
+    update public.locations set administratie = '900' where id = 'loc_roosendaal';
+    update public.inkoop_adres set administratie = '905', door = 'u_casper'
+     where adres = 'inkoop.venlo@post.truckwash1.nl';
+  `)
+  await bv.query('select * from public.inkoop_adressen_aanvullen()')
+
+  const naHand = (await bv.query(
+    "select administratie from public.inkoop_adres where adres = 'inkoop.venlo@post.truckwash1.nl'"
+  )).rows[0]
+  check('een adres dat iemand zelf heeft omgezet blijft omgezet',
+    naHand.administratie === '905', String(naHand.administratie))
+
+  const naRoos = (await bv.query(
+    "select administratie from public.locations where id = 'loc_roosendaal'")).rows[0]
+  check('en een vestiging die iemand zelf heeft ingesteld ook',
+    naRoos.administratie === '900', String(naRoos.administratie))
+
+  /* --- opnieuw draaien blijft veilig --- */
+
+  const voor = (await bv.query('select count(*) n from public.inkoop_adres')).rows[0].n
+  const weer = (await bv.query('select * from public.inkoop_adressen_aanvullen()')).rows[0]
+  const na = (await bv.query('select count(*) n from public.inkoop_adres')).rows[0].n
+  check('opnieuw draaien verandert niets',
+    Number(weer.gemaakt) === 0 && String(voor) === String(na),
+    `${voor} -> ${na}, ${JSON.stringify(weer)}`)
+
+  /* --- en wat niet lukt, zegt waarom --- */
+
+  await bv.exec(`
+    delete from public.inkoop_adres;
+    update public.instellingen set waarde = '' where sleutel = 'inkoop_domein';
+  `)
+  const leeg = (await bv.query('select * from public.inkoop_adressen_aanvullen()')).rows[0]
+  check('zonder domein staat er ook bij waarom er niets gebeurde',
+    Number(leeg.gemaakt) === 0 && (leeg.waarom ?? []).join(' ').includes('inkoop_domein'),
+    JSON.stringify(leeg))
+
+  await bv.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

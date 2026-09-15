@@ -136,6 +136,11 @@ grant  execute on function public.inkoop_bv_slug(text) to authenticated, service
 --  staat blijft staan -- ook een adres dat iemand heeft hernoemd.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg en dan opnieuw: 0098 geeft deze functie een kolom erbij, en
+   "create or replace" mag de vorm van het antwoord niet veranderen. Zonder
+   deze regel loopt een tweede ronde door alle migraties erop vast. */
+drop function if exists public.inkoop_adressen_aanvullen();
+
 create or replace function public.inkoop_adressen_aanvullen()
 returns table (gemaakt integer, overgeslagen integer)
 language plpgsql security definer set search_path = public as $$
