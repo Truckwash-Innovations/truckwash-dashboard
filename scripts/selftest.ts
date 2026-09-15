@@ -10436,5 +10436,105 @@ console.log('\n82. Vijf kleine dingen aan het factuurscherm')
     'onderaan de lijst scrollt de pagina eronder door')
 }
 
+/* ==================================================================== *
+ *  83. Welke rekeningen bij welke onderneming horen
+ *
+ *  Casper: "maar hij geeft nog steeds codes van de hoofdvestiging, terwijl
+ *  ik een andere geselecteerd heb."
+ *
+ *  De regel was "een rekening zonder bv geldt overal". Dat klonk als een
+ *  nette terugval op de oude situatie, en het was het niet: die rekeningen
+ *  zonder bv ZIJN de lijst die ooit als eerste is binnengehaald -- die van de
+ *  hoofdadministratie. Ze verschenen dus in elke bv.
+ *
+ *  Dit is geen tekstcontrole maar een gedragscontrole. De vorige ronde had
+ *  een regex die aansloeg op rekeningenVoor() en niets zei over wat hij
+ *  teruggeeft -- en precies daarom stond de fout er nog.
+ * ==================================================================== */
+
+console.log('\n83. Welke rekeningen bij welke onderneming horen')
+
+{
+  const { rekeningenVoor, bvVanBon } = await import('../src/lib/boeking')
+
+  const rek = (code: string, administratie?: string, actief = true) => ({
+    id: `gb_${administratie ?? 'oud'}_${code}`,
+    code,
+    naam: `Rekening ${code}`,
+    trefwoorden: [] as string[],
+    actief,
+    administratie,
+    updatedAt: 0,
+  })
+
+  /* Zoals het er bij Casper staat: een oude lijst zonder bv (de
+     hoofdadministratie), en een bv waarvan het schema is overgenomen. */
+  const lijst = [
+    rek('4000'), rek('4010'), rek('2200'),
+    rek('4000', '3630506'), rek('7100', '3630506'),
+  ]
+
+  const codes = (bv: string | undefined, huidige?: string) =>
+    rekeningenVoor(lijst, bv, huidige).map((g) => g.code).join(',')
+
+  check('een bv met een eigen schema ziet alleen zijn eigen rekeningen',
+    codes('3630506') === '4000,7100',
+    codes('3630506'))
+
+  /* Dit is wat er gemeld werd: 2200 en 4010 bestaan alleen in de oude lijst
+     en kwamen mee in elke bv. */
+  check('en dus niet meer die van de hoofdadministratie',
+    !rekeningenVoor(lijst, '3630506').some((g) => g.code === '2200'),
+    '2200 staat er nog bij')
+
+  /*
+   * Maar wie het schema nog moet overnemen mag geen leeg scherm krijgen. Een
+   * lege lijst om een opruimactie die hij niet kent, is erger dan een lijst
+   * die te ruim is.
+   */
+  check('een bv zonder eigen schema valt terug op de oude lijst',
+    codes('9999') === '2200,4000,4010',
+    codes('9999'))
+
+  check('en zonder bv staat alles er nog',
+    codes(undefined) === '2200,4000,4000,4010,7100',
+    codes(undefined))
+
+  /* Een uitgezette rekening is niet te kiezen -- behalve die er nu op staat.
+     Anders springt een bestaande boeking bij het openen naar leeg. */
+  const metUit = [...lijst, rek('4900', '3630506', false)]
+  check('een uitgezette rekening staat er niet bij',
+    !rekeningenVoor(metUit, '3630506').some((g) => g.code === '4900'),
+    'een inactieve rekening is toch te kiezen')
+
+  check('behalve de rekening die er nu op staat',
+    rekeningenVoor(metUit, '3630506', '4900').some((g) => g.code === '4900'),
+    'de huidige rekening verdwijnt uit de lijst')
+
+  /* En die uitzondering geldt ook over de bv-grens heen: staat er een
+     rekening van een andere administratie op, dan hoort hij zichtbaar te
+     blijven zolang hij er staat. */
+  check('ook als die bij een andere bv hoort',
+    rekeningenVoor(lijst, '3630506', '4010').some((g) => g.code === '4010'),
+    'een rekening uit een andere bv verdwijnt, en dan lijkt het veld leeg')
+
+  /* --- en welke bv het is --- */
+
+  const bon = (administratie?: string, locationId?: string) =>
+    ({ id: 'e1', administratie, locationId } as never)
+
+  const vestigingen = [{ id: 'loc_venlo', administratie: '2392511' }]
+  const bedrijven = [{ code: '3050842', hoofd: true }, { code: '2392511' }]
+
+  check('wat op de bon staat gaat voor',
+    bvVanBon(bon('3630506', 'loc_venlo'), vestigingen, bedrijven) === '3630506')
+
+  check('anders die van zijn vestiging',
+    bvVanBon(bon(undefined, 'loc_venlo'), vestigingen, bedrijven) === '2392511')
+
+  check('en anders de hoofdadministratie',
+    bvVanBon(bon(), vestigingen, bedrijven) === '3050842')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

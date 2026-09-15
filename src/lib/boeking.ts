@@ -167,13 +167,44 @@ export function rekeningenVoor(
   bv: string | undefined,
   huidige?: string,
 ): Grootboek[] {
+  /*
+   * Heeft DEZE bv een eigen schema?
+   *
+   * Hier zat de fout. De regel was "een rekening zonder bv geldt overal", en
+   * dat klonk als een nette terugval op de oude situatie. In de praktijk zijn
+   * die rekeningen zonder bv precies de lijst die ooit als eerste is
+   * binnengehaald -- die van de hoofdadministratie. Casper: "maar hij geeft
+   * nog steeds codes van de hoofdvestiging, terwijl ik een andere
+   * geselecteerd heb."
+   *
+   * Terecht. Zodra een bv zijn eigen schema heeft, is een rekening zonder bv
+   * geen aanvulling maar ruis: hij bestaat daar niet, en wie hem kiest krijgt
+   * bij het boeken "rekening X bestaat niet in administratie Y".
+   *
+   * Dit is bovendien de regel die de server al hanteert: factuur_indelen()
+   * (0086) eist `g.administratie = administratie_in` en kijkt dus nooit naar
+   * een rekening zonder bv. Twee regels voor dezelfde vraag, en de strengste
+   * was de juiste.
+   */
+  const eigen = bv
+    ? alle.some((g) => g.actief && (g.administratie ?? '').trim() === bv)
+    : false
+
   return alle
     .filter((g) => {
+      /* De rekening die er NU op staat blijft kiesbaar, ook als hij uit is of
+         bij een andere bv hoort. Anders springt een bestaande boeking bij het
+         openen naar leeg en verander je hem door alleen te kijken. */
       if (huidige && g.code === huidige) return true
       if (!g.actief) return false
       if (!bv) return true
+
       const van = (g.administratie ?? '').trim()
-      return van === '' || van === bv
+      if (van === bv) return true
+      /* Zonder bv: alleen zolang deze administratie zelf nog niets heeft.
+         Anders staat het scherm leeg bij wie het schema nog moet overnemen,
+         en dat is een lege lijst om een opruimactie die hij niet kent. */
+      return van === '' && !eigen
     })
     .sort((a, b) => a.code.localeCompare(b.code))
 }

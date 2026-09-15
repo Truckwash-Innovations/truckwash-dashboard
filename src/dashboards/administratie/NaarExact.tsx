@@ -622,10 +622,11 @@ function Schema({ na }: { na: () => void }) {
         <div className="waarschuwing mb">
           <AlertTriangle size={15} />
           <span>
-            Er staan {perBv.overal} rekeningen zonder onderneming. Die tellen als
-            “geldt overal” en verschijnen dus bij elke factuur, ook in een bv waar
-            ze niet bestaan — dat is wat je bij het boeken pas terugkrijgt. Neem het
-            schema per bv over; daarna kun je ze weghalen.
+            Er staan {perBv.overal} rekeningen zonder onderneming. Dat is de lijst
+            van vóór er meerdere bv’s waren. Zolang een bv nog geen eigen schema
+            heeft, is dat wat je bij een factuur te kiezen krijgt — ook rekeningen
+            die in díe administratie niet bestaan. Neem het schema hieronder over;
+            vanaf dat moment ziet die bv alleen nog zijn eigen rekeningen.
           </span>
         </div>
       )}
