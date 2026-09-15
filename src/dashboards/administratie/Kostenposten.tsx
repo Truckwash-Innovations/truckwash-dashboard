@@ -25,6 +25,9 @@ import {
   vraagtAandacht,
   zetBoeking,
   zetOnderneming,
+  betaalRekening,
+  ibanKlopt,
+  zetBetaalRekening,
 } from '../../lib/boeking'
 import { haalRekeningen, useRekeningen } from '../../lib/rekeningen'
 import { historieVan } from '../../lib/factuurhistorie'
@@ -1879,6 +1882,121 @@ function Overzicht({ bon }: { bon: Expense }) {
   )
 }
 
+/* ----------------------- Waarop betaald wordt --------------------- */
+
+/**
+ * Het rekeningnummer van deze factuur, en de mogelijkheid het recht te zetten.
+ *
+ * Casper: "Bij betalen kan hij het niet aanmaken? waarom?" Omdat de enige
+ * openstaande factuur een rekeningnummer droeg dat de elfproef niet doorstond:
+ * NL55BNGH0285000122 -- met dát nummer horen de controlecijfers 65 te zijn en
+ * niet 55. Eén cijfer misgelezen, en dan gaat er geen enkele betaling meer
+ * mee: een bank weigert een heel bestand om één foute IBAN.
+ *
+ * En het was niet te herstellen. Het nummer komt uit de lezing, en die staat
+ * sinds 0029 met opzet vast -- een verslag dat je achteraf kunt bijschaven is
+ * geen verslag meer. Dus een veld ernaast (0094): de lezing blijft staan, de
+ * correctie gaat voor, en je ziet allebei.
+ */
+function Rekeningnummer({ bon }: { bon: Expense }) {
+  const gelezen = (bon.gelezen?.iban ?? '').replace(/\s+/g, '').toUpperCase()
+  const effectief = betaalRekening(bon)
+
+  const [open, setOpen] = useState(false)
+  const [tekst, setTekst] = useState(bon.betaalIban ?? gelezen)
+  const [bezig, setBezig] = useState(false)
+
+  const klopt = !effectief || ibanKlopt(effectief)
+  const nieuwKlopt = ibanKlopt(tekst)
+
+  async function bewaar() {
+    setBezig(true)
+    try {
+      await zetBetaalRekening(bon, tekst)
+      setOpen(false)
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  /* Niets gelezen en niets gezet: geen leeg vakje, maar een regel die zegt
+     wat er aan de hand is. */
+  if (!effectief && !open) {
+    return (
+      <p className="hint">
+        <AlertTriangle size={14} style={{ verticalAlign: -2 }} /> Er staat geen
+        rekeningnummer op deze factuur.{' '}
+        <button className="btn ghost sm" onClick={() => setOpen(true)}>Invullen</button>
+      </p>
+    )
+  }
+
+  return (
+    <Field
+      label="Rekeningnummer"
+      help={bon.betaalIban
+        ? (gelezen && gelezen !== bon.betaalIban
+            ? `Nagekeken; de lezer maakte er ${gelezen} van`
+            : 'Met de hand nagekeken')
+        : 'Van de factuur gelezen'}
+    >
+      {!open && (
+        <>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span className="mono" style={{ flex: 1, color: klopt ? undefined : 'var(--warn)' }}>
+              {effectief}
+            </span>
+            <button className="btn ghost sm" onClick={() => setOpen(true)}>Wijzigen</button>
+          </div>
+          {!klopt && (
+            <p className="ts-sub" style={{ margin: '4px 0 0', color: 'var(--warn)' }}>
+              Dit nummer doorstaat de elfproef niet, dus er kan geen betaalbestand
+              mee gemaakt worden. Waarschijnlijk is er een cijfer misgelezen — kijk
+              het na op de factuur hiernaast.
+            </p>
+          )}
+        </>
+      )}
+
+      {open && (
+        <>
+          <input
+            className="input mono"
+            value={tekst}
+            autoFocus
+            placeholder="NL00BANK0000000000"
+            onChange={(e) => setTekst(e.currentTarget.value.toUpperCase())}
+          />
+          <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+            <button
+              className="btn primary sm"
+              disabled={bezig || (!!tekst.trim() && !nieuwKlopt)}
+              onClick={() => void bewaar()}
+            >
+              Opslaan
+            </button>
+            <button
+              className="btn ghost sm"
+              disabled={bezig}
+              onClick={() => { setTekst(bon.betaalIban ?? gelezen); setOpen(false) }}
+            >
+              Annuleren
+            </button>
+            <span
+              className="ts-sub"
+              style={{ color: tekst.trim() && !nieuwKlopt ? 'var(--warn)' : undefined }}
+            >
+              {!tekst.trim()
+                ? 'Leeg laten betekent: toch wat er gelezen is.'
+                : nieuwKlopt ? 'De elfproef klopt.' : 'De elfproef klopt niet.'}
+            </span>
+          </div>
+        </>
+      )}
+    </Field>
+  )
+}
+
 /* --------------------------- De boeking --------------------------- */
 
 /**
@@ -2081,6 +2199,10 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
           />
         </div>
       </div>
+
+      {/* Waar het geld heen gaat. Staat bij de boeking en niet bij de lezing:
+          de lezing is wat er op het papier stond, dit is wat er gebeurt. */}
+      <Rekeningnummer bon={bon} />
 
       {/*
         * Waar hij in Exact staat (0090).

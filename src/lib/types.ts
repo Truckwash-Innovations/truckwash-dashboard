@@ -674,6 +674,16 @@ export interface Expense {
 
   /* --- waar hij in Exact terechtkwam (0053) --- */
 
+  /**
+   * Het rekeningnummer waarop betaald wordt, als een mens het heeft
+   * nagekeken (0094).
+   *
+   * Leeg = wat de lezer van de factuur haalde. De lezing zelf staat vast
+   * (0029) en dat blijft zo; dit is het veld ernaast, zodat een misgelezen
+   * cijfer te herstellen is zonder het verslag te herschrijven.
+   */
+  betaalIban?: string
+
   /** Het boekingsnummer van Exact. Gevuld = verstuurd, en gaat niet nog eens. */
   exactId?: string
   /**

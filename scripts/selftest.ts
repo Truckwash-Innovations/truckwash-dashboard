@@ -10873,5 +10873,102 @@ console.log('\n87. De instelling die ik een migratie te vroeg weghaalde')
     'er staan twee versies van dezelfde vergelijking')
 }
 
+/* ==================================================================== *
+ *  88. Een rekeningnummer met een cijfer ernaast
+ *
+ *  Casper: "Bij betalen kan hij het niet aanmaken? waarom?"
+ *
+ *  Omdat de enige openstaande factuur NL55BNGH0285000122 droeg, en dat nummer
+ *  doorstaat de elfproef niet -- met dít rekeningnummer horen de
+ *  controlecijfers 65 te zijn. De lezer zat er één cijfer naast, de SEPA-bouwer
+ *  sloeg de factuur over, en dan blijft er niets over om in het bestand te
+ *  zetten.
+ *
+ *  Twee dingen gingen daar mis, en het eerste is het vervelendst:
+ *
+ *    - de server stuurde per factuur de REDEN mee, en het scherm gooide die
+ *      weg. De melding verwees naar "de lijst hieronder" en die lijst was er
+ *      niet.
+ *    - en er was geen manier om het nummer recht te zetten: het komt uit de
+ *      lezing, en die staat sinds 0029 met opzet vast.
+ * ==================================================================== */
+
+console.log('\n88. Een rekeningnummer met een cijfer ernaast')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const api = readFileSync('src/lib/trucksupply.ts', 'utf8')
+  const betalen = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const m94 = readFileSync(
+    'supabase/migrations/0094_een_rekeningnummer_dat_verkeerd_gelezen_is.sql', 'utf8')
+
+  /* --- 1. de elfproef, en dat hij hetzelfde rekent overal --- */
+
+  const { ibanKlopt } = await import('../src/lib/boeking')
+
+  check('het nummer van die factuur wordt afgekeurd',
+    !ibanKlopt('NL55BNGH0285000122'),
+    'NL55BNGH0285000122 komt er gewoon door')
+
+  /* En het nummer dat er wél bij hoort komt er wel door. Een controle die
+     alles afkeurt is net zo stuk als een die alles doorlaat. */
+  check('en het nummer dat er wel bij hoort komt erdoor',
+    ibanKlopt('NL65BNGH0285000122'),
+    'een geldig nummer wordt afgekeurd')
+
+  check('spaties en kleine letters maken niet uit',
+    ibanKlopt('nl65 bngh 0285 0001 22'),
+    'hetzelfde nummer met spaties wordt afgekeurd')
+
+  check('en iets wat geen IBAN is ook niet',
+    !ibanKlopt('') && !ibanKlopt('NL65BNGH') && !ibanKlopt('12345678'),
+    'een half nummer komt erdoor')
+
+  /* --- 2. een weigering neemt zijn gegevens mee --- */
+
+  /*
+   * Dit is de klasse, niet het geval. Elke serverfunctie die nee zegt kan er
+   * gegevens bij sturen; die gingen allemaal verloren op de rand tussen
+   * server en scherm.
+   */
+  check('een weigering neemt mee wat de server erbij stuurde',
+    api.includes('export class FunctieFout extends Error')
+      && /throw new FunctieFout\(/.test(api),
+    'een weigering is nog steeds een kale melding')
+
+  check('en het betaalscherm laat per factuur zien waarom hij niet meekon',
+    /e instanceof FunctieFout && Array\.isArray\(e\.details\.overgeslagen\)/.test(betalen),
+    'de reden wordt nog steeds weggegooid')
+
+  /* --- 3. en het is recht te zetten --- */
+
+  /*
+   * De lezing blijft staan. Een veld ernaast, met de lezing als terugval --
+   * dezelfde opzet als bij de bv (0079). Zo is te zien waar het verschil zit,
+   * en blijft het verslag een verslag.
+   */
+  check('er is een veld naast de lezing om het recht te zetten',
+    m94.includes('add column if not exists betaal_iban')
+      && scherm.includes('function Rekeningnummer('),
+    'een misgelezen nummer is nog steeds niet te herstellen')
+
+  check('en de betaling neemt dat veld vóór de lezing',
+    /coalesce\(\s*\n\s*nullif\(upper\(replace\(coalesce\(e\.betaal_iban/.test(m94),
+    'betaalbaar() kijkt nog steeds alleen naar de lezing')
+
+  /* Een correctie die zelf niet klopt is geen correctie. De database houdt
+     hem tegen; het scherm zegt het terwijl je typt. */
+  check('een correctie die niet klopt komt er niet in',
+    m94.includes('public.iban_klopt(betaal_iban)') && scherm.includes('De elfproef klopt niet.'),
+    'er kan een nummer in dat de elfproef niet doorstaat')
+
+  /* Waar het geld heen gaat hoort in hetzelfde rijtje als het bedrag en de
+     rekening: in de historie, met wie en wanneer. */
+  check('en de wijziging komt in de historie',
+    /'rekeningnummer',\s*\n\s*coalesce\(old\.betaal_iban/.test(m94),
+    'een gewijzigd rekeningnummer gebeurt stil')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -56,6 +56,20 @@ function verbonden(): boolean {
  * verplichte inlog (de cron moet erbij kunnen) en controleren dus zelf wie
  * er belt. Zonder token heeft bellen geen zin.
  */
+/**
+ * Een serverfunctie die nee zegt, met alles wat ze erbij zei.
+ *
+ * Een weigering is vaak geen kaal "mag niet" maar een antwoord met gegevens:
+ * welke facturen zijn overgeslagen en waarom, welke bv mist wat. Die gingen
+ * verloren op de rand tussen server en scherm.
+ */
+export class FunctieFout extends Error {
+  constructor(boodschap: string, readonly details: Record<string, unknown>) {
+    super(boodschap)
+    this.name = 'FunctieFout'
+  }
+}
+
 async function roepFunctie<T>(naam: string, body: Record<string, unknown>): Promise<T> {
   const { data: sessie } = await supabase().auth.getSession()
   const token = sessie.session?.access_token
@@ -73,7 +87,19 @@ async function roepFunctie<T>(naam: string, body: Record<string, unknown>): Prom
   const uit = await res.json().catch(() => null) as
     ({ ok?: boolean; reden?: string } & Record<string, unknown>) | null
   if (!res.ok || !uit || uit.ok === false) {
-    throw new Error(uit?.reden ?? `De serverfunctie ${naam} gaf ${res.status} terug.`)
+    /*
+     * Een weigering neemt mee wat de server erbij stuurde.
+     *
+     * Hier stond een kale Error met alleen de reden erin. Bij het maken van
+     * een betaalbestand kostte dat precies wat je nodig had: de server zegt
+     * "Geen enkele factuur kon mee; zie de lijst hieronder" en stuurt in
+     * `overgeslagen` per factuur waaróm -- en dat werd weggegooid. Op het
+     * scherm stond dus een melding die naar een lijst verwees die er niet
+     * was.
+     */
+    throw new FunctieFout(
+      uit?.reden ?? `De serverfunctie ${naam} gaf ${res.status} terug.`,
+      uit ?? {})
   }
   return uit as T
 }

@@ -85,6 +85,56 @@ export async function zetBoeking(
 }
 
 /**
+ * De elfproef op een rekeningnummer.
+ *
+ * Dezelfde berekening als in de database (0094) en in de verzendlus
+ * (_gedeeld/sepa.ts): de eerste vier tekens naar achteren, letters naar
+ * cijfers, en de rest moet 1 zijn modulo 97.
+ *
+ * Hier staat hij om het te kunnen ZEGGEN terwijl iemand typt. Het echte slot
+ * zit op de andere twee plekken -- een bank weigert een heel bestand om één
+ * fout nummer, en dat mag niet van een schermcontrole afhangen.
+ */
+export function ibanKlopt(ruw: string): boolean {
+  const schoon = (ruw ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  if (schoon.length < 15 || schoon.length > 34) return false
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(schoon)) return false
+
+  const her = (schoon.slice(4) + schoon.slice(0, 4))
+    .replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55))
+
+  /* Cijfer voor cijfer: een IBAN wordt tot 30 cijfers lang, en dat past in
+     geen enkel getal dat JavaScript nauwkeurig kan bewaren. */
+  let rest = 0
+  for (const d of her) rest = (rest * 10 + Number(d)) % 97
+  return rest === 1
+}
+
+/** Waarop deze bon betaald wordt: de correctie, anders wat er gelezen is. */
+export function betaalRekening(bon: Expense): string {
+  return (bon.betaalIban || bon.gelezen?.iban || '').replace(/\s+/g, '').toUpperCase()
+}
+
+/**
+ * Het rekeningnummer rechtzetten.
+ *
+ * Apart van zetBoeking(), want het is iets anders: dat gaat over waar de kosten
+ * terechtkomen, dit over waar het geld heen gaat. Leeg maken kan en betekent
+ * "toch maar wat er gelezen is".
+ */
+export async function zetBetaalRekening(bon: Expense, ruw: string): Promise<Expense> {
+  const schoon = (ruw ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  const nieuw: Expense = {
+    ...bon,
+    betaalIban: schoon || undefined,
+    updatedAt: Date.now(),
+  }
+  await db.expenses.put(nieuw)
+  await enqueue('expenses', 'put', nieuw.id, nieuw)
+  return nieuw
+}
+
+/**
  * Onthouden hoe deze leverancier geboekt is.
  *
  * Gaat rechtstreeks naar de database en niet via de wachtrij, want dit is

@@ -59,6 +59,7 @@ import { enqueue } from '../../lib/sync'
 import type { Grootboek as GrootboekRij, Location } from '../../lib/types'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
 import {
+  FunctieFout,
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
@@ -2727,11 +2728,24 @@ export function Betalen() {
           className="btn primary sm"
           disabled={bezig !== null || !adm?.eigenIban || voorBv.length === 0}
           onClick={() => void doe('sepa', async () => {
-            const uit = await exactSepaMaken(bv)
-            bewaar(uit.bestandsnaam, uit.xml)
-            setOvergeslagen(uit.overgeslagen)
-            await laad()
-            toast.ok(`${uit.aantal} betalingen, ${money(uit.totaal)}. Het bestand is opgeslagen.`)
+            try {
+              const uit = await exactSepaMaken(bv)
+              bewaar(uit.bestandsnaam, uit.xml)
+              setOvergeslagen(uit.overgeslagen)
+              await laad()
+              toast.ok(`${uit.aantal} betalingen, ${money(uit.totaal)}. Het bestand is opgeslagen.`)
+            } catch (e) {
+              /*
+               * Kon er niets mee, dan zegt de server WAAROM -- per factuur, in
+               * `overgeslagen`. Dat stond in de foutmelding niet en ging
+               * verloren, terwijl de melding wel naar "de lijst hieronder"
+               * verwees. Die lijst is dit.
+               */
+              if (e instanceof FunctieFout && Array.isArray(e.details.overgeslagen)) {
+                setOvergeslagen(e.details.overgeslagen as typeof overgeslagen)
+              }
+              throw e
+            }
           })}
         >
           {bezig === 'sepa' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
