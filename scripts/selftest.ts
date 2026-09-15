@@ -10639,5 +10639,52 @@ console.log('\n84. De rekeningen komen van de bv zelf')
     'na overnemen blijven de oude namen staan tot de app opnieuw opent')
 }
 
+/* ==================================================================== *
+ *  85. Van onderneming wisselen laat geen rekening achter die daar niet bestaat
+ *
+ *  Casper: "dus hij pakt per onderneming de code?" Ja -- en toen ik dat
+ *  natrok bleek er een gat te zitten aan de andere kant van dezelfde vraag.
+ *
+ *  Van bv wisselen liet de grootboekrekening staan zoals hij stond. Dat ziet
+ *  er goed uit, want de keuzelijst toont de rekening die erop staat altijd,
+ *  ook als hij bij een andere administratie hoort. Maar rekening 4040 van de
+ *  ene bv bestaat in de andere misschien niet, en dan blijft de factuur later
+ *  liggen met "rekening 4040 bestaat niet in <bv>" -- ver weg van het moment
+ *  waarop je van bv wisselde.
+ * ==================================================================== */
+
+console.log('\n85. Van onderneming wisselen laat geen verkeerde rekening achter')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const lib = readFileSync('src/lib/rekeningen.ts', 'utf8')
+
+  check('na het wisselen wordt de rekening nagekeken',
+    /await zetOnderneming\(bon, code\)[\s\S]{0,900}?haalRekeningen\(code\)/.test(scherm),
+    'de rekening blijft staan zonder dat iemand kijkt of hij daar bestaat')
+
+  /* Leegmaken en niet stil laten staan: een leeg veld vraagt om een keuze,
+     een verkeerd gevuld veld niet. */
+  check('en leeggemaakt als hij daar niet bestaat',
+    /grootboekCode: undefined \}\)[\s\S]{0,200}?bestaat niet in/.test(scherm),
+    'er wordt niets gedaan met een rekening die daar niet bestaat')
+
+  /*
+   * De vraag "bestaat deze code in die bv" is er één, en daar hoort geen hook
+   * bij -- die hangt aan een component die op dat moment nog de oude bv toont.
+   */
+  check('die vraag kan buiten een component om',
+    lib.includes('export async function haalRekeningen('),
+    'de lijst van een bv is alleen via een hook op te vragen')
+
+  /* Dezelfde ronde, hetzelfde geheugen: wisselen mag geen tweede vraag naar
+     dezelfde bv opleveren naast die van de keuzelijst eronder. */
+  check('en gaat langs hetzelfde geheugen',
+    /export async function haalRekeningen\([^)]*\): Promise<\{ code: string \}\[\]> \{\s*return haal\(bv\)/
+      .test(lib),
+    'haalRekeningen doet zijn eigen ronde')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

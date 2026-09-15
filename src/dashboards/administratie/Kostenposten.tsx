@@ -26,7 +26,7 @@ import {
   zetBoeking,
   zetOnderneming,
 } from '../../lib/boeking'
-import { useRekeningen } from '../../lib/rekeningen'
+import { haalRekeningen, useRekeningen } from '../../lib/rekeningen'
 import { historieVan } from '../../lib/factuurhistorie'
 import Stroombalk from '../../components/Stroombalk'
 import { stapVanStand, stroom, teLaat, type StapSleutel } from '../../lib/stroom'
@@ -1941,6 +1941,31 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
     setBezig(true)
     try {
       await zetOnderneming(bon, code)
+
+      /*
+       * En dan de rekening nakijken.
+       *
+       * De onderneming wisselen liet de grootboekrekening staan zoals hij
+       * stond. Dat ziet er goed uit -- de keuzelijst toont de rekening die
+       * erop staat altijd, ook als hij bij een andere bv hoort -- en het is
+       * het niet: rekening 4040 van de ene administratie bestaat in de andere
+       * misschien niet. Dan blijft de factuur later liggen met "rekening 4040
+       * bestaat niet in <bv>", en dat is ver weg van het moment waarop je van
+       * bv wisselde.
+       *
+       * Dus meteen kijken, en leegmaken als hij daar niet bestaat. Leegmaken
+       * en niet stil laten staan: een leeg veld vraagt om een keuze, een
+       * verkeerd gevuld veld niet.
+       */
+      const huidig = bon.grootboekCode
+      if (code && huidig) {
+        const lijst = await haalRekeningen(code).catch(() => null)
+        if (lijst && !lijst.some((r) => r.code === huidig)) {
+          await zetBoeking(bon, { grootboekCode: undefined })
+          toast.info(
+            `Rekening ${huidig} bestaat niet in ${code}. Kies er een die daar wel staat.`)
+        }
+      }
     } finally {
       setBezig(false)
     }

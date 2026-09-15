@@ -69,6 +69,17 @@ export function vergeetRekeningen(): void {
   onderweg.clear()
 }
 
+/**
+ * De rekeningen van één bv, buiten een component om.
+ *
+ * Nodig op het moment dat iemand van onderneming wisselt: dan moet er één
+ * vraag beantwoord worden -- bestaat de rekening die er staat ook in de
+ * nieuwe bv? -- en daar hoort geen hook bij.
+ */
+export async function haalRekeningen(bv: string): Promise<{ code: string }[]> {
+  return haal(bv)
+}
+
 async function haal(bv: string): Promise<Regel[]> {
   const klaar = geheugen.get(bv)
   if (klaar) return klaar
