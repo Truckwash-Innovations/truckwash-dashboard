@@ -11526,5 +11526,64 @@ console.log('\n93. Het lezen geeft niet op bij een hik')
     'bij een drukke leesdienst lijkt de factuur onleesbaar')
 }
 
+/* ==================================================================== *
+ *  94. De pc las de hele stapel en hield geen ruimte over voor het antwoord
+ *
+ *  Casper stuurde het logboek van de pc thuis:
+ *
+ *    12:40:13  exp_mail tekst 77.2s mislukt: Ollama gaf twee keer geen
+ *              leesbare JSON terug:
+ *    13:26:14  exp_mail tekst  9.0s klaar, met twijfel: (...)
+ *
+ *  Twee dingen vallen daaraan op. De regel eindigt op een dubbele punt met
+ *  NIETS erachter -- het model gaf een leeg antwoord, geen kapotte JSON. En
+ *  de mislukkingen duren zeventig seconden terwijl een geslaagde er negen
+ *  doet; dat is geen toeval maar een verschil in hoeveel er naar binnen ging.
+ *
+ *  De beeldroute pakte al lang niet meer alle bladzijden: eerste twee plus
+ *  de laatste, want vooraan staat wie het stuurt en achteraan wat er te
+ *  betalen valt (welkeBladzijden, groep 82). De tekstroute deed dat niet en
+ *  las alles tot dertigduizend tekens. Bij een dikke factuur vult dat samen
+ *  met de aanwijzingen het venster van 16384 tokens, en dan is er voor het
+ *  ANTWOORD niets meer over.
+ *
+ *  Dezelfde keuze hoort aan allebei de kanten te gelden. Er was geen reden
+ *  waarom een bladzijde die als plaatje niet de moeite waard is, als tekst
+ *  ineens wel meetelt.
+ * ==================================================================== */
+
+console.log('\n94. De pc hield geen ruimte over voor het antwoord')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const pc = readFileSync('lezer/lezer.mjs', 'utf8')
+
+  check('de tekstroute pakt dezelfde bladzijden als de beeldroute',
+    /for \(const p of welkeBladzijden\(doc\.numPages\)\)/.test(pc),
+    'de tekstlaag van alle bladzijden gaat nog naar het model')
+
+  /*
+   * En de mislukking zegt wat er gebeurde. Ollama geeft done_reason en de
+   * tokentellingen gewoon terug; die werden alleen weggegooid zodra het
+   * misging -- precies wanneer je ze nodig hebt.
+   */
+  check('en een mislukking meldt de getallen die het verklaren',
+    pc.includes('done_reason')
+      && /prompt_eval_count/.test(pc)
+      && /venster \$\{venster\}|venster \$\{/.test(pc),
+    'een mislukte lezing zegt nog steeds alleen dat het mislukte')
+
+  check('een leeg antwoord heet ook leeg',
+    pc.includes("'(leeg)'"),
+    'een leeg antwoord levert een regel op die op niets eindigt')
+
+  /* Past de vraag al niet, dan hoort dat er in gewone taal bij te staan --
+     anders staat er een rij getallen waar je zelf uit moet opmaken wat er
+     aan de hand is. */
+  check('en als de tekst het venster al vult, staat dat er in woorden bij',
+    /inTokens > venster - 512/.test(pc) && pc.includes('num_ctx'),
+    'een vol venster blijft een rij getallen')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -318,11 +318,30 @@ function openPdf(bytes) {
   })
 }
 
-/** De tekstlaag van alle pagina's, regel voor regel zoals hij op het papier staat. */
+/**
+ * De tekstlaag, regel voor regel zoals hij op het papier staat.
+ *
+ * Niet van alle bladzijden, maar van dezelfde als de beeldroute pakt: de
+ * eerste twee en de laatste (welkeBladzijden). Hier stond "allemaal, tot
+ * MAX_TEKST", en dat is om twee redenen slechter.
+ *
+ * Het maakte de vraag aan het model bij een dikke factuur enorm -- dertig-
+ * duizend tekens plus de aanwijzingen in een venster van 16384 tokens -- en
+ * dan is er voor het ANTWOORD weinig tot niets meer over. Dat is precies hoe
+ * een lezing van zeventig seconden op niets uitloopt terwijl een gewone
+ * factuur in negen seconden klaar is.
+ *
+ * En het leverde ook niet meer factuur op. De redenering staat al bij
+ * welkeBladzijden(): vooraan staat wie het stuurt, achteraan wat er te
+ * betalen valt, en de specificatie ertussen is het minst interessante deel.
+ * Dat geldt voor tekst net zo goed als voor beeld -- er was geen reden om
+ * het hier anders te doen dan daar.
+ */
 async function tekstUit(doc) {
   const stukken = []
   let totaal = 0
-  for (let p = 1; p <= doc.numPages && totaal < MAX_TEKST; p++) {
+  for (const p of welkeBladzijden(doc.numPages)) {
+    if (totaal >= MAX_TEKST) break
     const pagina = await doc.getPage(p)
     const inhoud = await pagina.getTextContent()
     let regel = ''
@@ -417,6 +436,7 @@ async function vraagOllama({ prompt, schema, invoer, model }) {
   }
 
   let laatsteRuw = ''
+  let laatsteAntwoord = null
   // Een niet-parseerbaar antwoord komt zelden twee keer; een keer opnieuw is genoeg.
   for (let poging = 1; poging <= 2; poging++) {
     let res
@@ -437,13 +457,54 @@ async function vraagOllama({ prompt, schema, invoer, model }) {
       throw new Error(`Ollama gaf ${res.status}: ${(await res.text()).slice(0, 300)}`)
     }
     const antwoord = await res.json()
+    laatsteAntwoord = antwoord
     laatsteRuw = antwoord?.message?.content ?? ''
     const uit = leesJson(laatsteRuw)
     if (uit && typeof uit === 'object' && !Array.isArray(uit)) {
       return { uit, tokens: { in: antwoord.prompt_eval_count, uit: antwoord.eval_count } }
     }
   }
-  throw new Error('Ollama gaf twee keer geen leesbare JSON terug: ' + laatsteRuw.slice(0, 200))
+
+  /*
+   * De reden met de getallen erbij.
+   *
+   * Hier stond alleen `+ laatsteRuw.slice(0, 200)`, en in het logboek van
+   * Casper leverde dat regels op die eindigden op een dubbele punt en verder
+   * niets: het model gaf een LEEG antwoord terug. Daarmee was niet uit te
+   * maken of de tekst niet paste, of het model stopte, of het schema in de
+   * weg zat -- en dat zijn drie heel verschillende dingen om aan te pakken.
+   *
+   * Ollama geeft die drie gewoon terug. Ze werden alleen weggegooid zodra
+   * het misging, precies wanneer je ze nodig hebt.
+   */
+  const inTokens = laatsteAntwoord?.prompt_eval_count
+  const uitTokens = laatsteAntwoord?.eval_count
+  const reden = laatsteAntwoord?.done_reason ?? 'onbekend'
+  const venster = body.options.num_ctx
+
+  const feiten = [
+    `model ${model}`,
+    invoer.modus === 'tekst' ? `${invoer.tekst.length} tekens tekst` : `${invoer.images.length} plaatjes`,
+    inTokens != null ? `${inTokens} tokens in` : null,
+    uitTokens != null ? `${uitTokens} tokens uit` : null,
+    `venster ${venster}`,
+    `gestopt om: ${reden}`,
+  ].filter(Boolean).join(', ')
+
+  /*
+   * En als de vraag zelf het venster al vult, dan is dat de hele verklaring
+   * en hoort het er in gewone taal bij te staan. Anders staat er een rij
+   * getallen waar je zelf de conclusie uit moet trekken.
+   */
+  const paste = inTokens != null && inTokens > venster - 512
+    ? ' De factuurtekst vult het venster van het model al bijna helemaal, '
+      + 'dus er was geen ruimte meer om een antwoord te geven. Een kleiner '
+      + 'stuk tekst of een groter venster (num_ctx) lost dit op.'
+    : ''
+
+  throw new Error(
+    `Ollama gaf twee keer geen bruikbare JSON terug (${feiten}).${paste} `
+    + `Antwoord: ${laatsteRuw ? laatsteRuw.slice(0, 200) : '(leeg)'}`)
 }
 
 /* ------------------------------------------------------------------ *
