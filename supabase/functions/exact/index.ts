@@ -2823,7 +2823,25 @@ interface BoekingAntwoord {
   EntryNumber?: number
 }
 
-async function stuurFacturen(beller: Beller): Promise<Response> {
+/**
+ * Facturen naar Exact boeken.
+ *
+ * Met een id erbij gaat er precies EEN bon, en dan ook als hij eerder is
+ * vastgelopen. Dat laatste is de hele reden dat deze parameter er is: de knop
+ * staat nu bij de factuur zelf, en een knop bij een bon die "Exact weigert"
+ * zegt hoort die ene bon opnieuw te proberen -- niet de hele stapel, en niet
+ * niets.
+ *
+ * Zonder id het oude gedrag: alles wat compleet is, hoogstens 25 per ronde.
+ */
+async function stuurFacturen(
+  beller: Beller,
+  body: Record<string, unknown> = {},
+): Promise<Response> {
+  const alleen = typeof body.id === 'string' && body.id.trim() !== ''
+    ? body.id.trim()
+    : null
+
   const inst = await instellingenVoorFacturen()
   if (!inst.aan) {
     return json({
@@ -2845,6 +2863,30 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
   const stand = await facturenStand()
   const klaar = stand.wachtend.filter((b) => b.mist.length === 0)
 
+  /*
+   * Welke bonnen deze ronde meegaan.
+   *
+   * Bij een losse bon geen bovengrens van 25 (het is er een) en geen
+   * stilzwijgen als hij er niet bij staat. Dat laatste is belangrijk: staat
+   * hij niet in `klaar`, dan MIST er iets, en dan is "er gebeurde niets" het
+   * slechtste antwoord dat je kunt geven op een druk op de knop.
+   */
+  let meedoen = klaar
+  if (alleen) {
+    const bon = klaar.find((b) => b.id === alleen)
+    if (!bon) {
+      const bekend = stand.wachtend.find((b) => b.id === alleen)
+      return json({
+        ok: false,
+        reden: bekend
+          ? `Deze factuur kan nog niet geboekt worden: ${bekend.mist.join(', ')}.`
+          : 'Deze factuur staat niet klaar om geboekt te worden. Is hij al '
+            + 'geboekt, of nog niet goedgekeurd?',
+      }, 409)
+    }
+    meedoen = [bon]
+  }
+
   /* Eén keer vragen per bv en per crediteur, niet per bon. Vijfentwintig
      bonnen van dezelfde vestiging zijn anders vijftig gelijke vragen. */
   const basisPerBv = new Map<string, BvBasis>()
@@ -2860,7 +2902,7 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
   let gelukt = 0
   const mislukt: { id: string; reden: string }[] = []
 
-  for (const bon of klaar.slice(0, 25)) {
+  for (const bon of alleen ? meedoen : meedoen.slice(0, 25)) {
     try {
       if (!bon.crediteurId) throw new Error('geen crediteur gekoppeld')
       if (!bon.grootboekId) throw new Error(`rekening ${bon.grootboek} bestaat niet in Exact`)
@@ -3129,14 +3171,23 @@ async function stuurFacturen(beller: Beller): Promise<Response> {
           exact_document_fout: mee.fout,
           exact_at: Date.now(),
           exact_fout: null,
+          exact_fout_at: null,
           updated_at: Date.now(),
         })
         .eq('id', bon.id)
       gelukt++
     } catch (e) {
       const reden = e instanceof Error ? e.message : String(e)
+      /* Met een tijdstip erbij (0099): zonder wanneer is "hoe oud is deze
+         melding" niet te beantwoorden, en dan weet je bij een bon die al
+         weken in het vak "Exact weigert" staat niet of er iets is
+         veranderd sinds de laatste poging. */
       await admin.from('expenses')
-        .update({ exact_fout: reden.slice(0, 400), updated_at: Date.now() })
+        .update({
+          exact_fout: reden.slice(0, 400),
+          exact_fout_at: Date.now(),
+          updated_at: Date.now(),
+        })
         .eq('id', bon.id)
       mislukt.push({ id: bon.id, reden })
     }
@@ -4345,7 +4396,7 @@ Deno.serve(async (req) => {
       if (actie === 'sync-relaties') return await syncRelaties(beller, (body.vervolg ?? {}) as Ronde)
       if (actie === 'koppel-bedrijf') return await koppelBedrijf(body, beller)
       if (actie === 'relaties-stand') return json({ ok: true, ...await relatiesStand() })
-      if (actie === 'stuur-facturen') return await stuurFacturen(beller)
+      if (actie === 'stuur-facturen') return await stuurFacturen(beller, body)
       if (actie === 'koppel-leverancier') return await koppelLeverancier(body, beller)
       if (actie === 'dagboeken') return await dagboeken()
       if (actie === 'btw-codes') return await btwCodes()

@@ -9788,8 +9788,14 @@ console.log('\n76. Versturen naar Exact')
   /* Geen stille bovengrens: de server pakt er 25 per keer, en dat hoort op
      het scherm te staan -- anders lijkt de rest overgeslagen. */
   const exactFn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  /*
+   * Op de REGEL en niet op de letterlijke tekst: die stond eerst als
+   * `klaar.slice(0, 25)` en werd `meedoen.slice(0, 25)` toen er een losse
+   * bon bij kwam. De bovengrens is wat telt, niet hoe de variabele heet.
+   */
   check('de server pakt er hoogstens 25 per keer',
-    exactFn.includes('klaar.slice(0, 25)'))
+    /\.slice\(0, 25\)/.test(exactFn),
+    'de bovengrens per ronde staat niet meer in de serverfunctie')
   check('en dat staat ook op het scherm',
     scherm.includes('klaar.length > 25'),
     'de bovengrens staat nergens')
@@ -11583,6 +11589,145 @@ console.log('\n94. De pc hield geen ruimte over voor het antwoord')
   check('en als de tekst het venster al vult, staat dat er in woorden bij',
     /inTokens > venster - 512/.test(pc) && pc.includes('num_ctx'),
     'een vol venster blijft een rij getallen')
+}
+
+/* ==================================================================== *
+ *  95. De hele keten in één scherm, en een weigering die je kunt lezen
+ *
+ *  Casper: "nu moet je nog naar een aparte gaan om hem naar exact te sturen,
+ *  boekhouding, maar je moet deze knop eigenlijk bij te verwerken zetten voor
+ *  nu, direct erbij, dus eerste goedkeuring (check ai), tweede en dan
+ *  verstuur naar exact. Kon hij niet versturen de melding er netjes in
+ *  zetten."
+ *
+ *  Twee dingen.
+ *
+ *  De werklijst liet zien WAT er moest gebeuren maar je kon het er niet
+ *  doen: de enige knoppen waren "Lezen" en "Openen", en versturen zat op een
+ *  ander scherm achter één knop die alles tegelijk pakte. Bij dertig
+ *  facturen is dat dertig keer heen en terug.
+ *
+ *  En als Exact een boeking weigerde, stond de reden wel in de database maar
+ *  nergens waar je hem zocht: niet bij de factuur, niet in zijn historie, en
+ *  op het verzendscherm alleen als getal in een melding die na drie seconden
+ *  verdween. De melding zei zelfs "de reden staat hieronder bij de factuur",
+ *  en dat was niet waar -- de kaart eronder gaat over ontbrekende gegevens,
+ *  niet over weigeringen.
+ *
+ *  Wat de database ervan doet staat in sqltest 66.
+ * ==================================================================== */
+
+console.log('\n95. De hele keten in één scherm')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const tv = readFileSync('src/dashboards/administratie/TeVerwerken.tsx', 'utf8')
+  const ne = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+  const kp = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const lib = readFileSync('src/lib/trucksupply.ts', 'utf8')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const m99 = readFileSync(
+    'supabase/migrations/0099_een_weigering_die_je_terugvindt.sql', 'utf8')
+
+  /* --- 1. de drie stappen staan in de rij --- */
+
+  check('de werklijst kan zelf goedkeuren',
+    tv.includes('expRepo.decide'),
+    'goedkeuren kan alleen nog op het andere scherm')
+
+  check('en zelf naar Exact sturen',
+    tv.includes('exactStuurFacturen('),
+    'versturen kan alleen nog in bulk op Boekhouding')
+
+  /*
+   * Eén knop per rij, niet drie. Een factuur heeft altijd precies één
+   * volgende stap; drie knoppen naast elkaar laat de lezer kiezen tussen
+   * dingen die elkaar uitsluiten.
+   */
+  check('en laat per factuur één volgende stap zien',
+    /if \(stand === 'akkoord' \|\| stand === 'tweede'\)/.test(tv)
+      && /if \(stand === 'boeken' \|\| stand === 'geweigerd'\)/.test(tv),
+    'de knoppen hangen niet aan de stand van de factuur')
+
+  /*
+   * Wie zelf de eerste handtekening zette mag de tweede niet zetten. De
+   * database bewaakt dat ook (0060/0096), maar een knop die je mag indrukken
+   * en daarna een foutmelding geeft is een slechte knop.
+   */
+  check('wie zelf tekende kan de tweede niet zetten',
+    /bon\.eersteDoor === user\.id/.test(tv),
+    'je kunt je eigen tweede handtekening zetten en pas daarna de weigering lezen')
+
+  /* Na het versturen wordt de bon op de SERVER bijgewerkt; zonder een ronde
+     synchroniseren lijkt het of de knop niets deed. */
+  check('en na het versturen wordt er opnieuw opgehaald',
+    /exactStuurFacturen\(bon\.id\)[\s\S]{0,400}scheduleFlush\(0\)/.test(tv),
+    'het scherm blijft de oude stand tonen')
+
+  /* --- 2. één factuur kan apart --- */
+
+  check('er kan één losse factuur verstuurd worden',
+    /export async function exactStuurFacturen\(id\?: string\)/.test(lib)
+      && fn.includes('const alleen = typeof body.id'),
+    'versturen pakt nog altijd alles of niets')
+
+  /*
+   * En bij een losse bon geen bovengrens van 25, en geen stilzwijgen als hij
+   * niet compleet is: "er gebeurde niets" is het slechtste antwoord op een
+   * knop die je net indrukte.
+   */
+  check('en zegt waarom als dat niet kan',
+    /Deze factuur kan nog niet geboekt worden/.test(fn),
+    'een losse bon die niet weg kan levert een stille niets-gebeurt op')
+
+  check('zonder de bovengrens van 25 die voor de stapel geldt',
+    /alleen \? meedoen : meedoen\.slice\(0, 25\)/.test(fn),
+    'de bovengrens van de stapel geldt ook voor één factuur')
+
+  /* --- 3. de weigering is te lezen --- */
+
+  check('de weigering staat bij de factuur zelf',
+    /!bon\.exactId && bon\.exactFout/.test(kp),
+    'de reden staat nergens op het scherm van de factuur')
+
+  check('en in zijn historie',
+    m99.includes("'exact_weigerde'") && m99.includes('expense_exact_fout_schrijf'),
+    'een mislukte boeking laat geen spoor na in de historie')
+
+  /*
+   * En hij gaat weer weg. Hiervoor bleef een gerepareerde bon in het vak
+   * "Exact weigert" staan met een reden die niet meer gold.
+   */
+  check('en verdwijnt als je oplost waar hij over ging',
+    m99.includes('expense_exact_fout_opruimen'),
+    'een opgeloste weigering blijft staan')
+
+  /* --- 4. en het verzendscherm telt hem niet meer mee --- */
+
+  check('een vastgelopen factuur telt niet als klaar om te versturen',
+    /const klaar = alles\.filter\(\(b\) => b\.mist\.length === 0 && !b\.fout\)/.test(ne),
+    'een geweigerde factuur gaat elke ronde opnieuw mee en loopt opnieuw vast')
+
+  check('maar staat wel apart, met de reden erbij',
+    ne.includes('Vastgelopen bij Exact') && /\{b\.fout\}/.test(ne),
+    'de reden staat nergens op het verzendscherm')
+
+  check('en kan er los opnieuw heen',
+    ne.includes('stuurEen('),
+    'alleen de hele stapel kan opnieuw')
+
+  /* De melding beloofde iets dat er niet stond. Een onjuiste verwijzing is
+     erger dan geen verwijzing: je gaat zoeken naar iets dat er niet is. */
+  /*
+   * De melding beloofde "de reden staat hieronder bij de factuur", en daar
+   * stond hij niet. Controleer op de REGEL -- de melding draagt de reden
+   * zelf -- en niet op de afwezigheid van die zin: die staat nu in het
+   * commentaar dat uitlegt waarom hij weg moest, en daar struikelde deze
+   * controle in eerste instantie over.
+   */
+  check('en de melding draagt de reden zelf',
+    /toast\.error\([\s\S]{0,400}eerste\.reden/.test(ne),
+    'de melding telt alleen hoeveel er vastliepen')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

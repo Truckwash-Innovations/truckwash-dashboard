@@ -2252,6 +2252,34 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
         </Field>
       )}
 
+      {/*
+        * En wat er misging toen hij WEL geprobeerd is.
+        *
+        * Casper: "kon hij niet versturen de melding er netjes in zetten."
+        *
+        * De reden stond in expenses.exact_fout en was op precies twee
+        * plekken te zien: als rode regel in de werklijst, en als kolom
+        * "Boeking" in de geschiedenis op een ander scherm. Niet hier, bij de
+        * factuur zelf -- terwijl dit de plek is waar je terechtkomt als je
+        * wilt weten wat er met DEZE factuur aan de hand is.
+        *
+        * Het blok hierboven toont alleen iets als het gelukt is. De
+        * tegenhanger ontbrak, en daarmee zag een factuur die drie keer door
+        * Exact was geweigerd er hier precies zo uit als een die nog nooit
+        * geprobeerd was.
+        */}
+      {!bon.exactId && bon.exactFout && (
+        <Field label="Exact nam hem niet aan" help="Wat er misging bij de laatste poging">
+          <p className="help" style={{ margin: 0, color: 'var(--warn)' }}>
+            {bon.exactFout}
+          </p>
+          <p className="ts-sub" style={{ margin: '4px 0 0' }}>
+            Los op wat hierboven ontbreekt en verstuur hem opnieuw vanuit Te
+            verwerken; dan verdwijnt deze melding vanzelf.
+          </p>
+        </Field>
+      )}
+
       {beschikbaar.length > 0 && (
         <Field label="Tags" help="Waar je later op filtert; los van de rekening.">
           <div className="row">

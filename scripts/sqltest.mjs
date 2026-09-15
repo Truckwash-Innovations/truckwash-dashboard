@@ -8296,5 +8296,114 @@ console.log('\n65. Een vestiging hoort bij de bv die zo heet')
   await bv.close()
 }
 
+/* ==================================================================== *
+ *  66. Een weigering die je terugvindt, en die weggaat als je hem oplost
+ *
+ *  Casper: "kon hij niet versturen de melding er netjes in zetten."
+ *
+ *  De reden stond al in expenses.exact_fout. Wat eromheen ontbrak: een
+ *  tijdstip, een regel in de historie van de factuur, en een manier waarop
+ *  de melding weer verdwijnt als je het probleem oplost. Dat laatste maakte
+ *  dat een gerepareerde bon in de werklijst bleef staan onder "Exact
+ *  weigert" met een reden die niet meer gold.
+ * ==================================================================== */
+
+console.log('\n66. Een weigering die je terugvindt')
+
+{
+  const wg = await fresh()
+  await wg.exec(sqlFile('supabase/setup.sql'))
+  await asServer(wg)
+
+  await wg.exec(`
+    insert into public.expenses
+      (id, expense_date, supplier, amount_excl, vat_pct, status, administratie,
+       grootboek_code, factuurnummer)
+    values ('exp_w1', public.now_ms(), 'Shell', 100, 21, 'goedgekeurd', '900',
+            '4000', 'F-1')
+    on conflict (id) do nothing;
+  `)
+
+  const gebeurtenissen = async (soort) => (await wg.query(
+    `select tekst from public.expense_gebeurtenis
+      where expense_id = 'exp_w1' and soort = '${soort}' order by at, id`
+  )).rows.map((r) => r.tekst)
+
+  const bon = async () => (await wg.query(
+    "select exact_fout, exact_fout_at from public.expenses where id = 'exp_w1'")).rows[0]
+
+  /* --- de weigering wordt opgeschreven --- */
+
+  await wg.exec(`
+    update public.expenses
+       set exact_fout = 'geen crediteur gekoppeld', exact_fout_at = public.now_ms()
+     where id = 'exp_w1'
+  `)
+
+  check('een weigering komt in de historie van de factuur',
+    (await gebeurtenissen('exact_weigerde')).includes('geen crediteur gekoppeld'),
+    JSON.stringify(await gebeurtenissen('exact_weigerde')))
+
+  check('en het tijdstip staat op de bon',
+    Number((await bon()).exact_fout_at) > 0, JSON.stringify(await bon()))
+
+  /* --- dezelfde reden nog eens is geen tweede gebeurtenis --- */
+
+  await wg.exec(`
+    update public.expenses set exact_fout = 'geen crediteur gekoppeld',
+           exact_fout_at = public.now_ms() + 1
+     where id = 'exp_w1'
+  `)
+  check('dezelfde reden nog eens levert geen tweede regel op',
+    (await gebeurtenissen('exact_weigerde')).length === 1,
+    String((await gebeurtenissen('exact_weigerde')).length))
+
+  /* --- een ANDERE reden wel --- */
+
+  await wg.exec(`
+    update public.expenses set exact_fout = 'rekening 4000 bestaat niet in Exact'
+     where id = 'exp_w1'
+  `)
+  check('een andere reden wel',
+    (await gebeurtenissen('exact_weigerde')).length === 2,
+    (await gebeurtenissen('exact_weigerde')).join(' | '))
+
+  /* --- en hij verdwijnt zodra je het oplost --- */
+
+  await wg.exec("update public.expenses set grootboek_code = '4100' where id = 'exp_w1'")
+
+  check('de melding verdwijnt als je verandert waar hij over ging',
+    (await bon()).exact_fout === null, String((await bon()).exact_fout))
+
+  check('en het tijdstip gaat mee weg',
+    (await bon()).exact_fout_at === null, String((await bon()).exact_fout_at))
+
+  /*
+   * Maar niet bij zomaar iets. Een omschrijving die iemand bijwerkt is geen
+   * oplossing van een weigering; zou de melding daarvan verdwijnen, dan is
+   * hij weg zonder dat er iets is verholpen.
+   */
+  await wg.exec(`
+    update public.expenses
+       set exact_fout = 'geen betalingsconditie', exact_fout_at = public.now_ms()
+     where id = 'exp_w1';
+    update public.expenses set description = 'anders' where id = 'exp_w1';
+  `)
+  check('maar niet bij een wijziging die er niets mee te maken heeft',
+    (await bon()).exact_fout === 'geen betalingsconditie',
+    String((await bon()).exact_fout))
+
+  /* --- en de historie kent de nieuwe soort echt --- */
+
+  const soorten = (await wg.query(`
+    select pg_get_constraintdef(oid) as def from pg_constraint
+     where conname = 'expense_gebeurtenis_soort_check'`)).rows[0]
+  check('de historie kent de soort exact_weigerde',
+    String(soorten?.def ?? '').includes('exact_weigerde'),
+    String(soorten?.def ?? 'geen constraint'))
+
+  await wg.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

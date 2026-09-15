@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, ArrowRight, Check, Clock, RotateCcw, ScanText,
+  AlertTriangle, ArrowRight, Check, CheckCheck, Clock, RotateCcw, ScanText, Send,
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import type { Expense, MailBericht } from '../../lib/types'
@@ -14,6 +14,10 @@ import {
 } from '../../components/ui'
 import type { Kolom } from '../../components/ui'
 import { toast } from '../../store/useToasts'
+import { expenses as expRepo } from '../../lib/repo'
+import { exactStuurFacturen } from '../../lib/trucksupply'
+import { useAuth } from '../../store/useAuth'
+import { scheduleFlush } from '../../lib/sync'
 
 /* ------------------------------------------------------------------ *
  *  Te verwerken
@@ -191,12 +195,33 @@ function Vak({ vak, nu, onOpen }: {
       toon: (bon) => <Mankeert bon={bon} nu={nu} />,
     },
     {
+      /* ------------------------------------------------------------ *
+       *  De handeling die deze stand vraagt
+       *
+       *  Casper: "je moet deze knop eigenlijk bij te verwerken zetten voor
+       *  nu, direct erbij, dus eerste goedkeuring (check ai), tweede en dan
+       *  verstuur naar exact."
+       *
+       *  Hier stond alleen "Openen", en dat was precies een klik te veel bij
+       *  elke stap: je zag op deze lijst wat er moest gebeuren, maar om het
+       *  te DOEN moest je naar een ander scherm. Bij dertig facturen is dat
+       *  dertig keer heen en terug.
+       *
+       *  De drie stappen staan nu in de rij zelf, in de volgorde waarin een
+       *  factuur ze doorloopt. Welke knop je ziet hangt af van de stand --
+       *  er is er altijd precies een, want er is per factuur ook maar een
+       *  volgende stap.
+       *
+       *  "Openen" blijft staan. Een bedrag nakijken tegen het papier doe je
+       *  niet vanaf een regel in een lijst.
+       * ------------------------------------------------------------ */
       sleutel: 'acties',
       kop: '',
-      breedte: 190,
+      breedte: 260,
       toon: (bon) => (
         <span className="rijacties" onClick={(e) => e.stopPropagation()}>
           {standVan(bon, nu) === 'vastgelopen' && isTeLezen(bon) && <OpnieuwLezen bon={bon} />}
+          <Stap bon={bon} nu={nu} />
           {onOpen && (
             <Knop klein soort="gewoon" onClick={() => onOpen(bon.id)}>
               Openen <ArrowRight size={13} />
@@ -232,6 +257,113 @@ function Vak({ vak, nu, onOpen }: {
       />
     </Sectie>
   )
+}
+
+/* ------------------- De volgende stap, in de rij ------------------- */
+
+/**
+ * De ene knop die bij deze stand hoort.
+ *
+ * Bewust EEN knop en geen rijtje. Een factuur heeft altijd precies een
+ * volgende stap; wie er drie naast elkaar zet, laat de lezer kiezen tussen
+ * dingen die elkaar uitsluiten.
+ *
+ * Wat hier NIET staat: afkeuren. Dat vraagt een reden, en een reden vraagt
+ * een venster -- dat hoort bij de factuur zelf en niet in een lijstregel.
+ */
+function Stap({ bon, nu }: { bon: Expense; nu: number }) {
+  const { user } = useAuth()
+  const [bezig, setBezig] = useState(false)
+  const stand = standVan(bon, nu)
+
+  if (!user) return null
+
+  /* --- goedkeuren: de eerste of de tweede handtekening --- */
+
+  if (stand === 'akkoord' || stand === 'tweede') {
+    /*
+     * Wie zelf de eerste zette mag de tweede niet zetten. De database
+     * bewaakt dat ook (0060/0096), maar een knop die je mag indrukken en
+     * daarna een foutmelding geeft is een slechte knop.
+     */
+    const zelfGeweest = stand === 'tweede' && bon.eersteDoor === user.id
+
+    return (
+      <Knop
+        klein
+        soort={zelfGeweest ? 'gewoon' : 'hoofd'}
+        disabled={bezig || zelfGeweest}
+        onClick={async () => {
+          setBezig(true)
+          try {
+            await expRepo.decide(bon.id, 'goedgekeurd', { id: user.id, name: user.name })
+            const na = (await db.expenses.get(bon.id))?.status
+            toast.ok(na === 'goedgekeurd'
+              ? 'Getekend. Deze kan naar Exact.'
+              : 'Eerste handtekening gezet; nu die van iemand anders.')
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Goedkeuren lukte niet.')
+          } finally {
+            setBezig(false)
+          }
+        }}
+        title={zelfGeweest
+          ? 'Je hebt deze factuur zelf nagekeken; de tweede handtekening moet van iemand anders komen'
+          : stand === 'akkoord'
+            ? 'Eerste goedkeuring zetten'
+            : `Tweede handtekening zetten${bon.eersteDoorNaam ? ` (${bon.eersteDoorNaam} ging voor)` : ''}`}
+      >
+        {stand === 'akkoord'
+          ? <><Check size={13} /> Goedkeuren</>
+          : <><CheckCheck size={13} /> Tweede</>}
+      </Knop>
+    )
+  }
+
+  /* --- en dan naar Exact --- */
+
+  if (stand === 'boeken' || stand === 'geweigerd') {
+    return (
+      <Knop
+        klein
+        soort={stand === 'boeken' ? 'hoofd' : 'gewoon'}
+        disabled={bezig}
+        onClick={async () => {
+          setBezig(true)
+          try {
+            const uit = await exactStuurFacturen(bon.id)
+            /*
+             * De bon wordt op de SERVER bijgewerkt, dus zonder een ronde
+             * synchroniseren blijft dit scherm de oude stand tonen en lijkt
+             * het of de knop niets deed.
+             */
+            scheduleFlush(0)
+            const mis = uit.mislukt2.find((m) => m.id === bon.id)
+            if (mis) toast.error(`Exact nam hem niet aan: ${mis.reden}`)
+            else if (uit.gelukt > 0) toast.ok('Geboekt in Exact.')
+            else toast.info('Er is niets verstuurd.')
+          } catch (e) {
+            /*
+             * Een weigering vooraf (nog niet compleet, staat uit) komt als
+             * fout terug met de reden erin. Die hoort hier te staan en niet
+             * in een logregel -- het is het antwoord op de knop die je net
+             * indrukte.
+             */
+            toast.error(e instanceof Error ? e.message : 'Versturen lukte niet.')
+          } finally {
+            setBezig(false)
+          }
+        }}
+        title={stand === 'geweigerd'
+          ? `Opnieuw proberen. Vorige keer: ${bon.exactFout ?? 'onbekend'}`
+          : 'Deze factuur nu in Exact boeken'}
+      >
+        <Send size={13} /> {stand === 'geweigerd' ? 'Opnieuw' : 'Naar Exact'}
+      </Knop>
+    )
+  }
+
+  return null
 }
 
 /* --------------------- Wat er aan een bon mankeert ----------------- */

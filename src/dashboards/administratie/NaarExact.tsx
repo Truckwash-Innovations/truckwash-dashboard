@@ -101,10 +101,41 @@ function Versturen({ na }: { na: () => void }) {
 
   useEffect(() => { void laad() }, [])
 
-  /* Klaar = alles compleet. Wat er mist staat per bon in de kaart hieronder;
-     hier gaat het alleen om het aantal dat werkelijk weg kan. */
-  const klaar = (stand?.wachtend ?? []).filter((b) => b.mist.length === 0)
-  const stuk = (stand?.wachtend ?? []).filter((b) => b.mist.length > 0)
+  /*
+   * Drie groepen, en dat was er een te weinig.
+   *
+   * Hiervoor stonden er twee: compleet (mist === []) en onvolledig. Een
+   * factuur die Exact al had GEWEIGERD viel in de eerste groep -- hij is
+   * immers compleet -- en werd dus meegeteld in "Nu versturen (N)", elke
+   * ronde opnieuw, met elke ronde dezelfde weigering. Er was geen verschil
+   * te zien tussen "nog nooit geprobeerd" en "drie keer vastgelopen".
+   *
+   * Dat is precies wat het andere scherm wél wist: de werklijst zet zo'n bon
+   * in het vak "Exact weigert". Twee schermen die hetzelfde anders zeggen is
+   * erger dan een scherm dat niets zegt.
+   */
+  const alles = stand?.wachtend ?? []
+  const klaar = alles.filter((b) => b.mist.length === 0 && !b.fout)
+  const vastgelopen = alles.filter((b) => b.mist.length === 0 && b.fout)
+  const stuk = alles.filter((b) => b.mist.length > 0)
+
+  /** Alleen deze ene opnieuw proberen. */
+  async function stuurEen(id: string) {
+    setBezig('sturen')
+    try {
+      const uit = await exactStuurFacturen(id)
+      setStand(uit)
+      const mis = uit.mislukt2.find((m) => m.id === id)
+      if (mis) toast.error(`Weer niet: ${mis.reden}`)
+      else if (uit.gelukt > 0) toast.ok('Alsnog geboekt in Exact.')
+      else toast.info('Er ging niets weg.')
+      na()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Versturen lukte niet.')
+    } finally {
+      setBezig('')
+    }
+  }
 
   async function stuur() {
     setBezig('sturen')
@@ -112,8 +143,20 @@ function Versturen({ na }: { na: () => void }) {
       const uit = await exactStuurFacturen()
       setStand(uit)
       if (uit.mislukt2.length > 0) {
+        /*
+         * Hier stond "De reden staat hieronder bij de factuur", en dat was
+         * niet waar: de kaart eronder komt uit bon_niet_boekbaar() en toont
+         * alleen ontbrekende gegevens, geen weigeringen. De reden stond
+         * nergens op dit scherm.
+         *
+         * Nu staat de eerste reden in de melding zelf, en de rest in de
+         * kaart "Vastgelopen bij Exact" die daar wel voor bedoeld is.
+         */
+        const eerste = uit.mislukt2[0]
         toast.error(`${uit.gelukt} verstuurd, ${uit.mislukt2.length} vastgelopen. `
-          + 'De reden staat hieronder bij de factuur.')
+          + (uit.mislukt2.length === 1
+            ? `Exact zei: ${eerste.reden}`
+            : `Bijvoorbeeld: ${eerste.reden}. De rest staat bij Vastgelopen bij Exact.`))
       } else if (uit.gelukt === 0) {
         toast.info('Er ging niets weg.')
       } else {
@@ -217,7 +260,9 @@ function Versturen({ na }: { na: () => void }) {
             )}
 
             <span className="ts-sub" style={{ flex: 1, textAlign: 'right' }}>
-              {klaar.length} klaar &middot; {stuk.length} blokkeert &middot; {stand.verstuurd} eerder doorgekomen
+              {klaar.length} klaar &middot; {stuk.length} blokkeert
+              {vastgelopen.length > 0 && <> &middot; {vastgelopen.length} vastgelopen</>}
+              {' '}&middot; {stand.verstuurd} eerder doorgekomen
             </span>
           </div>
         )}
@@ -241,10 +286,68 @@ function Versturen({ na }: { na: () => void }) {
           </p>
         )}
 
-        {stand?.aan && klaar.length === 0 && stuk.length === 0 && (
+        {stand?.aan && klaar.length === 0 && stuk.length === 0 && vastgelopen.length === 0 && (
           <p className="ts-sub" style={{ marginTop: 8 }}>
             Er is niets goedgekeurd dat nog niet in Exact staat.
           </p>
+        )}
+
+        {/* ------------------------------------------------------------ *
+          *  Wat Exact terugstuurde
+          *
+          *  Casper: "kon hij niet versturen de melding er netjes in zetten."
+          *
+          *  De reden stond al in expenses.exact_fout en kwam al mee in de
+          *  stand, maar werd op dit scherm alleen geteld in een melding die
+          *  na drie seconden weg was. De kaart die er wél stond ("Wat er nog
+          *  blokkeert") komt uit een andere vraag -- die gaat over
+          *  ontbrekende gegevens, niet over weigeringen -- dus een
+          *  vastgelopen factuur kwam daar nooit in.
+          *
+          *  Hier staat hij nu, met de reden en een knop om alleen die ene
+          *  opnieuw te proberen. Dat laatste kon hiervoor helemaal niet: er
+          *  was alleen "stuur alles".
+          * ------------------------------------------------------------ */}
+        {vastgelopen.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <h4 style={{ margin: '0 0 6px', fontSize: 'var(--fs-klein)' }}>
+              Vastgelopen bij Exact ({vastgelopen.length})
+            </h4>
+            <p className="ts-sub" style={{ margin: '0 0 8px' }}>
+              Deze zijn compleet, maar Exact nam ze niet aan. Ze tellen niet mee
+              in Nu versturen — anders lopen ze elke ronde opnieuw vast.
+            </p>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Leverancier</th>
+                    <th style={{ width: 110 }}>Factuurnr.</th>
+                    <th>Wat Exact zei</th>
+                    <th style={{ width: 120 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {vastgelopen.map((b) => (
+                    <tr key={b.id}>
+                      <td className="afgekapt">{b.leverancier || '—'}</td>
+                      <td className="mono">{b.factuurnummer || '—'}</td>
+                      <td style={{ color: 'var(--warn)' }}>{b.fout}</td>
+                      <td>
+                        <button
+                          className="btn ghost sm"
+                          disabled={bezig !== ''}
+                          onClick={() => void stuurEen(b.id)}
+                        >
+                          Opnieuw
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </Card>
 

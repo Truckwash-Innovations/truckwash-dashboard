@@ -1447,13 +1447,19 @@ export async function exactSyncRelaties(): Promise<
   }
 }
 
-/** Nu versturen. Weigert zolang de schakelaar uit staat. */
-export async function exactStuurFacturen(): Promise<
+/**
+ * Nu versturen. Weigert zolang de schakelaar uit staat.
+ *
+ * Met een id gaat er precies één factuur, en dan ook een die eerder is
+ * vastgelopen -- dat is wat de knop bij de bon zelf nodig heeft. Zonder id
+ * de hele stapel, hoogstens 25 per ronde, zoals de knop op Boekhouding doet.
+ */
+export async function exactStuurFacturen(id?: string): Promise<
   FacturenStand & { gelukt: number; mislukt2: { id: string; reden: string }[] }
 > {
   const uit = await roepFunctie<
     FacturenStand & { gelukt?: number; mislukt?: { id: string; reden: string }[] }
-  >('exact', { actie: 'stuur-facturen' })
+  >('exact', id ? { actie: 'stuur-facturen', id } : { actie: 'stuur-facturen' })
   return {
     ...alsFacturen(uit),
     gelukt: uit.gelukt ?? 0,
