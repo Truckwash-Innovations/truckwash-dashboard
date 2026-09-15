@@ -25,7 +25,7 @@
  *  van de beller, omdat elke functie de zijne heeft.
  * =========================================================================== */
 
-import type { Lezing } from './factuurlezer.ts'
+import { opschonen, type Lezing } from './factuurlezer.ts'
 
 type Willekeurig = Record<string, unknown>
 
@@ -632,6 +632,53 @@ export async function twijfelErbij(admin: any, expenseId: string, lezing: Lezing
     .update({ gelezen: { ...lezing, twijfel: [...lezing.twijfel, zin] } })
     .eq('id', expenseId)
   if (error) console.warn('[verwerking] twijfel bijschrijven: ' + error.message)
+}
+
+/* ------------------------------------------------------------------ *
+ *  Het lezen is mislukt
+ *
+ *  Casper: "de ai lukt het steeds vaker niet, hij pakt de pdf facturen
+ *  steeds niet."
+ *
+ *  Dat "steeds niet" was hiervoor letterlijk onzichtbaar. Als de pc thuis het
+ *  opgaf werd dat netjes vastgelegd -- lees_status mislukt, de reden bij de
+ *  twijfel, een badge in het scherm (0049). Maar als CLAUDE het opgaf, in de
+ *  post, gebeurde er dit:
+ *
+ *      console.warn('[ontvang-mail] niet gelezen: ' + uit.reden)
+ *
+ *  Een logregel op een server. De bon kwam gewoon leeg in de rij te staan, en
+ *  van buiten was niet te zien of hij nog gelezen moest worden, of dat het al
+ *  geprobeerd was en mislukt. Vandaar de indruk dat "de ai het steeds vaker
+ *  niet lukt": het lukte soms al langer niet, alleen zei niemand het.
+ *
+ *  Nu gaat elke lezer langs dezelfde deur, en die deur schrijft het op.
+ * ------------------------------------------------------------------ */
+
+// deno-lint-ignore no-explicit-any
+export async function markeerLezenMislukt(admin: any, opties: {
+  expenseId: string
+  reden: string
+  /** Wie het probeerde: 'claude', 'claude (terugval)', 'lokaal: <model>'. */
+  doorWie: string
+  model: string
+  /** Een bestaande lezing, als die er al was; anders een lege. */
+  gelezen?: Lezing | null
+  bestand?: string
+}): Promise<void> {
+  const { expenseId, reden, doorWie, model } = opties
+
+  const { error } = await admin
+    .from('expenses')
+    .update({ lees_status: 'mislukt', lezer: doorWie })
+    .eq('id', expenseId)
+  if (error) console.warn('[verwerking] lees_status mislukt zetten: ' + error.message)
+
+  const lezing = opties.gelezen
+    ?? opschonen({}, { doorWie, bestand: opties.bestand ?? '', model })
+  await twijfelErbij(admin, expenseId, lezing, reden)
+
+  console.log(`[verwerking] ${expenseId} niet gelezen (${doorWie}): ${reden}`)
 }
 
 /**

@@ -71,7 +71,7 @@ import {
   SYSTEEM,
   type Lezing,
 } from '../_gedeeld/factuurlezer.ts'
-import { twijfelErbij, verwerkLezing } from '../_gedeeld/verwerking.ts'
+import { markeerLezenMislukt, verwerkLezing } from '../_gedeeld/verwerking.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -242,15 +242,18 @@ async function zetStatus(expenseId: string, status: 'bezig' | 'klaar' | 'mislukt
  * De bon op "mislukt" zetten en de reden bij de lezing schrijven.
  *
  * Is er nog geen lezing -- de pc viel om vóór het model iets teruggaf -- dan
- * komt er een lege, via opschonen() zodat hij dezelfde vorm heeft als elke
- * andere lezing. Anders zou de app een bon zien met een reden maar zonder
- * het kader waar die reden in hoort.
+ * komt er een lege, zodat hij dezelfde vorm heeft als elke andere lezing.
+ * Anders zou de app een bon zien met een reden maar zonder het kader waar
+ * die reden in hoort.
+ *
+ * Het werk zelf staat in verwerking.ts, want de post moest
+ * hetzelfde gaan doen en deed dat niet: de pc legde een mislukking netjes
+ * vast, Claude in de post schreef een logregel en verder niets.
  */
 async function markeerMislukt(bon: Bon, reden: string, doorWie: string, model: string) {
-  await zetStatus(bon.id, 'mislukt')
-  const lezing = bon.gelezen ?? opschonen({}, { doorWie, bestand: '', model })
-  await twijfelErbij(admin, bon.id, lezing, reden)
-  console.log(`[lezer] ${bon.id} mislukt: ${reden}`)
+  await markeerLezenMislukt(admin, {
+    expenseId: bon.id, reden, doorWie, model, gelezen: bon.gelezen ?? null,
+  })
 }
 
 /* ------------------------------------------------------------------ *

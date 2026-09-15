@@ -37,6 +37,128 @@ const MAX_BESTAND = 12 * 1024 * 1024
 const nu = () => Date.now()
 
 /* ------------------------------------------------------------------ *
+ *  Niet opgeven bij een hik
+ *
+ *  Casper: "de ai lukt het steeds vaker niet, hij pakt de pdf facturen
+ *  steeds niet."
+ *
+ *  Hier stond geen enkele herkansing. Eén hik -- de leesdienst even druk,
+ *  een verbinding die wegviel -- en de factuur bleef ongelezen liggen. Bij
+ *  een handmatige poging zie je dat en druk je nog eens; bij de post zag
+ *  niemand het, want daar ging de reden in een logregel die nooit iemand
+ *  opent.
+ *
+ *  Welke statussen tijdelijk zijn staat niet op gevoel maar in de
+ *  documentatie van de API (platform.claude.com/docs/en/api/errors):
+ *
+ *    429  te veel verzoeken        de retry-after kop zegt hoe lang
+ *    500  fout aan hun kant        "retry with exponential backoff"
+ *    502/503/504                   onderweg blijven steken
+ *    529  overbelast               tijdelijk te druk
+ *
+ *  En wat NIET tijdelijk is: 400 (het stuk deugt niet), 413 (te groot, meer
+ *  dan 32 MB), 401/403 (de sleutel). Die blijven morgen ook fout, en dan is
+ *  het opnieuw proberen alleen geld en wachttijd.
+ * ------------------------------------------------------------------ */
+
+const OPNIEUW_BIJ = [429, 500, 502, 503, 504, 529]
+const POGINGEN = 3
+/* Een minuut per poging. Langer heeft geen zin: de functie zelf heeft ook
+   een bovengrens, en drie keer vastlopen kost dan meer dan het oplevert. */
+const GEDULD_MS = 60_000
+
+const wacht = (ms: number) => new Promise((klaar) => setTimeout(klaar, ms))
+
+/**
+ * Hoe lang wachten voor de volgende poging.
+ *
+ * De kop retry-after gaat voor: die komt van de dienst zelf en weet meer dan
+ * wij. Staat hij er niet, dan verdubbelend vanaf een seconde, met een beetje
+ * ruis erop -- anders komen twee facturen die tegelijk binnenkwamen ook weer
+ * precies tegelijk terug, en dan lopen ze samen opnieuw tegen dezelfde muur.
+ */
+function hoelangWachten(res: Response | null, poging: number): number {
+  const kop = res?.headers.get('retry-after')
+  const seconden = kop ? Number(kop) : NaN
+  if (Number.isFinite(seconden) && seconden > 0) {
+    return Math.min(seconden * 1000, 30_000)
+  }
+  return Math.min(1000 * 2 ** (poging - 1), 8000) + Math.floor(Math.random() * 400)
+}
+
+interface Mislukking {
+  reden: string
+  tijdelijk: boolean
+  /** Het antwoord zelf, alleen om er retry-after uit te kunnen lezen. */
+  res: Response | null
+}
+
+/**
+ * Wat een status betekent, in een zin die een mens iets zegt.
+ *
+ * Dit stond er eerst niet: alles behalve een bestandstypefout werd "De
+ * leesdienst gaf geen antwoord. Probeer het straks nog eens." Daarmee zag
+ * een te grote bijlage er precies hetzelfde uit als een drukke dienst en een
+ * verlopen sleutel, en die drie vragen om iets heel anders.
+ */
+function duidingVan(status: number, detail: string): Mislukking {
+  const tijdelijk = OPNIEUW_BIJ.includes(status)
+
+  if (status === 413 || /request_too_large/i.test(detail)) {
+    return {
+      res: null, tijdelijk: false,
+      reden: 'Deze bijlage is te groot voor de leesdienst (meer dan 32 MB in '
+           + 'één verzoek). Stuur een kleiner bestand of een foto.',
+    }
+  }
+  if (status === 401 || status === 403) {
+    return {
+      res: null, tijdelijk: false,
+      reden: 'De leesdienst weigert de sleutel (ANTHROPIC_API_KEY). Die is '
+           + 'verlopen of ingetrokken; zonder nieuwe sleutel wordt er niets '
+           + 'meer gelezen.',
+    }
+  }
+  if (status === 402) {
+    return {
+      res: null, tijdelijk: false,
+      reden: 'De leesdienst meldt een betalingsprobleem op het account. Tot '
+           + 'dat is opgelost wordt er niets gelezen.',
+    }
+  }
+  if (status === 400 && /media_type|document|encrypted|password/i.test(detail)) {
+    return {
+      res: null, tijdelijk: false,
+      reden: 'Dit bestand kan niet worden gelezen. Een PDF met een wachtwoord '
+           + 'of een onbekend bestandstype gaat niet; PDF en foto’s wel.',
+    }
+  }
+  if (status === 400) {
+    return {
+      res: null, tijdelijk: false,
+      reden: 'De leesdienst wees het stuk af. Vaak is het te lang '
+           + '(meer dan honderd bladzijden) of geen gewone PDF.',
+    }
+  }
+  if (status === 429) {
+    return {
+      res: null, tijdelijk: true,
+      reden: 'Er zijn te veel facturen tegelijk aangeboden; de leesdienst '
+           + 'houdt even de rem erop.',
+    }
+  }
+  if (status === 529) {
+    return { res: null, tijdelijk: true, reden: 'De leesdienst is overbelast.' }
+  }
+
+  return {
+    res: null,
+    tijdelijk,
+    reden: `De leesdienst gaf ${status} terug.`,
+  }
+}
+
+/* ------------------------------------------------------------------ *
  *  Het bestand
  * ------------------------------------------------------------------ */
 
@@ -362,6 +484,15 @@ export interface Uitkomst {
   lezing?: Lezing
   reden?: string
   bewaard?: boolean
+  /**
+   * Lag het aan het moment en niet aan het stuk?
+   *
+   * Een factuur die te groot is blijft morgen te groot; een factuur die niet
+   * gelezen werd omdat de leesdienst het even druk had, is morgen gewoon te
+   * lezen. Dat verschil bepaalt of het zin heeft om het nog eens te proberen,
+   * en dus of dit een probleem van de bon is of van de dag.
+   */
+  tijdelijk?: boolean
 }
 
 /* ------------------------------------------------------------------ *
@@ -553,6 +684,7 @@ export async function leesFactuur(opties: {
   if (!ANTHROPIC_KEY) {
     return {
       ok: false,
+      tijdelijk: false,
       reden: 'De leesdienst is nog niet ingesteld. Zet ANTHROPIC_API_KEY als ' +
              'geheim bij de functies.',
     }
@@ -582,6 +714,7 @@ export async function leesFactuur(opties: {
   if (!gekozen) {
     return {
       ok: false,
+      tijdelijk: false,
       reden: gevraagd
         ? 'Dat bestand hoort niet bij deze kostenpost.'
         : 'Bij deze kostenpost zit geen bijlage om te lezen.',
@@ -592,11 +725,12 @@ export async function leesFactuur(opties: {
 
   const { data: bestand, error: haalFout } = await admin.storage.from(EMMER).download(gekozen.pad)
   if (haalFout || !bestand) {
-    return { ok: false, reden: 'De bijlage is niet op te halen.' }
+    return { ok: false, tijdelijk: true, reden: 'De bijlage is niet op te halen.' }
   }
   if (bestand.size > MAX_BESTAND) {
     return {
       ok: false,
+      tijdelijk: false,
       reden: `Deze bijlage is ${Math.round(bestand.size / 1024 / 1024)} MB en dat is ` +
              'te groot om te laten lezen. Stuur een kleiner bestand of een foto ' +
              'van de factuur.',
@@ -612,54 +746,104 @@ export async function leesFactuur(opties: {
 
   /* ---- lezen ---- */
 
-  let uit: Record<string, unknown> | null = null
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 4000,
-        system: SYSTEEM,
-        messages: [{
-          role: 'user',
-          content: [
-            blok,
-            { type: 'text', text: 'Lees dit stuk en geef de JSON terug.' },
-          ],
-        }],
-      }),
-    })
+  const verzoek = JSON.stringify({
+    model: MODEL,
+    max_tokens: 4000,
+    system: SYSTEEM,
+    messages: [{
+      role: 'user',
+      content: [
+        blok,
+        { type: 'text', text: 'Lees dit stuk en geef de JSON terug.' },
+      ],
+    }],
+  })
 
-    if (!res.ok) {
-      const detail = await res.text()
-      console.error(`[factuurlezer] Anthropic gaf ${res.status}: ${detail}`)
-      return {
-        ok: false,
-        reden: res.status === 400 && /media_type|document/i.test(detail)
-          ? 'Dit bestandstype kan niet worden gelezen. PDF en foto’s wel.'
-          : 'De leesdienst gaf geen antwoord. Probeer het straks nog eens.',
-      }
+  let uit: Record<string, unknown> | null = null
+  let gelukt = false
+  let mis: Mislukking = {
+    reden: 'De leesdienst gaf geen antwoord.', tijdelijk: true, res: null,
+  }
+
+  for (let poging = 1; poging <= POGINGEN; poging++) {
+    if (poging > 1) {
+      const pauze = hoelangWachten(mis.res, poging - 1)
+      console.log(
+        `[factuurlezer] ${expenseId} poging ${poging} van ${POGINGEN} over ${pauze} ms ` +
+        `(${mis.reden})`)
+      await wacht(pauze)
     }
 
-    const antwoord = await res.json()
-    const platte = (antwoord?.content ?? [])
-      .filter((c: { type?: string }) => c?.type === 'text')
-      .map((c: { text?: string }) => c.text ?? '')
-      .join('')
-    uit = leesJson(platte)
-  } catch (e) {
-    console.error('[factuurlezer] ' + String(e))
-    return { ok: false, reden: 'De leesdienst gaf geen antwoord.' }
+    /*
+     * Een eigen tijdslimiet. Zonder deze kan een verbinding die blijft hangen
+     * de hele functie opeten, en dan valt de worker om (546) in plaats van
+     * dat er een nette reden uit komt.
+     */
+    const stop = new AbortController()
+    const wekker = setTimeout(() => stop.abort(), GEDULD_MS)
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: stop.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: verzoek,
+      })
+
+      if (!res.ok) {
+        const detail = await res.text()
+        console.error(`[factuurlezer] Anthropic gaf ${res.status}: ${detail}`)
+        mis = { ...duidingVan(res.status, detail), res }
+        /* Blijvend? Dan is nog een poging alleen wachttijd en geld. */
+        if (!mis.tijdelijk) return { ok: false, reden: mis.reden, tijdelijk: false }
+        continue
+      }
+
+      const antwoord = await res.json()
+      const platte = (antwoord?.content ?? [])
+        .filter((c: { type?: string }) => c?.type === 'text')
+        .map((c: { text?: string }) => c.text ?? '')
+        .join('')
+      uit = leesJson(platte)
+      gelukt = true
+      break
+    } catch (e) {
+      const afgebroken = e instanceof Error && e.name === 'AbortError'
+      console.error('[factuurlezer] ' + String(e))
+      mis = {
+        res: null,
+        tijdelijk: true,
+        reden: afgebroken
+          ? `De leesdienst deed er langer dan ${GEDULD_MS / 1000} seconden over.`
+          : 'De leesdienst was niet te bereiken.',
+      }
+    } finally {
+      clearTimeout(wekker)
+    }
+  }
+
+  /*
+   * Twee verschillende mislukkingen, en ze vragen om iets anders van wie het
+   * leest. Geen antwoord gekregen gaat over de dienst -- morgen weer
+   * proberen. Wel een antwoord maar er stond geen JSON in, gaat over het
+   * stuk: dan helpt een rechtere foto en een herkansing niet.
+   */
+  if (!gelukt) {
+    return {
+      ok: false,
+      tijdelijk: true,
+      reden: `${mis.reden} Na ${POGINGEN} pogingen opgegeven.`,
+    }
   }
 
   if (!uit) {
     return {
       ok: false,
+      tijdelijk: false,
       reden: 'Er kwam geen leesbaar antwoord uit. Dit gebeurt bij scans die ' +
              'te onscherp zijn; een rechtere foto helpt meestal.',
     }

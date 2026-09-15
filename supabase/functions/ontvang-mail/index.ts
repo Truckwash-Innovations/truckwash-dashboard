@@ -22,8 +22,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { controleerBijlage, lijktEchtOp } from './controle.ts'
-import { leesFactuur } from '../_gedeeld/factuurlezer.ts'
-import { meldManagement, verwerkLezing } from '../_gedeeld/verwerking.ts'
+import { leesFactuur, MODEL } from '../_gedeeld/factuurlezer.ts'
+import { markeerLezenMislukt, meldManagement, verwerkLezing } from '../_gedeeld/verwerking.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -676,7 +676,25 @@ async function boekAutomatisch(
 
   const uit = await leesFactuur({ admin, expenseId, pad, doorWie: 'de post' })
   if (!uit.ok || !uit.lezing) {
-    console.warn('[ontvang-mail] niet gelezen: ' + (uit.reden ?? 'onbekend'))
+    /*
+     * Hier stond alleen een console.warn. Daarmee kwam de bon leeg in
+     * de rij te staan zonder dat ergens te zien was dat het lezen geprobeerd
+     * en mislukt was -- en dat is precies wat "de ai lukt het steeds vaker
+     * niet" van buiten oplevert: geen fout, geen melding, een lege bon.
+     *
+     * De reden erbij, zodat er iets te doen valt: te groot is een ander
+     * probleem dan een verlopen sleutel, en dat is weer iets anders dan een
+     * drukke leesdienst.
+     */
+    await markeerLezenMislukt(admin, {
+      expenseId,
+      reden: uit.tijdelijk
+        ? `${uit.reden ?? 'Onbekende fout'} Dit lag aan het moment en niet aan `
+          + 'de factuur; met Opnieuw lezen lukt het waarschijnlijk wel.'
+        : (uit.reden ?? 'Onbekende fout'),
+      doorWie: 'claude',
+      model: MODEL,
+    })
     return
   }
 

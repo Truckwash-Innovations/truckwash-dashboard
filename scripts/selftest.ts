@@ -11406,5 +11406,125 @@ console.log('\n92. Een vestiging hoort bij de bv die zo heet')
     'de reden blijft in de database hangen')
 }
 
+/* ==================================================================== *
+ *  93. Het lezen geeft niet op bij een hik, en zegt wat er misging
+ *
+ *  Casper: "de ai lukt het steeds vaker niet? hij pakt de pdf facturen
+ *  steeds niet."
+ *
+ *  Twee dingen zaten fout, en samen maakten ze precies dit beeld.
+ *
+ *  Er stond geen enkele herkansing. Eén verzoek naar de leesdienst; kwam
+ *  daar 429 (te druk) of 529 (overbelast) uit, of viel de verbinding weg,
+ *  dan was de factuur klaar. Terwijl dat juist de fouten zijn die vanzelf
+ *  overgaan -- de documentatie zegt er letterlijk bij: retry with
+ *  exponential backoff.
+ *
+ *  En in de automatische route werd de reden weggegooid:
+ *
+ *      console.warn('[ontvang-mail] niet gelezen: ' + uit.reden)
+ *
+ *  Een logregel op een server. De bon kwam leeg in de rij te staan en van
+ *  buiten was niet te zien of hij nog gelezen moest worden of dat het al
+ *  geprobeerd en mislukt was. Daarom LEEK het steeds vaker mis te gaan: het
+ *  ging al langer soms mis, alleen zei niemand het.
+ * ==================================================================== */
+
+console.log('\n93. Het lezen geeft niet op bij een hik')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const lezer = readFileSync('supabase/functions/_gedeeld/factuurlezer.ts', 'utf8')
+  const verw = readFileSync('supabase/functions/_gedeeld/verwerking.ts', 'utf8')
+  const post = readFileSync('supabase/functions/ontvang-mail/index.ts', 'utf8')
+  const pc = readFileSync('supabase/functions/lezer/index.ts', 'utf8')
+
+  /* --- 1. niet opgeven bij een hik --- */
+
+  check('het lezen wordt opnieuw geprobeerd',
+    /for \(let poging = 1; poging <= POGINGEN; poging\+\+\)/.test(lezer),
+    'één mislukt verzoek is meteen een ongelezen factuur')
+
+  /*
+   * Welke statussen tijdelijk zijn is nagekeken bij de API zelf en niet
+   * bedacht: 429, 500, 502, 503, 504 en 529. Een lijst die ook 400 of 413
+   * bevat maakt het erger -- dan wordt een te grote bijlage drie keer
+   * aangeboden en drie keer geweigerd.
+   */
+  check('alleen bij fouten die vanzelf overgaan',
+    /const OPNIEUW_BIJ = \[429, 500, 502, 503, 504, 529\]/.test(lezer),
+    'de lijst met te herhalen statussen klopt niet')
+
+  check('en niet bij een fout die morgen ook fout is',
+    /if \(!mis\.tijdelijk\) return \{ ok: false/.test(lezer),
+    'een te grote bijlage wordt net zo vaak opnieuw aangeboden')
+
+  /* Wachten voordat je het opnieuw vraagt, en luisteren als de dienst zelf
+     zegt hoe lang. Meteen opnieuw vragen bij 429 maakt de rem alleen erger. */
+  check('met wachttijd ertussen, en retry-after gaat voor',
+    lezer.includes("headers.get('retry-after')") && /2 \*\* \(poging - 1\)/.test(lezer),
+    'er wordt meteen opnieuw gevraagd, of de retry-after wordt genegeerd')
+
+  /*
+   * Een verbinding die blijft hangen mag de functie niet opeten. Zonder
+   * bovengrens valt de worker om (546) in plaats van dat er een nette reden
+   * uit komt -- en dan staat er nergens iets.
+   */
+  check('en een verbinding die hangt wordt afgekapt',
+    lezer.includes('new AbortController()') && lezer.includes('stop.abort()'),
+    'een hangende verbinding kan de hele functie opeten')
+
+  /* --- 2. de reden is bruikbaar --- */
+
+  /*
+   * Hiervoor werd alles behalve een bestandstypefout "De leesdienst gaf geen
+   * antwoord". Daarmee zag een verlopen sleutel er hetzelfde uit als een
+   * drukke dienst, terwijl het ene een half jaar stilstand betekent en het
+   * andere vijf minuten.
+   */
+  check('en een 401 is iets anders dan een 429',
+    /status === 401 \|\| status === 403/.test(lezer)
+      && lezer.includes('ANTHROPIC_API_KEY')
+      && /status === 429/.test(lezer),
+    'elke fout krijgt nog dezelfde zin')
+
+  check('een bon weet of het aan het moment lag of aan het stuk',
+    /tijdelijk\?: boolean/.test(lezer),
+    'de beller kan niet zien of het zin heeft om het nog eens te proberen')
+
+  /* --- 3. een mislukking is zichtbaar --- */
+
+  check('een mislukte lezing wordt vastgelegd',
+    verw.includes('export async function markeerLezenMislukt'),
+    'er is geen gedeelde plek die een mislukking opschrijft')
+
+  /*
+   * En de post gebruikt hem ook. Dat was het hele gat: de pc thuis legde een
+   * mislukking netjes vast (0049), Claude in de post schreef een logregel.
+   */
+  check('en de post gebruikt hem, niet alleen de pc',
+    post.includes('markeerLezenMislukt') && pc.includes('markeerLezenMislukt'),
+    'de automatische route gooit de reden nog steeds weg')
+
+  check('de console.warn die de reden weggooide is weg',
+    !/console\.warn\('\[ontvang-mail\] niet gelezen/.test(post),
+    'de reden verdwijnt nog in een logregel')
+
+  /*
+   * Zichtbaar betekent: lees_status mislukt, want daar hangt de badge in
+   * Kostenposten en de stand "vastgelopen" in de werklijst aan (0049). Een
+   * eigen veld erbij verzinnen zou een tweede waarheid zijn.
+   */
+  check('via de stand waar het scherm al naar kijkt',
+    /lees_status: 'mislukt'/.test(verw),
+    'de mislukking komt niet in de stand die het scherm leest')
+
+  /* En bij een tijdelijke fout hoort erbij te staan dat opnieuw proberen
+     zin heeft -- anders gaat iemand een goede factuur overtikken. */
+  check('en bij een tijdelijke fout staat erbij dat opnieuw zin heeft',
+    /uit\.tijdelijk/.test(post) && post.includes('Opnieuw lezen'),
+    'bij een drukke leesdienst lijkt de factuur onleesbaar')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
