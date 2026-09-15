@@ -10970,5 +10970,90 @@ console.log('\n88. Een rekeningnummer met een cijfer ernaast')
     'een gewijzigd rekeningnummer gebeurt stil')
 }
 
+/* ==================================================================== *
+ *  89. De nummers op de proeffacturen moeten de proef doorstaan
+ *
+ *  Casper: "maar het zijn je eigen test facturen? fix dat dan."
+ *
+ *  Hij liep vast bij het betalen. De factuur van Gemeente Venlo droeg
+ *  NL55BNGH0285000122, dat doorstaat de elfproef niet, de SEPA-bouwer sloeg
+ *  hem over en er bleef niets over voor het bestand. Ik had aangenomen dat de
+ *  lezer er een cijfer naast zat -- maar het nummer stond zo in
+ *  src/lib/testfacturen.ts. Verzonnen, en nooit nagerekend.
+ *
+ *  Drie van de vijf IBAN's waren fout, en één van de twee btw-nummers.
+ *
+ *  Verzonnen gegevens horen op een proeffactuur; verzonnen gegevens die de
+ *  controles niet doorstaan niet. Dan test je de foutmelding in plaats van de
+ *  keten -- en je jaagt een middag op een fout die je zelf hebt neergezet.
+ *
+ *  Deze controle rekent ze alle vier na, uit het bestand zelf. Wie er een
+ *  toevoegt komt er meteen achter.
+ * ==================================================================== */
+
+console.log('\n89. De nummers op de proeffacturen')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const { ibanKlopt } = await import('../src/lib/boeking')
+  const bron = readFileSync('src/lib/testfacturen.ts', 'utf8')
+
+  /* Uit het bestand halen en niet overtypen: een lijst die je hier herhaalt
+     is een lijst die uit de pas gaat lopen zodra er een factuur bij komt. */
+  const ibans = [...bron.matchAll(/iban: '([^']+)'/g)].map((m) => m[1])
+  const btws = [...bron.matchAll(/btwNummer: '([^']+)'/g)].map((m) => m[1])
+  const kvks = [...bron.matchAll(/kvk: '([^']+)'/g)].map((m) => m[1])
+
+  check('er staan rekeningnummers op de proeffacturen',
+    ibans.length >= 4, `${ibans.length} gevonden`)
+
+  const slechteIban = ibans.filter((i) => !ibanKlopt(i))
+  check('en ze doorstaan allemaal de elfproef',
+    slechteIban.length === 0,
+    slechteIban.join(', '))
+
+  /*
+   * De elfproef op een Nederlands btw-nummer: NL, negen cijfers, B, twee
+   * cijfers. De eerste acht cijfers maal 9..2, min het negende, moet deelbaar
+   * zijn door 11. Hier uitgeschreven en niet uit een bibliotheek: het is drie
+   * regels, en dan staat er wat er gecontroleerd wordt.
+   */
+  const btwKlopt = (nr: string) => {
+    const m = /^NL(\d{9})B\d{2}$/.exec(nr.replace(/\s/g, '').toUpperCase())
+    if (!m) return false
+    const d = m[1].split('').map(Number)
+    let som = 0
+    for (let i = 0; i < 8; i++) som += d[i] * (9 - i)
+    return (som - d[8]) % 11 === 0
+  }
+
+  const slechteBtw = btws.filter((b) => !btwKlopt(b))
+  check('de btw-nummers ook',
+    btws.length > 0 && slechteBtw.length === 0,
+    slechteBtw.join(', ') || 'geen btw-nummer op de proeffacturen')
+
+  /* Een KvK-nummer heeft geen controlecijfer; acht cijfers is alles wat
+     erover te zeggen valt. Dat staat hier zodat niemand er later een
+     elfproef op gaat zoeken die niet bestaat. */
+  const slechteKvk = kvks.filter((k) => !/^\d{8}$/.test(k.replace(/\s/g, '')))
+  check('en een KvK-nummer is acht cijfers',
+    slechteKvk.length === 0,
+    slechteKvk.join(', '))
+
+  /*
+   * En het nummer waar hij op vastliep staat er niet meer. Met naam genoemd,
+   * want dit is het geval dat de regel opleverde -- een controle die alleen
+   * "alles klopt" zegt, zegt niet waarom hij er staat.
+   */
+  /*
+   * Naar de GEGEVENS kijken en niet naar het bestand. De eerste versie zocht
+   * in de hele tekst en sloeg aan op de uitleg bovenaan, waar dat nummer met
+   * zoveel woorden staat als voorbeeld -- dezelfde val als bij groep 76.
+   */
+  check('het nummer waarop hij vastliep staat er niet meer op een factuur',
+    !ibans.some((i) => i.replace(/\s/g, '') === 'NL55BNGH0285000122'),
+    'NL55BNGH0285000122 staat nog op een proeffactuur')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

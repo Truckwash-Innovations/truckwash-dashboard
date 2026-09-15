@@ -27,6 +27,24 @@
  *  aan de lezer niet meer past bij waar hij op wordt getest. Hier staat de
  *  INHOUD, en het papier wordt er elke keer vers van gemaakt -- met dezelfde
  *  schrijver die ook een gewoon document maakt (pdfmaken.ts).
+ *
+ *  De nummers moeten de proef doorstaan
+ *  ------------------------------------
+ *
+ *  Casper: "maar het zijn je eigen test facturen? fix dat dan."
+ *
+ *  Hij liep vast bij het betalen: er kon geen bestand gemaakt worden omdat de
+ *  factuur van Gemeente Venlo NL55BNGH0285000122 droeg, en dat nummer
+ *  doorstaat de elfproef niet. Dat was geen misgelezen cijfer maar een cijfer
+ *  dat ik hier heb verzonnen -- en hetzelfde gold voor twee andere IBAN's en
+ *  een btw-nummer.
+ *
+ *  Verzonnen gegevens horen hier; verzonnen gegevens die de controles niet
+ *  doorstaan niet. Dan test je de foutmelding in plaats van de keten, en jaag
+ *  je een middag op iets wat je zelf hebt neergezet.
+ *
+ *  Zelftest 89 rekent elk nummer in dit bestand na. Wie er een toevoegt komt
+ *  daar meteen achter, en niet pas als de bank een bestand weigert.
  * ------------------------------------------------------------------ */
 
 import { maakPdf } from './pdfmaken'
@@ -112,7 +130,7 @@ export const TESTFACTUREN: Testfactuur[] = [
     btwPct: 21,
     btw: '59,85',
     totaal: '344,85',
-    iban: 'NL02 RABO 0132 4578 91',
+    iban: 'NL07 RABO 0132 4578 91',
   },
   {
     sleutel: 'laag-tarief',
@@ -132,7 +150,7 @@ export const TESTFACTUREN: Testfactuur[] = [
     btwPct: 9,
     btw: '55,08',
     totaal: '667,08',
-    iban: 'NL18 INGB 0000 0001 23',
+    iban: 'NL32 INGB 0000 0001 23',
     kvk: '05083588',
   },
   {
@@ -153,7 +171,7 @@ export const TESTFACTUREN: Testfactuur[] = [
     btwPct: 0,
     btw: '0,00',
     totaal: '3.240,00',
-    iban: 'NL55 BNGH 0285 0001 22',
+    iban: 'NL65 BNGH 0285 0001 22',
   },
   {
     sleutel: 'eigen-verkoop',
@@ -179,7 +197,7 @@ export const TESTFACTUREN: Testfactuur[] = [
     totaal: '1.633,50',
     iban: 'NL24 INGB 0106 7276 21',
     kvk: '63451209',
-    btwNummer: 'NL855142093B01',
+    btwNummer: 'NL855142091B01',
   },
   {
     sleutel: 'dubbel',
