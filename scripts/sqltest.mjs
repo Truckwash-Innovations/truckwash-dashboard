@@ -8405,5 +8405,346 @@ console.log('\n66. Een weigering die je terugvindt')
   await wg.close()
 }
 
+/* ==================================================================== *
+ *  67. Betalen dat niet liegt
+ *
+ *  Casper: "Als wij moeten betalen, kan je er dan voor zorgen dat je de
+ *  status vanuit exact kan zien (of die al betaald is) (...) dit moet echt
+ *  feilloos zijn."
+ *
+ *  "Betaald" betekende: iemand klikte op Uitgevoerd. Meer niet. En daar
+ *  omheen zaten drie gaten die er los van stonden: je kon een factuur
+ *  betalen die nooit in Exact was geboekt, het SEPA-bestand werd nergens
+ *  bewaard, en een batch intrekken kon niet -- terwijl dezelfde factuur een
+ *  tweede keer in een batch stukliep op een dubbele sleutel.
+ * ==================================================================== */
+
+console.log('\n67. Betalen dat niet liegt')
+
+{
+  const bt = await fresh()
+  await bt.exec(sqlFile('supabase/setup.sql'))
+  await asServer(bt)
+
+  await bt.exec(`
+    delete from public.betaalregel;
+    delete from public.betaalbatch;
+
+    insert into public.exact_administratie (code, naam, actief, hoofd, eigen_iban)
+    values ('800', 'Proef B.V.', true, true, 'NL91ABNA0417164300')
+    on conflict (code) do update set eigen_iban = excluded.eigen_iban;
+
+    /* Twee facturen: een die in Exact staat en een die daar nog niet is. */
+    insert into public.expenses
+      (id, expense_date, supplier, amount_excl, vat_pct, btw_bedrag, status,
+       administratie, factuurnummer, betaal_iban, exact_id)
+    values
+      ('exp_b1', public.now_ms(), 'Shell', 100, 21, 21, 'goedgekeurd', '800',
+       'F-1', 'NL91ABNA0417164300', 'guid-1'),
+      ('exp_b2', public.now_ms(), 'Esso', 200, 21, 42, 'goedgekeurd', '800',
+       'F-2', 'NL91ABNA0417164300', null)
+    on conflict (id) do nothing;
+  `)
+
+  const betaalbaar = async () => (await bt.query(
+    'select id, bedrag_incl from public.betaalbaar() order by id')).rows
+
+  /* --- 1. zonder boeking in Exact valt er niets te betalen --- */
+
+  const open1 = await betaalbaar()
+  check('een factuur die in Exact staat is betaalbaar',
+    open1.some((r) => r.id === 'exp_b1'), JSON.stringify(open1))
+
+  /*
+   * Dit was het gevaarlijkste gat: de kop van 0065 beloofde "geboekt in
+   * Exact" maar de vraag controleerde het niet. Je kon dus geld overmaken
+   * voor een factuur die in de boekhouding niet bestaat -- en die kan daarna
+   * nooit afgeletterd worden, dus de betaalstand komt ook nooit terug.
+   */
+  check('en een die daar nog niet staat niet',
+    !open1.some((r) => r.id === 'exp_b2'), JSON.stringify(open1))
+
+  const wacht = (await bt.query(
+    'select public.betaalbaar_wacht_op_boeking() as n')).rows[0]
+  check('maar hij wordt wel geteld, zodat het scherm het kan zeggen',
+    Number(wacht.n) === 1, String(wacht.n))
+
+  /* Het bedrag uit btw_bedrag en niet uit een eigen berekening. */
+  check('het te betalen bedrag komt uit het btw-bedrag van de factuur',
+    Number(open1.find((r) => r.id === 'exp_b1').bedrag_incl) === 121,
+    String(open1.find((r) => r.id === 'exp_b1').bedrag_incl))
+
+  /* --- 2. drie standen: open, aangeboden, betaald --- */
+
+  await bt.exec(`
+    insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal, xml)
+    values ('bb_1', '800', 'bb_1', 'sepa.xml', 1, 121, '<Document/>');
+    insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+    values ('br_bb_1_exp_b1', 'bb_1', 'exp_b1', 'Shell', 'NL91ABNA0417164300', 121);
+  `)
+
+  await bt.query("select public.betaalbatch_uitvoeren('bb_1', 'u_casper')")
+
+  const na = async () => (await bt.query(
+    `select aangeboden_at, betaald_at, exact_betaalstatus
+       from public.expenses where id = 'exp_b1'`)).rows[0]
+
+  /*
+   * Uitvoeren betekent AANGEBODEN. Wij weten dat wij een bestand bij de bank
+   * hebben neergezet; of het geld weg is weten we niet.
+   */
+  check('een uitgevoerde opdracht zet de factuur op aangeboden',
+    Number((await na()).aangeboden_at) > 0, JSON.stringify(await na()))
+
+  check('en juist NIET op betaald',
+    (await na()).betaald_at === null, JSON.stringify(await na()))
+
+  check('en hij staat niet meer in de betaallijst',
+    !(await betaalbaar()).some((r) => r.id === 'exp_b1'),
+    JSON.stringify(await betaalbaar()))
+
+  /* --- 3. betaald komt uit Exact, en alleen bij 50 --- */
+
+  await bt.query('select public.betaalstatus_bijwerken($1, $2, $3)', ['exp_b1', 40, null])
+  check('stand 40 uit Exact is nog geen betaling',
+    (await na()).betaald_at === null && Number((await na()).exact_betaalstatus) === 40,
+    JSON.stringify(await na()))
+
+  const eind = Date.now() - 86400000
+  await bt.query('select public.betaalstatus_bijwerken($1, $2, $3)', ['exp_b1', 50, eind])
+  check('stand 50 wel',
+    Number((await na()).betaald_at) === eind, JSON.stringify(await na()))
+
+  /* De datum van Exact gaat voor onze klok: dat is de dag waarop de post
+     niet meer openstond, en die hoort in de administratie te kloppen. */
+  check('en dan met de datum van Exact, niet die van ons',
+    Number((await na()).betaald_at) === eind && eind < Date.now(),
+    String((await na()).betaald_at))
+
+  /* --- 4. intrekken --- */
+
+  await bt.exec(`
+    insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal)
+    values ('bb_2', '800', 'bb_2', 'sepa2.xml', 1, 242);
+    insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+    values ('br_bb_2_exp_b2', 'bb_2', 'exp_b2', 'Esso', 'NL91ABNA0417164300', 242);
+  `)
+  await bt.query("select public.betaalbatch_intrekken('bb_2', 'u_casper')")
+
+  const bb2 = (await bt.query(
+    "select status from public.betaalbatch where id = 'bb_2'")).rows[0]
+  check('een concept-opdracht kan ingetrokken worden',
+    bb2.status === 'ingetrokken', String(bb2.status))
+
+  /*
+   * En daarna kan dezelfde factuur gewoon opnieuw in een opdracht. Dat kon
+   * niet: de sleutel van een betaalregel was 'br_' + factuur-id, en dat is
+   * de primaire sleutel -- dus de tweede poging liep stuk op een dubbele
+   * sleutel, precies in het geval waarvoor intrekken bedoeld is.
+   */
+  let opnieuw = true
+  try {
+    await bt.exec(`
+      insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal)
+      values ('bb_3', '800', 'bb_3', 'sepa3.xml', 1, 242);
+      insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+      values ('br_bb_3_exp_b2', 'bb_3', 'exp_b2', 'Esso', 'NL91ABNA0417164300', 242);
+    `)
+  } catch (e) {
+    opnieuw = false
+    console.log('    (' + String(e.message).split('\n')[0] + ')')
+  }
+  check('en dezelfde factuur kan daarna opnieuw in een opdracht', opnieuw)
+
+  /* Een aangeboden opdracht juist niet: die ligt bij de bank. */
+  let geweigerd = false
+  try {
+    await bt.query("select public.betaalbatch_intrekken('bb_1', 'u_casper')")
+  } catch { geweigerd = true }
+  check('een aangeboden opdracht kan niet ingetrokken worden', geweigerd)
+
+  /* --- 5. en de betaalvelden zijn niet met de hand te zetten --- */
+
+  /*
+   * Met een ECHTE gebruiker, want my_id() zoekt een profiel op auth_id. Een
+   * willekeurige uuid zonder profiel levert null op, en dan houdt de rem hem
+   * terecht voor de server zelf -- dan test je niets.
+   */
+  /* Een account aanmaken is genoeg: handle_new_user() maakt het profiel er
+     zelf bij, en dat profiel is waar my_id() op uitkomt. Zelf ook nog een
+     profiel invoegen levert een botsing op auth_id op -- die is uniek. */
+  await bt.exec(`
+    insert into auth.users (id, email, raw_user_meta_data)
+    values ('6b674100-0000-0000-0000-00000000b674', 'proef.betalen@truckwash1group.nl',
+            '{"name":"Proefpersoon","roles":["management"]}'::jsonb)
+    on conflict (id) do nothing;
+  `)
+  await asUser(bt, '6b674100-0000-0000-0000-00000000b674')
+  await bt.exec("update public.expenses set betaald_at = 1 where id = 'exp_b2'")
+    .catch(() => { /* de rem mag ook een fout geven */ })
+  await asServer(bt)
+
+  const b2 = (await bt.query(
+    "select betaald_at from public.expenses where id = 'exp_b2'")).rows[0]
+  check('betaald_at is niet vanuit de app te zetten',
+    b2.betaald_at === null, String(b2.betaald_at))
+
+  await bt.close()
+}
+
+/* ==================================================================== *
+ *  68. Wat de tegenlezer vond
+ *
+ *  De eerste versie van 0100 is door drie tegenlezers gehaald voordat er iets
+ *  gecommit werd. Vijftien van de vijfentwintig bevindingen overleefden de
+ *  tegenspraak, negen daarvan op "hoog".
+ *
+ *  De ergste was er een die door DEZE migratie was gemaakt: de sleutel van
+ *  een betaalregel was 'br_' + factuur-id, en dat was geen naamgeving maar
+ *  een slot tegen dubbel betalen. Door hem 'br_' + opdracht + factuur te
+ *  maken -- zodat opnieuw betalen na een intrekking kan -- viel dat slot weg,
+ *  zonder dat er iets voor terugkwam.
+ *
+ *  Elke bevestigde bevinding krijgt hier zijn eigen controle, zodat hij niet
+ *  een tweede keer kan ontstaan.
+ * ==================================================================== */
+
+console.log('\n68. Wat de tegenlezer vond')
+
+{
+  const tl = await fresh()
+  await tl.exec(sqlFile('supabase/setup.sql'))
+  await asServer(tl)
+
+  await tl.exec(`
+    delete from public.betaalregel;
+    delete from public.betaalbatch;
+
+    insert into public.exact_administratie (code, naam, actief, hoofd, eigen_iban)
+    values ('810', 'Tegenlezer B.V.', true, false, 'NL91ABNA0417164300')
+    on conflict (code) do nothing;
+
+    insert into public.expenses
+      (id, expense_date, supplier, amount_excl, vat_pct, btw_bedrag, status,
+       administratie, factuurnummer, betaal_iban, exact_id)
+    values ('exp_t1', public.now_ms(), 'Shell', 100, 21, 21, 'goedgekeurd', '810',
+            'T-1', 'NL91ABNA0417164300', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+    on conflict (id) do nothing;
+
+    insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal)
+    values ('tb_1', '810', 'tb_1', 'a.xml', 1, 121);
+    insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+    values ('br_tb_1_exp_t1', 'tb_1', 'exp_t1', 'Shell', 'NL91ABNA0417164300', 121);
+  `)
+
+  /* --- 1. dezelfde factuur kan niet in twee LOPENDE opdrachten --- */
+
+  let dubbel = false
+  try {
+    await tl.exec(`
+      insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal)
+      values ('tb_2', '810', 'tb_2', 'b.xml', 1, 121);
+      insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+      values ('br_tb_2_exp_t1', 'tb_2', 'exp_t1', 'Shell', 'NL91ABNA0417164300', 121);
+    `)
+    dubbel = true
+  } catch { /* zo hoort het */ }
+  check('dezelfde factuur kan niet in twee lopende betaalopdrachten', !dubbel)
+
+  /*
+   * En dat is een INDEX en geen trigger. Een trigger doet een gewone select
+   * en ziet de nog niet vastgelegde regel van een gelijktijdige transactie
+   * niet; twee mensen die tegelijk een bestand maken betalen dan dubbel.
+   */
+  const idx = (await tl.query(`
+    select indexdef from pg_indexes
+     where schemaname = 'public' and indexname = 'betaalregel_een_per_factuur'`)).rows[0]
+  check('en dat is een unieke index, niet alleen een trigger',
+    String(idx?.indexdef ?? '').includes('UNIQUE')
+      && String(idx?.indexdef ?? '').includes('lopend'),
+    String(idx?.indexdef ?? 'geen index'))
+
+  /* --- 2. maar na intrekken wel --- */
+
+  await tl.exec("delete from public.betaalbatch where id = 'tb_2'")
+  await tl.query("select public.betaalbatch_intrekken('tb_1', 'u_x')")
+
+  const naIntrek = (await tl.query(
+    "select lopend from public.betaalregel where id = 'br_tb_1_exp_t1'")).rows[0]
+  check('intrekken zet de regels van die opdracht op niet-lopend',
+    naIntrek.lopend === false, String(naIntrek.lopend))
+
+  let opnieuw = true
+  try {
+    await tl.exec(`
+      insert into public.betaalbatch (id, administratie, bericht_id, bestandsnaam, aantal, totaal)
+      values ('tb_3', '810', 'tb_3', 'c.xml', 1, 121);
+      insert into public.betaalregel (id, batch_id, expense_id, naam, iban, bedrag)
+      values ('br_tb_3_exp_t1', 'tb_3', 'exp_t1', 'Shell', 'NL91ABNA0417164300', 121);
+    `)
+  } catch (e) {
+    opnieuw = false
+    console.log('    (' + String(e.message).split('\n')[0] + ')')
+  }
+  check('en daarna mag dezelfde factuur wel weer', opnieuw)
+
+  /* --- 3. een ingetrokken opdracht is niet alsnog uit te voeren --- */
+
+  let herleefd = false
+  try {
+    await tl.query("select public.betaalbatch_uitvoeren('tb_1', 'u_x')")
+    herleefd = true
+  } catch { /* zo hoort het */ }
+  check('een ingetrokken opdracht kan niet alsnog uitgevoerd worden', !herleefd)
+
+  /* --- 4. het btw-bedrag volgt de factuur --- */
+
+  await tl.exec("update public.expenses set amount_excl = 200 where id = 'exp_t1'")
+  const bt = (await tl.query(
+    "select btw_bedrag from public.expenses where id = 'exp_t1'")).rows[0]
+  check('een gecorrigeerd bedrag laat het oude btw-bedrag niet staan',
+    bt.btw_bedrag === null, String(bt.btw_bedrag))
+
+  /* --- 5. Exact mag ook terug --- */
+
+  await tl.query('select public.betaalstatus_bijwerken($1, $2, $3)', ['exp_t1', 50, null])
+  const wel = (await tl.query(
+    "select betaald_at from public.expenses where id = 'exp_t1'")).rows[0]
+  check('50 zet hem op betaald', Number(wel.betaald_at) > 0, String(wel.betaald_at))
+
+  await tl.query('select public.betaalstatus_bijwerken($1, $2, $3)', ['exp_t1', 20, null])
+  const terug = (await tl.query(
+    "select betaald_at from public.expenses where id = 'exp_t1'")).rows[0]
+  check('en als Exact hem weer openzet, gaat betaald_at er ook weer af',
+    terug.betaald_at === null, String(terug.betaald_at))
+
+  /* --- 6. de bv komt uit dezelfde vraag als waarop geboekt wordt --- */
+
+  const def = (await tl.query(`
+    select pg_get_functiondef(oid) as d from pg_proc
+     where proname = 'betaalstatus_te_controleren'`)).rows[0]
+  check('de betaalstand zoekt de bv op zoals er geboekt wordt',
+    String(def?.d ?? '').includes('bon_administratie'),
+    'de rauwe kolom administratie wordt gebruikt')
+
+  /* --- 7. en wat blijft hangen is te vinden --- */
+
+  await tl.exec(`
+    update public.expenses
+       set betaald_at = null, aangeboden_at = public.now_ms() - 20 * 86400000
+     where id = 'exp_t1'
+  `)
+  const hangt = (await tl.query('select id from public.betaal_blijft_hangen(10)')).rows
+  check('een factuur die al weken bij de bank ligt is terug te vinden',
+    hangt.some((r) => r.id === 'exp_t1'), JSON.stringify(hangt))
+
+  /* En hij staat inderdaad in geen enkele andere lijst -- dat was het punt. */
+  const inBetaalbaar = (await tl.query('select id from public.betaalbaar()')).rows
+  check('terwijl hij in de betaallijst niet voorkomt',
+    !inBetaalbaar.some((r) => r.id === 'exp_t1'))
+
+  await tl.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

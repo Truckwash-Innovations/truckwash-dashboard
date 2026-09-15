@@ -11730,5 +11730,201 @@ console.log('\n95. De hele keten in één scherm')
     'de melding telt alleen hoeveel er vastliepen')
 }
 
+/* ==================================================================== *
+ *  96. Betaald is iets wat Exact zegt, niet iets wat wij aanvinken
+ *
+ *  Casper: "Als wij moeten betalen, kan je er dan voor zorgen dat je de
+ *  status vanuit exact kan zien (of die al betaald is) (...) dit moet echt
+ *  feilloos zijn."
+ *
+ *  "Betaald" betekende: iemand klikte op Uitgevoerd. Wij maken het
+ *  SEPA-bestand en een mens zet het bij de bank neer -- of de bank het
+ *  werkelijk doet, staat op het bankafschrift, en dat komt in Exact binnen.
+ *
+ *  Vandaar drie standen: open, aangeboden, betaald. Die laatste komt uit
+ *  Exact (cashflow/Payments.Status = 50) en nergens anders vandaan.
+ *
+ *  Wat de database ervan doet staat in sqltest 67; hier staat wat er
+ *  omheen moet kloppen.
+ * ==================================================================== */
+
+console.log('\n96. Betaald is iets wat Exact zegt')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const m100 = readFileSync(
+    'supabase/migrations/0100_betalen_dat_niet_liegt.sql', 'utf8')
+  const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  const gedeeld = readFileSync('supabase/functions/_gedeeld/exact.ts', 'utf8')
+  const lib = readFileSync('src/lib/trucksupply.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+
+  /* --- 1. de stand komt uit Exact, en van het juiste veld --- */
+
+  check('de betaalstand wordt bij Exact opgehaald',
+    fn.includes("'bulk/Cashflow/Payments'"),
+    'er wordt nog niets over betalingen uit Exact gelezen')
+
+  /*
+   * Op TransactionEntryID, want dat is volgens de documentatie de verwijzing
+   * naar onze eigen boeking. Matchen op bedrag of naam zou gokken zijn.
+   */
+  check('en gekoppeld op de boeking die wij zelf aanmaakten',
+    fn.includes('TransactionEntryID'),
+    'de koppeling loopt niet over de EntryID van onze boeking')
+
+  /*
+   * En NIET op Status van purchaseentry/PurchaseEntries. Dat is de
+   * verwerkingsstand van de boeking: een volstrekt onbetaalde factuur staat
+   * daar gewoon op 50 = Processed. Daar zijn we bijna in getrapt.
+   */
+  check('en niet op de verwerkingsstand van de boeking zelf',
+    fn.includes('purchaseentry/PurchaseEntries.Status'),
+    'het verschil met PurchaseEntries.Status staat nergens vastgelegd')
+
+  /* --- 2. alleen 50 telt als betaald --- */
+
+  check('alleen afgeletterd telt als betaald',
+    /when status_in = 50 then/.test(m100),
+    'een andere stand dan 50 zet ook betaald_at')
+
+  /*
+   * 40 heet bij Exact "processed", maar dat betekent dat het bestand is
+   * klaargezet -- niet dat er geld is gegaan. Bij ons, waar het bestand
+   * buiten Exact om wordt gemaakt, komt 40 zelfs helemaal niet voor.
+   */
+  check('en 40 uitdrukkelijk niet',
+    /40 heet in Exact "processed"|niet dat er geld is gegaan/.test(m100),
+    'het verschil tussen 40 en 50 staat nergens uitgelegd')
+
+  /* De datum van Exact gaat voor onze klok: dat is de dag waarop de post
+     niet meer openstond, en die hoort in de administratie te kloppen. */
+  check('met de datum van Exact en niet die van ons',
+    /coalesce\(e\.betaald_at, eind_in, public\.now_ms\(\)\)/.test(m100),
+    'de betaaldatum komt van onze eigen klok')
+
+  /*
+   * En de datum die Exact teruggeeft is geen ISO maar /Date(...)/. Wie dat
+   * rechtstreeks in new Date() gooit krijgt Invalid Date, en dan belandt er
+   * een NaN als tijdstip in de database.
+   */
+  const { datumUitExact } = await import('../supabase/functions/_gedeeld/exact.ts')
+  check('en de datumvorm van Exact wordt echt gelezen',
+    datumUitExact('/Date(1719792000000)/') === 1719792000000,
+    String(datumUitExact('/Date(1719792000000)/')))
+  check('ook met een tijdzone erachter',
+    datumUitExact('/Date(1719792000000+0200)/') === 1719792000000,
+    String(datumUitExact('/Date(1719792000000+0200)/')))
+  check('een gewone ISO-datum ook',
+    datumUitExact('2026-07-01T00:00:00.000Z') === Date.parse('2026-07-01T00:00:00.000Z'))
+  check('en leeg of onleesbaar geeft niets, nooit NaN',
+    datumUitExact(null) === null && datumUitExact('') === null
+      && datumUitExact('geen datum') === null)
+
+  /* --- 3. de drie gaten in de betaalketen --- */
+
+  check('er valt niets te betalen wat niet in Exact staat',
+    /and e\.exact_id is not null/.test(m100),
+    'je kunt een factuur betalen die nooit is geboekt')
+
+  /* Maar dan wel gezegd, anders lijkt het of er niets te betalen valt. */
+  check('en dat wordt geteld en getoond',
+    m100.includes('betaalbaar_wacht_op_boeking')
+      && /wachtOpBoeking/.test(fn) && /wachtOpBoeking/.test(scherm),
+    'facturen verdwijnen stil uit de betaallijst')
+
+  check('het SEPA-bestand blijft bewaard',
+    /alter table public\.betaalbatch add column if not exists xml/.test(m100)
+      && fn.includes('batchBestand'),
+    'een mislukte download betekent nog steeds een verloren bestand')
+
+  check('een concept-opdracht kan ingetrokken worden',
+    m100.includes('betaalbatch_intrekken') && lib.includes('exactBatchIntrekken'),
+    'een verkeerd aangemaakte opdracht blijft voor altijd staan')
+
+  /*
+   * En daarna kan dezelfde factuur opnieuw. De sleutel van een betaalregel
+   * was 'br_' + factuur-id -- de primaire sleutel -- dus een tweede poging
+   * liep stuk op een dubbele sleutel, precies in het geval waarvoor
+   * intrekken bedoeld is.
+   */
+  check('en de sleutel van een betaalregel draagt de opdracht mee',
+    /'br_' \+ batchId \+ '_' \+ r\.id/.test(fn),
+    'dezelfde factuur kan niet in een tweede opdracht')
+
+  /* --- 4. en de betaalvelden zijn niet met de hand te zetten --- */
+
+  check('de betaalvelden zijn van de server',
+    m100.includes('betalen_blijft_van_de_server'),
+    'iedereen die over kosten beslist kan betaald_at rechtstreeks zetten')
+
+  /* --- 5. en het scherm zegt geen betaald als het aangeboden is --- */
+
+  check('het scherm noemt aangeboden ook aangeboden',
+    scherm.includes('Aangeboden') && !/op betaald zetten\?/.test(scherm),
+    'het scherm belooft nog steeds betaald bij het maken van een bestand')
+
+  check('en er is een knop om de stand bij Exact op te halen',
+    scherm.includes('exactBetaalstatus') && lib.includes('exactBetaalstatus'),
+    'de betaalstand is nergens op te vragen')
+
+  /* --- 6. en wat de tegenlezers eruit haalden --- */
+
+  /*
+   * Een deelbetaling levert MEERDERE regels op dezelfde boeking op. Hier
+   * stond een Map die er een overhield -- de laatste in de volgorde waarin
+   * Exact ze toevallig teruggaf. Was dat de betaalde helft, dan ging een half
+   * betaalde factuur op volledig betaald.
+   */
+  check('een deelbetaling telt niet als volledige betaling',
+    /new Map<string, ExactBetaling\[\]>/.test(fn)
+      && /Math\.min\(laagst, Number\(p\.Status\)/.test(fn),
+    'bij meerdere betaalregels op dezelfde boeking wint er willekeurig een')
+
+  /*
+   * En een half antwoord van Exact mag nooit als een heel antwoord voelen:
+   * exactLijst stopt na een vast aantal pagina's en gaf dat niet door, dus
+   * "hij staat er niet in" kon "hij is niet betaald" gaan betekenen terwijl
+   * de lijst gewoon op was.
+   */
+  check('en een afgekapte lijst wordt gemeld in plaats van verzwegen',
+    gedeeld.includes('laatsteRonde') && /afgekapt/.test(fn) && /afgekapt/.test(scherm),
+    'een half antwoord ziet eruit als een heel antwoord')
+
+  /*
+   * Twintig administraties met elk tot veertig pagina's is werk zonder
+   * bovengrens, en precies die vorm kostte deze functie al eens de worker.
+   */
+  check('en de ronde heeft een klok en een vervolg',
+    /BUDGET_MS/.test(fn) && /vervolg: klaar \? null/.test(fn)
+      && /while \(!ronde\.klaar/.test(scherm),
+    'alle bv-en gaan in een verzoek, zonder tijdsbudget')
+
+  /* Een mislukte schrijfactie mag niet als betaald geteld worden. */
+  check('en een mislukte schrijfactie telt niet als betaald',
+    /const \{ data: veranderd, error: zetFout \}/.test(fn),
+    'de fout van het wegschrijven wordt weggegooid')
+
+  /* exact_id hoort een guid te zijn; bij oudere boekingen staat er een
+     boekstuknummer in, en dat matcht nooit op een guid. */
+  check('en er wordt alleen op een guid gematcht',
+    /\^\[0-9a-f-\]\{32,36\}\$/.test(fn),
+    'een boekstuknummer wordt met een guid vergeleken')
+
+  /*
+   * En de weigering van Exact is ook van de server: de app schrijft de hele
+   * rij terug, dus een stale weigering werd anders opnieuw geboekt als
+   * gebeurtenis, op naam van wie net iets anders wijzigde.
+   */
+  check('een oude weigering wordt niet door de app teruggeschreven',
+    /new\.exact_fout    := old\.exact_fout/.test(m100),
+    'een stale rij kan een weigering opnieuw in de historie zetten')
+
+  /* En de stand van het betaalscherm sleept het SEPA-bestand niet mee. */
+  check('en de stand haalt de bestanden niet elke keer op',
+    m100.includes('heeft_xml') && !/select\('\*'\)\.order\('aangemaakt_at'/.test(fn),
+    'elke standopvraag trekt dertig SEPA-bestanden uit de database')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

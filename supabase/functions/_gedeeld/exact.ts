@@ -317,6 +317,7 @@ export async function exactLijst<T = Record<string, unknown>>(
   const alles: T[] = []
   let volgende: string | null = eerste.toString()
   let paginas = 0
+  let afgekapt = false
 
   while (volgende && paginas < MAX_PAGINAS) {
     const res = await fetch(volgende, {
@@ -340,9 +341,30 @@ export async function exactLijst<T = Record<string, unknown>>(
 
     volgende = (!Array.isArray(uit.d) && uit.d?.__next) ? uit.d.__next : null
     paginas++
+    /*
+     * Stopte de lus omdat de pagina's op waren en niet omdat Exact klaar was?
+     * Dan is dit een HALF antwoord, en dat mag nooit als een heel antwoord
+     * voelen. Wie afwezigheid als betekenis gebruikt -- "hij staat er niet
+     * in, dus hij is niet betaald" -- trekt dan de verkeerde conclusie.
+     */
+    if (volgende && paginas >= MAX_PAGINAS) afgekapt = true
   }
 
+  laatsteRonde = { paginas, afgekapt }
   return alles
+}
+
+/**
+ * Hoe de vorige exactLijst() afliep.
+ *
+ * Bewust naast de functie en niet erin: exactLijst wordt op tientallen
+ * plekken aangeroepen en die hoeven hier niets van te weten. Wie het wél
+ * moet weten -- omdat hij afwezigheid als antwoord gebruikt -- leest dit
+ * direct na zijn aanroep.
+ */
+export let laatsteRonde: { paginas: number; afgekapt: boolean } = {
+  paginas: 0,
+  afgekapt: false,
 }
 
 /* ------------------------------------------------------------------ *
@@ -443,4 +465,35 @@ export function exactDatum(ms: number): string {
   const maand = String(d.getUTCMonth() + 1).padStart(2, '0')
   const dag = String(d.getUTCDate()).padStart(2, '0')
   return `${jaar}-${maand}-${dag}T00:00:00.000Z`
+}
+
+/**
+ * De andere kant op: een datum zoals Exact hem TERUGgeeft.
+ *
+ * In JSON komt een Edm.DateTime er niet uit als ISO maar in de oude
+ * .NET-vorm: "/Date(1719792000000)/", soms met een tijdzone erachter
+ * ("/Date(1719792000000+0200)/"). Wie dat rechtstreeks in new Date() gooit
+ * krijgt Invalid Date, en dat levert een NaN op die vrolijk als tijdstip in
+ * de database belandt.
+ *
+ * Een gewone ISO-datum wordt ook geaccepteerd: sommige resources geven die
+ * wél, en dan hoort dit niet de plek te zijn waar het alsnog misgaat.
+ *
+ * Leeg of onleesbaar geeft null, nooit NaN.
+ */
+export function datumUitExact(waarde: unknown): number | null {
+  if (waarde == null) return null
+  if (typeof waarde === 'number') return Number.isFinite(waarde) ? waarde : null
+
+  const tekst = String(waarde).trim()
+  if (tekst === '') return null
+
+  const dotnet = tekst.match(/^\/Date\((-?\d+)([+-]\d{4})?\)\/$/)
+  if (dotnet) {
+    const ms = Number(dotnet[1])
+    return Number.isFinite(ms) ? ms : null
+  }
+
+  const ms = Date.parse(tekst)
+  return Number.isFinite(ms) ? ms : null
 }

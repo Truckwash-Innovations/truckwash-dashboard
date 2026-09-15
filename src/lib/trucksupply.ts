@@ -1994,6 +1994,8 @@ export interface BetaalBatch {
   aangemaaktAt: number
   uitgevoerdAt: number | null
   door: string | null
+  /** Of het SEPA-bestand nog op te halen is (0100). */
+  heeftBestand: boolean
 }
 
 export interface BetaalAdministratie {
@@ -2010,6 +2012,33 @@ export interface BetaalStand {
   totaalOpen: number
   batches: BetaalBatch[]
   administraties: BetaalAdministratie[]
+  /**
+   * Goedgekeurd, maar nog niet in Exact geboekt (0100).
+   *
+   * Sinds 0100 eist betaalbaar() een boeking -- anders betaal je iets wat
+   * nooit in de boekhouding kwam. Die facturen verdwijnen daarmee uit de
+   * betaallijst, en dat moet gezegd worden: anders lijkt het of er niets te
+   * betalen valt.
+   */
+  wachtOpBoeking: number
+  /**
+   * Aangeboden bij de bank, en in Exact nooit afgeletterd (0100).
+   *
+   * Deze staan in geen enkele andere lijst. Zonder dit veld verdwijnen ze
+   * stil, en dat is precies het soort gat waar je maanden later achter komt.
+   */
+  blijftHangen: BlijftHangen[]
+}
+
+export interface BlijftHangen {
+  id: string
+  leverancier: string
+  factuurnummer: string | null
+  bedragIncl: number
+  administratie: string | null
+  aangebodenAt: number
+  /** De stand die Exact gaf, of null als hij daar niet gevonden is. */
+  stand: number | null
 }
 
 function alsBetaal(uit: Partial<BetaalStand>): BetaalStand {
@@ -2019,6 +2048,8 @@ function alsBetaal(uit: Partial<BetaalStand>): BetaalStand {
     totaalOpen: uit.totaalOpen ?? 0,
     batches: uit.batches ?? [],
     administraties: uit.administraties ?? [],
+    wachtOpBoeking: uit.wachtOpBoeking ?? 0,
+    blijftHangen: uit.blijftHangen ?? [],
   }
 }
 
@@ -2059,6 +2090,71 @@ export async function exactBatchUitvoeren(
   const uit = await roepFunctie<BetaalStand & { betaald?: number }>(
     'exact', { actie: 'batch-uitvoeren', batchId })
   return { ...alsBetaal(uit), betaald: uit.betaald ?? 0 }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat Exact ervan weet
+ *
+ *  Casper: "kan je er dan voor zorgen dat je de status vanuit exact kan zien
+ *  (of die al betaald is) (...) dit moet echt feilloos zijn."
+ *
+ *  Of het geld werkelijk weg is, weet alleen het bankafschrift, en dat komt
+ *  in Exact binnen. Wij vragen het dus daar op in plaats van het bij onszelf
+ *  te verzinnen.
+ * ------------------------------------------------------------------ */
+
+export interface BetaalstatusRonde extends BetaalStand {
+  gekeken: number
+  betaald: number
+  gewijzigd: number
+  mislukt: { administratie: string; reden: string }[]
+  /** Is elke bv nagekeken? Zo niet, geef `vervolg` mee aan de volgende ronde. */
+  klaar: boolean
+  /** Gaf Exact een half antwoord? Dan zegt "niet gevonden" niets. */
+  afgekapt: boolean
+  vervolg: { gedaan: string[] } | null
+}
+
+export async function exactBetaalstatus(
+  vervolg?: { gedaan: string[] } | null,
+): Promise<BetaalstatusRonde> {
+  const uit = await roepFunctie<Partial<BetaalstatusRonde>>(
+    'exact',
+    vervolg ? { actie: 'betaalstatus', gedaan: vervolg.gedaan } : { actie: 'betaalstatus' })
+  return {
+    ...alsBetaal(uit),
+    gekeken: uit.gekeken ?? 0,
+    betaald: uit.betaald ?? 0,
+    gewijzigd: uit.gewijzigd ?? 0,
+    mislukt: uit.mislukt ?? [],
+    klaar: uit.klaar !== false,
+    afgekapt: uit.afgekapt === true,
+    vervolg: uit.vervolg ?? null,
+  }
+}
+
+/**
+ * Een concept-opdracht terugdraaien, zodat de facturen weer vrijkomen.
+ *
+ * Alleen een concept: is hij aangeboden, dan ligt de opdracht bij de bank en
+ * zou intrekken hier betekenen dat dezelfde facturen een tweede keer in een
+ * bestand komen.
+ */
+export async function exactBatchIntrekken(
+  batchId: string,
+): Promise<BetaalStand & { vrijgegeven: number }> {
+  const uit = await roepFunctie<BetaalStand & { vrijgegeven?: number }>(
+    'exact', { actie: 'batch-intrekken', batchId })
+  return { ...alsBetaal(uit), vrijgegeven: uit.vrijgegeven ?? 0 }
+}
+
+/** Het SEPA-bestand van een eerdere opdracht opnieuw ophalen. */
+export async function exactBatchBestand(
+  batchId: string,
+): Promise<{ bestandsnaam: string; xml: string }> {
+  const uit = await roepFunctie<{ bestandsnaam?: string; xml?: string }>(
+    'exact', { actie: 'batch-bestand', batchId })
+  return { bestandsnaam: uit.bestandsnaam ?? 'betaling.xml', xml: uit.xml ?? '' }
 }
 
 export async function exactZetBetaald(

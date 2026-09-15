@@ -33,6 +33,9 @@
  *   sepa-maken        een betaalbestand voor de bank
  *   batch-uitvoeren   de facturen van een opdracht op betaald zetten
  *   zet-betaald       één factuur met de hand op betaald
+ *   betaalstatus      bij Exact opvragen wat er inmiddels is afgeletterd
+ *   batch-intrekken   een concept-opdracht terugdraaien, facturen weer vrij
+ *   batch-bestand     het SEPA-bestand van een opdracht opnieuw ophalen
  *   koppel-leverancier  met de hand zeggen welke crediteur het is
  *   dagboeken / btw-codes   lijstjes uit Exact om uit te kiezen
  *
@@ -68,7 +71,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import {
-  ExactFout, administratiesVan, exactDatum, exactLijst, exactPost, geldigToken,
+  ExactFout, administratiesVan, datumUitExact, exactDatum, exactLijst, exactPost,
+  geldigToken, laatsteRonde,
   huidigeDivisie, type ExactLijn,
 } from '../_gedeeld/exact.ts'
 import { ibanKlopt, maakSepa } from '../_gedeeld/sepa.ts'
@@ -1295,11 +1299,19 @@ async function grootboekOvernemen(body: Record<string, unknown>): Promise<Respon
 }
 
 async function betaalStand() {
-  const [open, batches, bvs] = await Promise.all([
+  const [open, batches, bvs, wacht, hangt] = await Promise.all([
     admin.rpc('betaalbaar'),
-    admin.from('betaalbatch').select('*').order('aangemaakt_at', { ascending: false }).limit(30),
+    /* Uitdrukkelijk zonder xml: dat is per opdracht tienduizenden tekens, en
+       deze stand wordt bij elke ronde opgehaald. Of het bestand er nog is,
+       zegt de lengte -- daar hoeft het niet voor mee te reizen. */
+    admin.from('betaalbatch')
+      .select('id, administratie, bestandsnaam, aantal, totaal, status,'
+        + ' aangemaakt_at, uitgevoerd_at, door, heeft_xml')
+      .order('aangemaakt_at', { ascending: false }).limit(30),
     admin.from('exact_administratie')
       .select('code, naam, eigen_iban, eigen_naam, eigen_bic').eq('actief', true).order('code'),
+    admin.rpc('betaalbaar_wacht_op_boeking'),
+    admin.rpc('betaal_blijft_hangen', { dagen: 10 }),
   ])
   if (open.error) throw new ExactFout(`openstaande facturen: ${open.error.message}`)
 
@@ -1330,6 +1342,34 @@ async function betaalStand() {
       aangemaaktAt: Number(b.aangemaakt_at) || 0,
       uitgevoerdAt: (b.uitgevoerd_at as number) ?? null,
       door: (b.door as string) ?? null,
+      /* Alleen OF het er nog is; het bestand zelf is tienduizenden tekens en
+         hoort niet in elke standopvraag mee te reizen. */
+      heeftBestand: b.heeft_xml === true,
+    })),
+    /*
+     * Wat er op een boeking wacht (0100).
+     *
+     * betaalbaar() eist sinds 0100 dat de factuur in Exact staat -- anders
+     * betaal je iets wat nooit in de boekhouding kwam. Maar dan verdwijnen
+     * die facturen stil uit de lijst, en stil is hier het probleem: dan
+     * lijkt het of er niets te betalen valt.
+     */
+    wachtOpBoeking: Number(wacht.data ?? 0) || 0,
+    /*
+     * En wat er blijft hangen: aangeboden bij de bank, en in Exact nooit
+     * afgeletterd. Die facturen staan in geen enkele andere lijst -- niet bij
+     * wat te betalen valt, niet bij wat op een boeking wacht, en niet bij wat
+     * betaald is. Precies het soort stilte waar je een half jaar later achter
+     * komt.
+     */
+    blijftHangen: ((hangt.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id),
+      leverancier: String(r.leverancier ?? ''),
+      factuurnummer: (r.factuurnummer as string) ?? null,
+      bedragIncl: Number(r.bedrag_incl) || 0,
+      administratie: (r.administratie as string) ?? null,
+      aangebodenAt: Number(r.aangeboden_at) || 0,
+      stand: r.stand == null ? null : Number(r.stand),
     })),
     administraties: (bvs.data ?? []).map((a) => ({
       code: String(a.code),
@@ -1339,6 +1379,293 @@ async function betaalStand() {
       eigenBic: String(a.eigen_bic ?? ''),
     })),
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Is hij betaald? Dat weet Exact, en alleen Exact
+ *
+ *  Casper: "kan je er dan voor zorgen dat je de status vanuit exact kan zien
+ *  (of die al betaald is) (...) dit moet echt feilloos zijn."
+ *
+ *  Waarom dit uit Exact moet komen
+ *  -------------------------------
+ *
+ *  Wij maken het SEPA-bestand en jij zet het bij de bank neer. Of de bank
+ *  hem werkelijk heeft uitgevoerd weten wij niet, en kunnen wij niet weten.
+ *  Dat staat op het bankafschrift, en dat afschrift komt in Exact binnen.
+ *  Een knop die bij ons "betaald" zet op het moment dat het bestand gemaakt
+ *  wordt, is precies de soort zekerheid die een half jaar later niet klopt.
+ *
+ *  Waar het staat, en waar NIET
+ *  ----------------------------
+ *
+ *  Nagekeken in de documentatie van Exact, niet aangenomen:
+ *
+ *    cashflow/Payments.Status    20 open, 30 geselecteerd, 40 verwerkt,
+ *                                50 afgeletterd. Dit is het veld.
+ *
+ *    TransactionEntryID          "Linked transaction. Use this as reference
+ *                                to PurchaseEntries." Dat is de EntryID die
+ *                                wij bij het boeken terugkrijgen en in
+ *                                exact_id bewaren -- de koppeling is dus
+ *                                hard en niet op bedrag of naam.
+ *
+ *  Wat er NIET voor deugt, en waar we bijna in trapten:
+ *
+ *    purchaseentry/PurchaseEntries.Status   5 rejected, 20 open, 50
+ *                                processed. Dat is de verwerkingsstand van
+ *                                de BOEKING. Een volstrekt onbetaalde
+ *                                factuur staat daar gewoon op 50.
+ *
+ *    IsFullyPaid                 bestaat op de sync-variant, maar de
+ *                                documentatie omschrijft hem als "fully paid
+ *                                by the customer" -- debiteurentaal.
+ *
+ *  Wat 50 wel en niet bewijst
+ *  --------------------------
+ *
+ *  "Matched with one or more other outstanding items or financial statement
+ *  lines." Dat tweede is het bankafschrift; dat eerste kan een creditnota
+ *  zijn. 50 betekent dus "staat niet meer open", niet gegarandeerd "er is
+ *  geld gegaan". Daarom wordt de stand als GETAL bewaard en niet als vinkje:
+ *  wie later preciezer wil zijn, kan dat dan nog zonder dit opnieuw te
+ *  moeten ophalen.
+ *
+ *  Waarom er niet op onze eigen id gefilterd wordt
+ *  ----------------------------------------------
+ *
+ *  Omdat dat niet mag. TransactionEntryID staat niet in de lijst met velden
+ *  waarop dit endpoint filtert; alleen Status wel. Dus vragen we de twee
+ *  standen op die ertoe doen (40 en 50) en zoeken we er lokaal onze eigen
+ *  boekingen bij. Een filter dat niet ondersteund wordt levert geen fout op
+ *  maar een verkeerd antwoord, en dat is erger.
+ * ------------------------------------------------------------------ */
+
+interface ExactBetaling {
+  TransactionEntryID?: string | null
+  Status?: number | null
+  EndDate?: string | null
+  AmountDC?: number | null
+  InvoiceNumber?: number | null
+  YourRef?: string | null
+}
+
+async function betaalstatusOphalen(
+  beller: Beller,
+  body: Record<string, unknown> = {},
+): Promise<Response> {
+  const lijn = await geldigToken(admin)
+
+  /*
+   * Welke facturen nagekeken moeten worden, en in WELKE bv.
+   *
+   * Dit stond hier eerst als een gewone select op expenses, met
+   * expenses.administratie als bv. Zo wordt er niet geboekt: dat gaat via
+   * bon_administratie(), die ook naar de vestiging en de hoofdadministratie
+   * kijkt. Verschilden die twee, dan werd de stand in de verkeerde
+   * administratie opgevraagd, kwam er nooit een match, en bleef de factuur
+   * eeuwig op aangeboden staan -- zonder een woord.
+   *
+   * Nu één vraag in de database, met een vaste volgorde en een bovengrens.
+   */
+  const { data: bonnen, error } = await admin.rpc('betaalstatus_te_controleren', {
+    hoeveel: 500,
+  })
+  if (error) return json({ ok: false, reden: error.message }, 502)
+
+  const werk = (bonnen ?? []) as Record<string, unknown>[]
+
+  /* Per administratie, want een boeking bestaat in precies één bv. */
+  const perBv = new Map<string, Record<string, unknown>[]>()
+  for (const b of werk) {
+    const bv = String(b.administratie ?? '').trim() || lijn.division
+    if (!perBv.has(bv)) perBv.set(bv, [])
+    perBv.get(bv)!.push(b)
+  }
+
+  /*
+   * Alle bv's in één verzoek was vragen om een 546.
+   *
+   * Twintig administraties met elk tot veertig pagina's is werk zonder
+   * bovengrens, en precies die vorm heeft deze functie al eens de worker
+   * gekost. Dus een klok: wat niet af komt, komt de volgende ronde. De
+   * beller krijgt te horen dat hij nog niet klaar is, met welke bv's er al
+   * geweest zijn.
+   */
+  const BUDGET_MS = 25_000
+  const begonnen = Date.now()
+  const alGedaan = new Set(
+    Array.isArray(body.gedaan) ? (body.gedaan as unknown[]).map(String) : [])
+
+  let betaald = 0
+  let gewijzigd = 0
+  let afgekapt = false
+  const gedaan: string[] = [...alGedaan]
+  const mislukt: { administratie: string; reden: string }[] = []
+
+  for (const [bv, lijst] of perBv) {
+    if (alGedaan.has(bv)) continue
+    if (Date.now() - begonnen > BUDGET_MS) break
+
+    let betalingen: ExactBetaling[] = []
+    try {
+      betalingen = await exactLijst<ExactBetaling>(lijn, 'bulk/Cashflow/Payments', {
+        $select: 'TransactionEntryID,Status,EndDate,AmountDC,InvoiceNumber,YourRef',
+        /* Alleen de twee standen die iets veranderen. 20 en 30 betekenen
+           "staat nog open", en dat is precies wat wij al dachten. */
+        $filter: 'Status eq 40 or Status eq 50',
+      }, bv)
+      /*
+       * Kwam er een HALF antwoord terug? Dan mag "hij staat er niet in" niet
+       * meer als "hij is nog niet betaald" gelezen worden -- en omgekeerd
+       * telt een gevonden 50 nog gewoon. Dus: wat gevonden is verwerken, en
+       * erbij zeggen dat het niet compleet was.
+       */
+      if (laatsteRonde.afgekapt) afgekapt = true
+    } catch (e) {
+      mislukt.push({
+        administratie: bv,
+        reden: e instanceof Error ? e.message : String(e),
+      })
+      gedaan.push(bv)
+      continue
+    }
+
+    /*
+     * Alle regels per boeking bij elkaar, niet één.
+     *
+     * Exact splitst een openstaande post zodra er in delen wordt betaald:
+     * dan staan er meerdere regels met dezelfde TransactionEntryID, elk met
+     * een eigen stand. Hier stond een Map die er één overhield -- de laatste
+     * in de volgorde waarin Exact ze toevallig teruggaf. Was dat de betaalde
+     * helft, dan ging een half betaalde factuur op volledig betaald.
+     */
+    const stand = new Map<string, ExactBetaling[]>()
+    for (const p of betalingen) {
+      /* Op kleine letters: guids komen niet overal in dezelfde schrijfwijze
+         terug, en dan matcht een vergelijking op tekst net niet. */
+      const sleutel = String(p.TransactionEntryID ?? '').trim().toLowerCase()
+      if (!sleutel) continue
+      if (!stand.has(sleutel)) stand.set(sleutel, [])
+      stand.get(sleutel)!.push(p)
+    }
+
+    for (const bon of lijst) {
+      const sleutel = String(bon.exact_id ?? '').trim().toLowerCase()
+      /*
+       * En alleen als het een guid IS. exact_id hoort de EntryID van de
+       * boeking te zijn, maar bij oudere boekingen staat er een
+       * boekstuknummer in. Dat matcht nooit op een guid, en dan vergelijken
+       * we appels met peren zonder het te merken.
+       */
+      if (!/^[0-9a-f-]{32,36}$/.test(sleutel)) continue
+
+      const regels = stand.get(sleutel)
+      if (!regels || regels.length === 0) continue
+
+      /*
+       * De laagste stand telt. Staat er nog één regel open, dan is de factuur
+       * niet betaald -- ook niet als de andere regel wel is afgeletterd.
+       * Liever een factuur die te lang op aangeboden staat dan een die als
+       * betaald in de boeken komt terwijl er geld openstaat.
+       */
+      const status = regels.reduce(
+        (laagst, p) => Math.min(laagst, Number(p.Status) || 0), 99)
+
+      /* De datum alleen als hij ECHT rond is; anders zegt hij niets. */
+      const eind = status === 50
+        ? regels.map((p) => datumUitExact(p.EndDate))
+            .filter((d): d is number => d != null)
+            .reduce<number | null>((h, d) => (h == null || d > h ? d : h), null)
+        : null
+
+      const { data: veranderd, error: zetFout } = await admin.rpc('betaalstatus_bijwerken', {
+        bon_in: String(bon.id),
+        status_in: status,
+        eind_in: eind,
+      })
+      if (zetFout) {
+        /* Niet stil doorlopen: dan telt hij als betaald terwijl er niets is
+           opgeslagen, en dat is het ene geval dat niet mag. */
+        mislukt.push({
+          administratie: bv,
+          reden: `${bon.id}: ${zetFout.message}`,
+        })
+        continue
+      }
+      if (veranderd === true) gewijzigd++
+      if (status === 50) betaald++
+    }
+
+    gedaan.push(bv)
+  }
+
+  const klaar = gedaan.length >= perBv.size
+
+  await admin.from('exact_sync').upsert({
+    soort: 'betaalstatus',
+    laatst_at: Date.now(),
+    aantal: betaald,
+    laatste_fout: mislukt.length > 0
+      ? mislukt.map((m) => `${m.administratie}: ${m.reden}`).join(' | ').slice(0, 400)
+      : (afgekapt ? 'Exact gaf een half antwoord; niet alles is nagekeken.' : null),
+    door: beller.naam || beller.id,
+    updated_at: Date.now(),
+  }, { onConflict: 'soort' })
+
+  return json({
+    ok: true,
+    gekeken: werk.length,
+    betaald,
+    gewijzigd,
+    mislukt,
+    /* Wat er nog te doen is, zodat het scherm kan doorgaan in plaats van te
+       denken dat het klaar is. */
+    klaar,
+    afgekapt,
+    vervolg: klaar ? null : { gedaan },
+    ...await betaalStand(),
+  })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Een betaalopdracht intrekken, en zijn bestand terughalen
+ * ------------------------------------------------------------------ */
+
+async function batchIntrekken(body: Record<string, unknown>, beller: Beller): Promise<Response> {
+  const id = String(body.batchId ?? '').trim()
+  if (!id) return json({ ok: false, reden: 'Geen betaalopdracht meegestuurd.' }, 400)
+
+  const { data, error } = await admin.rpc('betaalbatch_intrekken', {
+    batch_in: id,
+    door_in: beller.naam || beller.id,
+  })
+  if (error) return json({ ok: false, reden: error.message }, 409)
+
+  return json({ ok: true, vrijgegeven: Number(data ?? 0) || 0, ...await betaalStand() })
+}
+
+async function batchBestand(body: Record<string, unknown>): Promise<Response> {
+  const id = String(body.batchId ?? '').trim()
+  if (!id) return json({ ok: false, reden: 'Geen betaalopdracht meegestuurd.' }, 400)
+
+  const { data, error } = await admin.from('betaalbatch')
+    .select('bestandsnaam, xml').eq('id', id).maybeSingle()
+  if (error) return json({ ok: false, reden: error.message }, 502)
+  if (!data) return json({ ok: false, reden: 'Die betaalopdracht bestaat niet.' }, 404)
+  if (!data.xml) {
+    return json({
+      ok: false,
+      reden: 'Van deze opdracht is het bestand niet bewaard. Dat gebeurde bij '
+        + 'opdrachten van vóór 0100; maak zo nodig een nieuwe opdracht.',
+    }, 409)
+  }
+
+  return json({
+    ok: true,
+    bestandsnaam: String(data.bestandsnaam ?? 'sepa.xml'),
+    xml: String(data.xml),
+  })
 }
 
 async function sepaMaken(body: Record<string, unknown>, beller: Beller): Promise<Response> {
@@ -1407,12 +1734,26 @@ async function sepaMaken(body: Record<string, unknown>, beller: Beller): Promise
     totaal: uit.totaal,
     uitvoeren_op: uitvoeren.getTime(),
     door: beller.naam || beller.id,
+    /*
+     * Het bestand erbij (0100). Het stond alleen in dit antwoord, dus ging
+     * de download mis of sloot iemand het tabblad, dan was het weg -- en de
+     * facturen zaten intussen in een batch en vielen daarmee uit
+     * betaalbaar(). Onherstelbaar zonder handwerk in de database.
+     */
+    xml: uit.xml,
   })
   if (error) return json({ ok: false, reden: error.message }, 502)
 
   const meegenomen = new Set(uit.overgeslagen.map((o) => o.id))
   const lijnen = regels.filter((r) => !meegenomen.has(r.id)).map((r) => ({
-    id: 'br_' + r.id,
+    /*
+     * De sleutel draagt de BATCH mee (0100). Hij was 'br_' + expense_id, en
+     * dat is de primaire sleutel -- dus dezelfde factuur een tweede keer in
+     * een opdracht zetten liep stuk op een dubbele sleutel, ook nadat de
+     * eerste was ingetrokken. Precies het geval waarvoor intrekken bedoeld
+     * is.
+     */
+    id: 'br_' + batchId + '_' + r.id,
     batch_id: batchId,
     expense_id: r.id,
     naam: r.leverancier,
@@ -4320,13 +4661,18 @@ Deno.serve(async (req) => {
     /* ---- betalen ---- */
 
     if (actie === 'betaal-stand' || actie === 'sepa-maken'
-        || actie === 'batch-uitvoeren' || actie === 'zet-betaald') {
+        || actie === 'batch-uitvoeren' || actie === 'zet-betaald'
+        || actie === 'betaalstatus' || actie === 'batch-intrekken'
+        || actie === 'batch-bestand') {
       if (!beller.magBoekhouding) {
         return json({ ok: false, reden: 'Hier mag je niet bij.' }, 403)
       }
       if (actie === 'sepa-maken') return await sepaMaken(body, beller)
       if (actie === 'batch-uitvoeren') return await batchUitvoeren(body, beller)
       if (actie === 'zet-betaald') return await zetBetaald(body, beller)
+      if (actie === 'betaalstatus') return await betaalstatusOphalen(beller, body)
+      if (actie === 'batch-intrekken') return await batchIntrekken(body, beller)
+      if (actie === 'batch-bestand') return await batchBestand(body)
       return json({ ok: true, ...await betaalStand() })
     }
 

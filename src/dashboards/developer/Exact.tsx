@@ -64,7 +64,8 @@ import {
   exactMedewerkerDetails, exactPersoneelStand, exactStatus, exactSyncGrootboek,
   exactBtwCodes, exactDagboeken, exactFacturenStand, exactStuurFacturen,
   exactProefrit, exactOpnieuwOphalen, type Proefrit as ProefritUitslag,
-  exactBatchUitvoeren, exactBetaalStand, exactKoppelBedrijf,
+  exactBatchBestand, exactBatchIntrekken, exactBatchUitvoeren,
+  exactBetaalStand, exactBetaalstatus, exactKoppelBedrijf,
   exactRelatiesStand, exactSepaMaken, exactStuurVerkoop,
   exactSyncAdministraties, exactSyncPersoneel, exactSyncRelaties,
   exactVerbindUrl, exactVerkoopOpmaken, exactVerkoopStand,
@@ -2723,6 +2724,49 @@ export function Betalen() {
         </div>
       )}
 
+      {/*
+        * Goedgekeurd maar nog niet geboekt.
+        *
+        * betaalbaar() eist sinds 0100 een boeking in Exact -- anders betaal
+        * je iets wat daar niet staat, en dan kan de betaalstand ook nooit
+        * terugkomen. Die facturen vallen daarmee uit deze lijst, en dat hoort
+        * gezegd te worden: anders lijkt het of er niets te betalen valt.
+        */}
+      {(stand?.wachtOpBoeking ?? 0) > 0 && (
+        <div className="waarschuwing zacht mb">
+          <TriangleAlert size={14} />
+          <span>
+            {stand?.wachtOpBoeking} goedgekeurde factu{stand?.wachtOpBoeking === 1 ? 'ur staat' : 'ren staan'}
+            {' '}nog niet in Exact en {stand?.wachtOpBoeking === 1 ? 'is' : 'zijn'} daarom hier
+            nog niet te betalen. Boek {stand?.wachtOpBoeking === 1 ? 'hem' : 'ze'} eerst bij
+            Te verwerken.
+          </span>
+        </div>
+      )}
+
+      {/*
+        * Aangeboden bij de bank, en in Exact nooit afgeletterd.
+        *
+        * Zulke facturen staan in geen enkele andere lijst: niet bij wat te
+        * betalen valt, niet bij wat op een boeking wacht, en niet bij wat
+        * betaald is. Zonder deze melding verdwijnen ze stil, en dat is het
+        * soort gat waar je een half jaar later achter komt.
+        */}
+      {(stand?.blijftHangen.length ?? 0) > 0 && (
+        <div className="waarschuwing mb">
+          <TriangleAlert size={15} />
+          <span>
+            {stand?.blijftHangen.length} factu{stand?.blijftHangen.length === 1 ? 'ur ligt' : 'ren liggen'}
+            {' '}al meer dan tien dagen bij de bank zonder dat Exact
+            {' '}{stand?.blijftHangen.length === 1 ? 'hem' : 'ze'} heeft afgeletterd:{' '}
+            {stand?.blijftHangen.slice(0, 4).map((r) => r.leverancier || r.id).join(', ')}
+            {(stand?.blijftHangen.length ?? 0) > 4 && ' en meer'}.
+            {' '}Haal de betaalstatus op; blijft het staan, kijk dan in Exact of
+            het bankafschrift is ingelezen.
+          </span>
+        </div>
+      )}
+
       <div className="row mb">
         <button
           className="btn primary sm"
@@ -2751,6 +2795,64 @@ export function Betalen() {
           {bezig === 'sepa' ? <Loader2 size={14} className="spin" /> : <Download size={14} />}
           Betaalbestand maken ({voorBv.length - zonderIban.length})
         </button>
+
+        {/*
+          * En de enige knop die echt kan zeggen of er betaald is.
+          *
+          * Wij weten alleen dat WIJ een bestand hebben aangeboden. Of de bank
+          * het heeft uitgevoerd staat op het bankafschrift, en dat komt in
+          * Exact binnen. Dus vragen we het daar op, per factuur, op de
+          * EntryID van onze eigen boeking.
+          */}
+        <button
+          className="btn sm"
+          disabled={bezig !== null}
+          title="Bij Exact opvragen welke facturen daar inmiddels zijn afgeletterd"
+          onClick={() => void doe('status', async () => {
+            /*
+             * Doorgaan waar hij afbrak.
+             *
+             * De server heeft een klok: twintig administraties met elk tot
+             * veertig pagina's is werk zonder bovengrens, en precies die vorm
+             * kostte deze functie al eens de worker (546). Wat niet af kwam,
+             * komt in de volgende ronde -- met de bv's die al geweest zijn
+             * erbij, zodat er niets dubbel gebeurt.
+             */
+            let ronde = await exactBetaalstatus()
+            let betaald = ronde.betaald
+            let gewijzigd = ronde.gewijzigd
+            let rondes = 1
+            while (!ronde.klaar && ronde.vervolg && rondes < 10) {
+              ronde = await exactBetaalstatus(ronde.vervolg)
+              betaald += ronde.betaald
+              gewijzigd += ronde.gewijzigd
+              rondes++
+            }
+            setStand(ronde)
+
+            if (ronde.mislukt.length > 0) {
+              toast.error(`Niet overal gelukt: ${ronde.mislukt[0].administratie} — ${ronde.mislukt[0].reden}`)
+            } else if (ronde.afgekapt) {
+              /*
+               * Een half antwoord mag nooit als een heel antwoord voelen: wie
+               * "hij staat er niet bij" leest als "hij is niet betaald",
+               * trekt dan de verkeerde conclusie.
+               */
+              toast.error('Exact gaf meer betalingen terug dan in één ronde passen. '
+                + `${gewijzigd} bijgewerkt, maar niet alles is nagekeken.`)
+            } else if (!ronde.klaar) {
+              toast.error(`${gewijzigd} bijgewerkt, maar niet elke bv is langs geweest. `
+                + 'Druk nog een keer.')
+            } else if (gewijzigd === 0) {
+              toast.info(`${ronde.gekeken} facturen nagekeken; er is niets veranderd.`)
+            } else {
+              toast.ok(`${gewijzigd} bijgewerkt, waarvan ${betaald} betaald volgens Exact.`)
+            }
+          })}
+        >
+          {bezig === 'status' ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+          {' '}Betaalstatus ophalen
+        </button>
       </div>
 
       {overgeslagen.length > 0 && (
@@ -2769,8 +2871,10 @@ export function Betalen() {
         <>
           <h4 style={{ marginTop: 18, marginBottom: 6 }}>Betaalopdrachten</h4>
           <p className="help" style={{ marginTop: 0 }}>
-            Zet een opdracht pas op uitgevoerd als de bank hem werkelijk heeft gedraaid. Dán gaan
-            de facturen op betaald.
+            Zet een opdracht op aangeboden zodra je hem bij de bank hebt neergezet. Dat is
+            iets anders dan betaald: <strong>betaald</strong> komt uit Exact, zodra het
+            bankafschrift daar is afgeletterd. Zolang dat niet is gebeurd staat de factuur
+            op aangeboden — en dat is de waarheid, want verder weten we het niet.
           </p>
           <div className="table-wrap">
             <table className="data">
@@ -2785,27 +2889,75 @@ export function Betalen() {
                     <td className="num">{b.aantal}</td>
                     <td className="num">{money(b.totaal)}</td>
                     <td>
-                      {b.status === 'concept' && <Badge tone="warn" dot>nog niet uitgevoerd</Badge>}
-                      {b.status === 'uitgevoerd' && <Badge tone="ok" dot>uitgevoerd</Badge>}
+                      {b.status === 'concept' && <Badge tone="warn" dot>nog niet aangeboden</Badge>}
+                      {b.status === 'uitgevoerd' && <Badge tone="ok" dot>aangeboden</Badge>}
+                      {b.status === 'ingetrokken' && <Badge dot>ingetrokken</Badge>}
                       {b.door && <span className="ts-sub"> · {b.door}</span>}
                     </td>
                     <td>
-                      {b.status === 'concept' && (
-                        <button
-                          className="btn sm"
-                          disabled={bezig !== null}
-                          onClick={() => {
-                            if (!confirm(`${b.aantal} facturen op betaald zetten? Doe dit pas als de bank de opdracht heeft gedraaid.`)) return
-                            void doe('uitvoeren', async () => {
-                              const uit = await exactBatchUitvoeren(b.id)
-                              setStand(uit)
-                              toast.ok(`${uit.betaald} facturen op betaald gezet.`)
-                            })
-                          }}
-                        >
-                          <Check size={13} /> Uitgevoerd
-                        </button>
-                      )}
+                      <div className="row" style={{ gap: 6 }}>
+                        {b.status === 'concept' && (
+                          <button
+                            className="btn sm"
+                            disabled={bezig !== null}
+                            onClick={() => {
+                              if (!confirm(`${b.aantal} facturen op aangeboden zetten? Doe dit als je het bestand bij de bank hebt neergezet.`)) return
+                              void doe('uitvoeren', async () => {
+                                const uit = await exactBatchUitvoeren(b.id)
+                                setStand(uit)
+                                toast.ok(`${uit.betaald} facturen staan op aangeboden. `
+                                  + 'Betaald komt uit Exact.')
+                              })
+                            }}
+                          >
+                            <Check size={13} /> Aangeboden
+                          </button>
+                        )}
+
+                        {/*
+                          * Intrekken kan alleen zolang het een concept is. Is
+                          * hij aangeboden, dan ligt de opdracht bij de bank en
+                          * zou intrekken hier betekenen dat dezelfde facturen
+                          * een tweede keer in een bestand komen.
+                          */}
+                        {b.status === 'concept' && (
+                          <button
+                            className="btn ghost sm"
+                            disabled={bezig !== null}
+                            onClick={() => {
+                              if (!confirm('Deze opdracht intrekken? De facturen komen dan weer in de betaallijst. Doe dit alleen als het bestand NIET bij de bank staat.')) return
+                              void doe('intrekken', async () => {
+                                const uit = await exactBatchIntrekken(b.id)
+                                setStand(uit)
+                                toast.ok(`${uit.vrijgegeven} facturen staan weer open.`)
+                              })
+                            }}
+                          >
+                            Intrekken
+                          </button>
+                        )}
+
+                        {/*
+                          * Het bestand nog eens ophalen. Hiervoor bestond het
+                          * alleen tijdens die ene download: ging die mis, dan
+                          * zaten de facturen in een batch en kwamen ze nooit
+                          * meer terug in de lijst.
+                          */}
+                        {b.heeftBestand && (
+                          <button
+                            className="btn ghost sm"
+                            disabled={bezig !== null}
+                            title="Het SEPA-bestand opnieuw opslaan"
+                            onClick={() => void doe('bestand', async () => {
+                              const uit = await exactBatchBestand(b.id)
+                              bewaar(uit.bestandsnaam, uit.xml)
+                              toast.ok('Het bestand is opnieuw opgeslagen.')
+                            })}
+                          >
+                            <Download size={13} /> Bestand
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
