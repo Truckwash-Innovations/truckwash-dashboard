@@ -25,7 +25,7 @@
  *  verdeling.
  * ==================================================================== */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Search } from 'lucide-react'
 
@@ -82,8 +82,14 @@ export function Kiezer({
      markering na het typen naar een regel die er niet meer staat. */
   useEffect(() => { setWijzer(0) }, [term])
 
-  useLayoutEffect(() => {
-    if (!open) return
+  /**
+   * Het paneel onder zijn knop zetten.
+   *
+   * Als losse functie omdat hij twee keer nodig is: bij het openen, en zodra
+   * de pagina eronder schuift. Dat tweede is het punt -- een paneel met
+   * position: fixed blijft staan waar het stond terwijl zijn knop wegzakt.
+   */
+  const plaats = useCallback(() => {
     const r = knop.current?.getBoundingClientRect()
     if (!r) return
 
@@ -98,7 +104,9 @@ export function Kiezer({
          afgekapt wordt -- juist die naam is waar je op zoekt. */
       breed: Math.min(Math.max(r.width, 280), window.innerWidth - r.left - 12),
     })
-  }, [open])
+  }, [])
+
+  useLayoutEffect(() => { if (open) plaats() }, [open, plaats])
 
   useEffect(() => {
     if (!open) return
@@ -108,18 +116,48 @@ export function Kiezer({
       const t = e.target as Node
       if (!paneel.current?.contains(t) && !knop.current?.contains(t)) setOpen(false)
     }
-    /* Meescrollen heeft geen zin: dan zweeft het paneel los van zijn knop. */
-    const weg = () => setOpen(false)
+
+    /*
+     * Scrollen sloot het paneel, en dat is precies waar Casper op stuitte:
+     * "als ik scroll in de grootboekrekening en onderneming, gaan die dingen
+     * weg."
+     *
+     * Die regel kwam van Dropdown, waar hij klopt -- daar is niets in te
+     * scrollen, dus elke scroll gaat over de pagina eronder. Hier zit de
+     * lijst zélf vol, en een scroll daarbinnen bubbelt via capture omhoog
+     * naar window. Je bladert dus door de rekeningen en het paneel verdwijnt
+     * onder je muis.
+     *
+     * Twee dingen apart houden:
+     *
+     *   in het paneel   niets doen; dat is de lijst die gelezen wordt
+     *   erbuiten        meeschuiven met de knop, en pas sluiten als die
+     *                   helemaal uit beeld is
+     *
+     * Meeschuiven en niet sluiten, want de knop staat in een kaart die je
+     * tijdens het kiezen best een stukje mag verschuiven -- en een lijst die
+     * dichtklapt omdat je met twee vingers over je trackpad streek is de
+     * ergste versie hiervan.
+     */
+    const geschoven = (e: Event) => {
+      if (paneel.current?.contains(e.target as Node)) return
+
+      const r = knop.current?.getBoundingClientRect()
+      if (!r) return
+      /* Uit beeld: dan hangt het paneel los van iets wat je niet meer ziet. */
+      if (r.bottom < 0 || r.top > window.innerHeight) { setOpen(false); return }
+      plaats()
+    }
 
     document.addEventListener('mousedown', buiten)
-    window.addEventListener('resize', weg)
-    window.addEventListener('scroll', weg, true)
+    window.addEventListener('resize', plaats)
+    window.addEventListener('scroll', geschoven, true)
     return () => {
       document.removeEventListener('mousedown', buiten)
-      window.removeEventListener('resize', weg)
-      window.removeEventListener('scroll', weg, true)
+      window.removeEventListener('resize', plaats)
+      window.removeEventListener('scroll', geschoven, true)
     }
-  }, [open])
+  }, [open, plaats])
 
   function kies(v: string) {
     onKies(v)

@@ -10411,6 +10411,29 @@ console.log('\n82. Vijf kleine dingen aan het factuurscherm')
   check('de kiezer heeft stijl',
     thema.includes('.kiezer-paneel') && thema.includes('.kiezer-regel'),
     'de kiezer is niet opgemaakt')
+
+  /* --- 7. en blijft staan terwijl je erin bladert --- */
+
+  /*
+   * De eerste versie sloot bij elke scroll. Die regel kwam van Dropdown, waar
+   * hij klopt -- daar valt niets te scrollen. Hier zit de lijst zelf vol, en
+   * een scroll daarbinnen bubbelt via capture omhoog naar window: je bladert
+   * door de rekeningen en het paneel verdwijnt onder je muis.
+   */
+  check('scrollen in de lijst sluit het paneel niet',
+    /if \(paneel\.current\?\.contains\(e\.target as Node\)\) return/.test(kiezer),
+    'een scroll in het paneel telt nog als een scroll erbuiten')
+
+  /* Buiten het paneel meeschuiven en niet sluiten: de kaart eronder mag best
+     een stukje verschuiven terwijl je kiest. Pas als de knop uit beeld is
+     hangt het paneel aan iets wat je niet meer ziet. */
+  check('en buiten het paneel schuift het mee in plaats van dicht te klappen',
+    kiezer.includes('r.bottom < 0 || r.top > window.innerHeight'),
+    'het paneel sluit nog bij elke scroll van de pagina')
+
+  check('en doorscrollen trekt de pagina eronder niet mee',
+    /\.kiezer-lijst \{[^}]*overscroll-behavior: contain/.test(thema),
+    'onderaan de lijst scrollt de pagina eronder door')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
