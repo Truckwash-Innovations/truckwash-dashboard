@@ -8005,5 +8005,117 @@ console.log('\n63. Een gedeeld postvak, en eigen mappen')
   await pb.close()
 }
 
+/* ==================================================================== *
+ *  64. De inkoopadressen maken zichzelf
+ *
+ *  Casper: "Zorg ervoor dat je de adressen automatisch aanmaakt (...) Het
+ *  liefst gewoon de plaatsnaam, of een afdelingsnaam, bijv inkoop.roosendaal@
+ *  en inkoop.td@."
+ *
+ *  Een echte controle en geen tekstcontrole: de functie draait tegen een
+ *  opstelling die lijkt op zijn administratie -- een paar bv's die allemaal
+ *  met "Truckwash" beginnen, de bestaande vestiging Roosendaal, en bv's
+ *  zonder vestiging. En dan wordt gekeken wat eruit komt.
+ * ==================================================================== */
+
+console.log('\n64. De inkoopadressen maken zichzelf')
+
+{
+  const ia = await fresh()
+  await ia.exec(sqlFile('supabase/setup.sql'))
+  await asServer(ia)
+
+  /* De achttien vestigingen staan er al (0035); Roosendaal is er een van. Die
+     wordt hier aan een bv gehangen in plaats van er een tweede naast te
+     zetten -- dat is ook het geval dat telt. */
+  await ia.exec(`
+    update public.instellingen set waarde = 'post.truckwash1.nl'
+      where sleutel = 'inkoop_domein';
+
+    insert into public.exact_administratie (code, naam, actief, hoofd) values
+      ('991', 'Truckwash 1 Group B.V.', true, false),
+      ('992', 'Truckwash 1 Vastgoed B.V.', true, false),
+      ('993', 'Truckwash 1 Techniek & Beheer B.V.', true, false),
+      ('994', 'Truckwash 1 Roosendaal B.V.', true, false);
+
+    update public.locations set administratie = '994' where website_slug = 'roosendaal';
+  `)
+
+  /* Pas nu leegmaken: de triggers hierboven hebben er al een paar gemaakt, en
+     we willen zien wat de functie zelf doet. */
+  await ia.exec('delete from public.inkoop_adres')
+
+  const adres = async (bv) => (await ia.query(
+    `select adres from public.inkoop_adres where administratie = '${bv}' order by adres`
+  )).rows.map((r) => r.adres)
+
+  const uit = (await ia.query('select * from public.inkoop_adressen_aanvullen()')).rows[0]
+
+  check('er worden adressen aangemaakt', Number(uit.gemaakt) >= 4, JSON.stringify(uit))
+
+  /* De plaatsnaam, precies zoals Casper hem noemde. */
+  check('een vestiging krijgt de plaatsnaam',
+    (await adres('994')).includes('inkoop.roosendaal@post.truckwash1.nl'),
+    (await adres('994')).join(', '))
+
+  /*
+   * En een bv zonder vestiging een korte naam. "Truckwash" gaat eraf omdat
+   * meer dan de helft van de bv's ermee begint -- dat woord zegt niet WELKE
+   * bv dit is. Het losse cijfer ook: "Truckwash 1 Group" wordt group.
+   */
+  check('een bv zonder vestiging krijgt een korte naam',
+    (await adres('992')).includes('inkoop.vastgoed@post.truckwash1.nl'),
+    (await adres('992')).join(', '))
+
+  check('en het gedeelde woord gaat eraf',
+    (await adres('991')).includes('inkoop.group@post.truckwash1.nl'),
+    (await adres('991')).join(', '))
+
+  check('ook bij een naam van twee woorden',
+    (await adres('993')).includes('inkoop.techniek@post.truckwash1.nl'),
+    (await adres('993')).join(', '))
+
+  /* --- opnieuw draaien verandert niets --- */
+
+  const tweede = (await ia.query('select * from public.inkoop_adressen_aanvullen()')).rows[0]
+  check('opnieuw draaien maakt er niets bij',
+    Number(tweede.gemaakt) === 0, JSON.stringify(tweede))
+
+  /* --- en een hernoemd adres blijft hernoemd --- */
+
+  await ia.exec(`
+    update public.inkoop_adres set adres = 'inkoop.td@post.truckwash1.nl'
+     where administratie = '993'
+  `)
+  await ia.query('select * from public.inkoop_adressen_aanvullen()')
+
+  const na = await adres('993')
+  check('een hernoemd adres blijft staan',
+    na.length === 1 && na[0] === 'inkoop.td@post.truckwash1.nl', na.join(', '))
+
+  /* --- en een nieuwe vestiging krijgt er vanzelf een --- */
+
+  await ia.exec(`
+    insert into public.locations (id, code, name, city, website_slug, administratie, active)
+    values ('tl_nieuw', 'TST-NW', 'Truckwash Testdorp', 'Testdorp', 'testdorp', '991', true)
+  `)
+
+  check('een nieuwe vestiging krijgt er vanzelf een',
+    (await adres('991')).includes('inkoop.testdorp@post.truckwash1.nl'),
+    (await adres('991')).join(', '))
+
+  /* --- zonder domein gebeurt er niets, en valt er niets om --- */
+
+  await ia.exec(`
+    delete from public.inkoop_adres;
+    update public.instellingen set waarde = '' where sleutel = 'inkoop_domein';
+  `)
+  const leeg = (await ia.query('select * from public.inkoop_adressen_aanvullen()')).rows[0]
+  check('zonder domein wordt er niets gemaakt en gaat er niets stuk',
+    Number(leeg.gemaakt) === 0, JSON.stringify(leeg))
+
+  await ia.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

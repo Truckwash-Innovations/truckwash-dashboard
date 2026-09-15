@@ -1487,6 +1487,24 @@ export async function exactKoppelLeverancier(
     { actie: 'koppel-leverancier', zoeknaam: leverancier, exactId, administratie, gezienAls }))
 }
 
+/**
+ * De inkoopadressen aanvullen die er nog niet zijn.
+ *
+ * Gebeurt sinds 0097 vanzelf -- een nieuwe vestiging of een bv die aangezet
+ * wordt krijgt er een via een trigger. Deze knop is voor het geval ernaast:
+ * het domein is net ingevuld, of iemand wil gewoon zien dat het klopt zonder
+ * eerst iets te wijzigen.
+ */
+export async function inkoopAdressenAanvullen(): Promise<{ gemaakt: number; overgeslagen: number }> {
+  const { data, error } = await supabase().rpc('inkoop_adressen_aanvullen')
+  if (error) throw new Error(error.message)
+  const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
+  return {
+    gemaakt: Number(r?.gemaakt) || 0,
+    overgeslagen: Number(r?.overgeslagen) || 0,
+  }
+}
+
 /* ------------------------------------------------------------------ *
  *  Wat er op een tweede handtekening wacht
  *

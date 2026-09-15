@@ -25,14 +25,16 @@
 
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { AlertTriangle, Check, Copy, Plus, X } from 'lucide-react'
+import { AlertTriangle, Check, Copy, Plus, Wand2, X } from 'lucide-react'
 
 import { Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
 import { db, uid } from '../../lib/db'
-import { enqueue } from '../../lib/sync'
+import { enqueue, scheduleFlush } from '../../lib/sync'
 import { toast } from '../../store/useToasts'
 import { usePerms } from '../../store/useNav'
-import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
+import {
+  exactFacturenStand, inkoopAdressenAanvullen, type ExactAdministratie,
+} from '../../lib/trucksupply'
 import type { InkoopAdres, Location, User } from '../../lib/types'
 
 /** Iemand die een tweede handtekening mag zetten. */
@@ -87,6 +89,32 @@ export default function Inkoopadressen() {
       (a) => a.actief && a.administratie === b.code)),
     [bedrijven, adressen])
 
+  const [vult, setVult] = useState(false)
+
+  /*
+   * Aanvullen gebeurt sinds 0097 vanzelf: een nieuwe vestiging of een bv die
+   * aangezet wordt krijgt er via een trigger een. Deze knop is voor het geval
+   * ernaast -- het domein is net ingevuld, of iemand wil het gewoon zien
+   * kloppen zonder eerst iets te wijzigen.
+   */
+  async function aanvullen() {
+    setVult(true)
+    try {
+      const uit = await inkoopAdressenAanvullen()
+      /* Meteen een ronde inplannen, anders staan de nieuwe rijen er pas als
+         de synchronisatie vanzelf langskomt en lijkt het of er niets is
+         gebeurd. */
+      scheduleFlush(0)
+      toast.ok(uit.gemaakt > 0
+        ? `${uit.gemaakt} adres${uit.gemaakt === 1 ? '' : 'sen'} aangemaakt.`
+        : 'Er viel niets aan te vullen; elk adres staat er al.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Aanvullen lukte niet.')
+    } finally {
+      setVult(false)
+    }
+  }
+
   async function bewaar(rij: InkoopAdres) {
     await db.inkoopAdressen.put(rij)
     await enqueue('inkoopAdressen', 'put', rij.id, rij)
@@ -106,9 +134,14 @@ export default function Inkoopadressen() {
       hint="Per onderneming een adres, met wie de tweede handtekening zet"
       className="mb"
       action={mag ? (
-        <button className="btn ghost sm" onClick={() => setOpen('nieuw')}>
-          <Plus size={14} /> Adres
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn ghost sm" disabled={vult} onClick={() => void aanvullen()}>
+            <Wand2 size={14} /> Aanvullen
+          </button>
+          <button className="btn ghost sm" onClick={() => setOpen('nieuw')}>
+            <Plus size={14} /> Adres
+          </button>
+        </div>
       ) : undefined}
     >
       {zonderAdres.length > 0 && (
@@ -117,7 +150,8 @@ export default function Inkoopadressen() {
           <span>
             {zonderAdres.length === 1 ? 'Eén onderneming heeft' : `${zonderAdres.length} ondernemingen hebben`}
             {' '}nog geen adres: {zonderAdres.map((b) => b.naam).join(', ')}. Facturen
-            van die bv kunnen nergens binnenkomen.
+            van die bv kunnen nergens binnenkomen. Druk op Aanvullen; dan maakt hij ze
+            op de plaatsnaam of op een korte naam van de bv.
           </span>
         </div>
       )}
@@ -185,6 +219,9 @@ export default function Inkoopadressen() {
       )}
 
       <p className="ts-sub" style={{ marginTop: 8 }}>
+        Deze adressen maken zichzelf: een nieuwe vestiging krijgt er een op de
+        plaatsnaam (inkoop.roosendaal@), een bv zonder vestiging op een korte
+        naam (inkoop.vastgoed@). Hernoemen mag — wat je wijzigt blijft staan.
         Een factuur die hier binnenkomt draagt meteen de onderneming van dit
         adres. Staat er op het stuk zelf een KvK- of btw-nummer van een andere
         bv, dan wint dat — dat is harder dan een adres.

@@ -11217,5 +11217,78 @@ console.log('\n90. Een adres per onderneming, en een handtekening met een naam')
     'een onderneming zonder adres blijft onopgemerkt')
 }
 
+/* ==================================================================== *
+ *  91. De adressen maken zichzelf
+ *
+ *  Casper: "Zorg ervoor dat je de adressen automatisch aanmaakt (...) Bekijk
+ *  alles, en maak alles zo automatisch mogelijk aub."
+ *
+ *  0095 maakte van een BEREKENING een lijst, en dat is goed -- maar daarmee
+ *  werd het aanmaken handwerk. Een berekening vervangen door een lijst is
+ *  alleen winst als die lijst zichzelf vult.
+ *
+ *  Wat er uit die namen komt staat in sqltest 64: daar draait de functie echt,
+ *  tegen een opstelling die op zijn administratie lijkt. Hier staat wat er
+ *  omheen moet kloppen.
+ * ==================================================================== */
+
+console.log('\n91. De adressen maken zichzelf')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const m97 = readFileSync(
+    'supabase/migrations/0097_de_adressen_maken_zichzelf.sql', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Inkoopadressen.tsx', 'utf8')
+
+  check('er is een functie die de gaten vult',
+    m97.includes('create or replace function public.inkoop_adressen_aanvullen'),
+    'adressen moeten nog met de hand worden aangemaakt')
+
+  /* Vanzelf betekent: ook morgen. Een functie die één keer door een migratie
+     is aangeroepen is geen automaat maar een eenmalige actie. */
+  check('en hij draait vanzelf bij een nieuwe vestiging of bv',
+    /create trigger locations_inkoop_adres/.test(m97)
+      && /create trigger exact_administratie_inkoop_adres/.test(m97),
+    'nieuwe vestigingen en bv-en krijgen niet vanzelf een adres')
+
+  /* Op het domein dat er al stond: dat is bij Resend ingesteld, en een ander
+     domein betekent dat er niets aankomt. */
+  check('op het domein uit de instellingen',
+    /where sleutel = 'inkoop_domein'/.test(m97),
+    'het domein wordt niet uit de instellingen gehaald')
+
+  /*
+   * Zonder domein niets doen, en vooral niet omvallen: dit draait vanuit een
+   * trigger, en een vestiging die niet opgeslagen kan worden omdat er een
+   * instelling leeg staat is erger dan een vestiging zonder adres.
+   */
+  check('en zonder domein gebeurt er niets, zonder fout',
+    /if domein is null then\s*\n\s*return query select 0, 0;/.test(m97),
+    'zonder domein gaat er iets stuk')
+
+  check('een vestiging krijgt de plaatsnaam',
+    /public\.inkoop_slug\(l\.website_slug\),\s*\n\s*public\.inkoop_slug\(l\.city\)/.test(m97),
+    'de plaatsnaam wordt niet gebruikt')
+
+  /*
+   * Het gedeelde woord wordt geteld en niet geraden. Een lijst met
+   * "truckwash" erin zou een vaste aanname zijn over wiens administratie dit
+   * is; bij een ander bedrijf werkt het dan niet.
+   */
+  check('en een bv een korte naam, zonder het woord dat ze allemaal delen',
+    m97.includes('inkoop_bv_slug') && /hoeveel \* 2 > totaal/.test(m97),
+    'het gedeelde woord staat als vaste lijst in de code')
+
+  /* Alleen gaten vullen. Wie een adres hernoemt naar inkoop.td@ hoort dat de
+     volgende ronde nog terug te zien. */
+  check('wat er staat blijft staan',
+    /not exists \(select 1 from public\.inkoop_adres ia where ia\.location_id = l\.id\)/.test(m97),
+    'bestaande adressen worden overschreven')
+
+  check('en er is een knop voor wie niet wil wachten',
+    scherm.includes('inkoopAdressenAanvullen()') && scherm.includes('Aanvullen'),
+    'aanvullen kan alleen door iets anders te wijzigen')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
