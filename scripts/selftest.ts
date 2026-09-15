@@ -10307,5 +10307,111 @@ console.log('\n81. Per onderneming, en niet meer door de PDF heen')
     'het raster mag niet krimpen en loopt dus over')
 }
 
+/* ==================================================================== *
+ *  82. Vijf kleine dingen aan het factuurscherm
+ *
+ *  Casper, na een middag ermee werken: een zoekbalkje bij de
+ *  grootboekrekening en de onderneming, de tijdlijn hoort in de historie en
+ *  niet ook bovenaan, "gelezen door" en "bron" mogen weg, en de knop "sluit"
+ *  bij de verdeling doet niks.
+ *
+ *  Die laatste was geen knop maar een status: de bedragen SLUITEN. Dat het
+ *  als knop gelezen werd is geen vergissing van de lezer -- het is een groen
+ *  pilletje naast een regel tekst, en "sluit" is ook een gebiedende wijs.
+ *
+ *  En er zat een zesde onder. Het schema per bv werd nergens overgenomen,
+ *  want grootboek_overnemen() uit 0086 had geen knop. Alle rekeningen stonden
+ *  dus zonder bv, en die "gelden overal" -- het filter uit de vorige ronde
+ *  deed zijn werk en had niets om op te filteren.
+ * ==================================================================== */
+
+console.log('\n82. Vijf kleine dingen aan het factuurscherm')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const kiezer = readFileSync('src/components/ui/kiezer.tsx', 'utf8')
+  const ui = readFileSync('src/components/ui/index.tsx', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
+  const naarExact = readFileSync('src/dashboards/administratie/NaarExact.tsx', 'utf8')
+  const thema = readFileSync('src/styles/theme.css', 'utf8')
+
+  /* --- 1. zoeken in een lange lijst --- */
+
+  check('er is één kiezer met een zoekveld',
+    kiezer.includes('export function Kiezer(') && ui.includes("export * from './kiezer'"),
+    'de kiezer bestaat niet of komt niet uit ./ui')
+
+  /* Drie plekken: de rekening van de bon, de rekening van elke regel van de
+     verdeling, en de onderneming. Eén ervan omzetten laat de andere staan. */
+  check('en hij staat op alledrie de plekken',
+    (scherm.match(/<Kiezer/g) ?? []).length >= 3,
+    'niet elke lange keuzelijst heeft een zoekveld')
+
+  /* Alle woorden moeten voorkomen, in willekeurige volgorde -- "4000 chemie"
+     werkt dan net zo goed als "chemie 4000". Zo zoeken mensen. */
+  check('zoeken gaat op losse woorden, in willekeurige volgorde',
+    /t\.split\(\/\\s\+\/\)\.every/.test(kiezer),
+    'de zoekterm wordt in zijn geheel vergeleken')
+
+  /* Het paneel gaat door een portaal naar de body. Zonder dat verdwijnt het
+     achter de volgende kaart of wordt het afgeknipt door de verdeling --
+     dezelfde reden als bij Dropdown. */
+  check('en het paneel wordt niet afgeknipt door de kaart eromheen',
+    kiezer.includes('createPortal'),
+    'de kiezer rendert binnen zijn kaart')
+
+  /* --- 2. één tijdlijn en niet twee --- */
+
+  check('het overzicht heeft geen eigen tijdlijn meer',
+    !/const stappen: \{ wat: string/.test(scherm),
+    'de korte tijdlijn staat nog in het Overzicht')
+
+  /* Weg uit het overzicht is niet hetzelfde als weg: ze horen in de historie,
+     tussen de opgeslagen gebeurtenissen op hun eigen moment. */
+  check('maar staat wel in de historie',
+    scherm.includes("soort: 'binnengekomen'") && scherm.includes("soort: 'voorgelezen'")
+      && scherm.includes("binnengekomen: 'Binnengekomen per mail'"),
+    'het binnenkomen en voorlezen staan nergens meer')
+
+  /* --- 3. twee velden minder --- */
+
+  check('“Bron” en “Gelezen door” staan er niet meer',
+    !/label="Bron"/.test(scherm) && !/label="Gelezen door"/.test(scherm),
+    'een van de twee velden staat er nog')
+
+  /* --- 4. een status die niet op een knop lijkt --- */
+
+  check('de verdeling meldt “precies” in plaats van “sluit”',
+    scherm.includes('<Badge tone="ok" dot>precies</Badge>'),
+    '“sluit” staat er nog en leest als een knop')
+
+  /* --- 5. en het schema komt per bv binnen --- */
+
+  /*
+   * De serveractie bestond sinds 0086 en werd door geen enkel scherm
+   * aangeroepen -- dezelfde fout als bij het koppelen van een crediteur
+   * (0058). Zolang er geen knop is, staat elke rekening zonder bv.
+   */
+  check('het rekeningschema is per bv over te nemen',
+    naarExact.includes('exactGrootboekOvernemen(') && naarExact.includes('<Schema'),
+    'grootboek_overnemen heeft nog steeds geen knop')
+
+  check('en er staat hoeveel rekeningen een bv al heeft',
+    naarExact.includes('perBv.telling.get(b.code)'),
+    'je ziet niet welke bv nog geen schema heeft')
+
+  /* Rekeningen zonder bv gelden overal en duiken dus op bij elke factuur.
+     Dat hoort te worden gemeld, niet stil te blijven. */
+  check('rekeningen zonder onderneming worden gemeld',
+    naarExact.includes('rekeningen zonder onderneming'),
+    'een rekening zonder bv verschijnt overal zonder dat iemand het weet')
+
+  /* --- 6. en de stijl staat erbij --- */
+
+  check('de kiezer heeft stijl',
+    thema.includes('.kiezer-paneel') && thema.includes('.kiezer-regel'),
+    'de kiezer is niet opgemaakt')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

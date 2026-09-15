@@ -41,16 +41,20 @@
  * ==================================================================== */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, Check, ChevronDown, Clock, ExternalLink, Link2, Loader2,
-  RefreshCw, Search, Send, X,
+  AlertTriangle, Check, ChevronDown, Clock, Download, ExternalLink, Link2,
+  Loader2, RefreshCw, Search, Send, X,
 } from 'lucide-react'
+
+import { db } from '../../lib/db'
+import type { Grootboek } from '../../lib/types'
 
 import { Card, Empty, Field, Knop, Modal } from '../../components/ui'
 import { toast } from '../../store/useToasts'
 import { money, dateShort, relative } from '../../lib/format'
 import {
-  exactCrediteuren, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
+  exactCrediteuren, exactGrootboekOvernemen, exactFacturenStand, exactGeschiedenis, exactKoppelLeverancier,
   exactNietBoekbaar, exactRelatieLink, exactStuurFacturen,
   type ExactCrediteur, type ExactHistorie, type FacturenStand, type NietBoekbaar,
 } from '../../lib/trucksupply'
@@ -534,6 +538,167 @@ function Koppelen({
 }
 
 /* ------------------------------------------------------------------ *
+ *  3a. Het rekeningschema per bv
+ *
+ *  Casper: "als ik naar een andere onderneming ga, moet je de
+ *  grootboekrekening van die onderneming laten zien (...) want anders blijf
+ *  ik bezig."
+ *
+ *  Het scherm filtert daar inmiddels op, en toch zag hij alles door elkaar.
+ *  De reden: 0086 maakte het schema per bv, met grootboek_overnemen() om het
+ *  per administratie binnen te halen -- en die functie werd door geen enkel
+ *  scherm aangeroepen. Alle rekeningen stonden dus nog zonder bv, en een
+ *  rekening zonder bv "geldt overal". Het filter deed precies wat het moest
+ *  en had niets om op te filteren.
+ *
+ *  Dezelfde fout als bij het koppelen van een crediteur (0058): de
+ *  serveractie bestond, maar er was geen knop.
+ * ------------------------------------------------------------------ */
+
+function Schema({ na }: { na: () => void }) {
+  const [stand, setStand] = useState<FacturenStand | null>(null)
+  const [bezig, setBezig] = useState('')
+  const [fout, setFout] = useState<string | null>(null)
+
+  /* Wat er lokaal staat; dat is precies wat het factuurscherm laat zien. */
+  const rekeningen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
+
+  async function laad() {
+    try {
+      setStand(await exactFacturenStand())
+      setFout(null)
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : 'De bv’s zijn niet op te halen.')
+    }
+  }
+
+  useEffect(() => { void laad() }, [])
+
+  const perBv = useMemo(() => {
+    const telling = new Map<string, number>()
+    let overal = 0
+    for (const g of rekeningen) {
+      if (!g.actief) continue
+      const bv = (g.administratie ?? '').trim()
+      if (!bv) { overal++; continue }
+      telling.set(bv, (telling.get(bv) ?? 0) + 1)
+    }
+    return { telling, overal }
+  }, [rekeningen])
+
+  const bvs = (stand?.administraties ?? []).filter((b) => b.actief)
+
+  async function neemOver(code: string, naam: string) {
+    setBezig(code)
+    try {
+      const uit = await exactGrootboekOvernemen(code)
+      toast.ok(`${naam}: ${uit.nieuw} rekeningen erbij, ${uit.uit} op inactief.`)
+      na()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Overnemen lukte niet.')
+    } finally {
+      setBezig('')
+    }
+  }
+
+  return (
+    <Card
+      title="Het rekeningschema per onderneming"
+      hint="Welke grootboekrekeningen er bij een factuur te kiezen zijn"
+      className="mb"
+      action={
+        <button className="btn ghost sm" disabled={bezig !== ''} onClick={() => void laad()}>
+          <RefreshCw size={14} /> Nakijken
+        </button>
+      }
+    >
+      {fout && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={15} /><span>{fout}</span>
+        </div>
+      )}
+
+      {perBv.overal > 0 && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={15} />
+          <span>
+            Er staan {perBv.overal} rekeningen zonder onderneming. Die tellen als
+            “geldt overal” en verschijnen dus bij elke factuur, ook in een bv waar
+            ze niet bestaan — dat is wat je bij het boeken pas terugkrijgt. Neem het
+            schema per bv over; daarna kun je ze weghalen.
+          </span>
+        </div>
+      )}
+
+      {!stand && !fout && (
+        <p className="help" style={{ margin: 0 }}>
+          <Loader2 size={14} className="spin" /> Ophalen...
+        </p>
+      )}
+
+      {stand && bvs.length === 0 && (
+        <Empty text="Er staan nog geen actieve ondernemingen. Haal ze op bij Ontwikkeling, Exact." />
+      )}
+
+      {bvs.length > 0 && (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Onderneming</th>
+                <th style={{ width: 90 }}>Bv</th>
+                <th className="num" style={{ width: 130 }}>Rekeningen</th>
+                <th style={{ width: 190 }}>Uit Exact halen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bvs.map((b) => {
+                const hoeveel = perBv.telling.get(b.code) ?? 0
+                return (
+                  <tr key={b.code}>
+                    <td className="afgekapt">{b.naam}{b.hoofd ? ' · hoofd' : ''}</td>
+                    <td className="mono">{b.code}</td>
+                    <td className="num">
+                      {hoeveel > 0
+                        ? hoeveel
+                        : <span style={{ color: 'var(--warn)' }}>nog geen</span>}
+                    </td>
+                    <td>
+                      <button
+                        className="btn ghost sm"
+                        disabled={bezig !== ''}
+                        onClick={() => void neemOver(b.code, b.naam)}
+                      >
+                        {bezig === b.code
+                          ? <><Loader2 size={13} className="spin" /> Bezig…</>
+                          : <><Download size={13} /> {hoeveel > 0 ? 'Bijwerken' : 'Overnemen'}</>}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/*
+        * Wat overnemen NIET doet, want dat is de vraag die erbij hoort.
+        *
+        * Eigen namen en trefwoorden blijven staan (0086: het sjabloon), en
+        * wat Exact niet meer kent gaat op inactief in plaats van weg -- er
+        * kan op geboekt zijn, en dan is de historie onleesbaar zonder naam.
+        */}
+      <p className="ts-sub" style={{ marginTop: 8 }}>
+        Overnemen laat je eigen namen en trefwoorden staan. Wat Exact niet meer
+        kent gaat op inactief en verdwijnt niet, zodat oude boekingen leesbaar
+        blijven. Opnieuw doen mag altijd.
+      </p>
+    </Card>
+  )
+}
+
+/* ------------------------------------------------------------------ *
  *  3b. De koppelingen die er al staan
  *
  *  Een verkeerde koppeling is niet zichtbaar aan de factuur. Die ziet er
@@ -956,6 +1121,8 @@ export function NaarExact({ verbonden }: { verbonden: boolean }) {
         opnieuw={() => void haal()}
         koppel={(leverancier, bv) => setKoppel({ leverancier, bv })}
       />
+
+      <Schema na={() => setRonde((n) => n + 1)} />
 
       <Koppelingen
         sleutel={ronde}

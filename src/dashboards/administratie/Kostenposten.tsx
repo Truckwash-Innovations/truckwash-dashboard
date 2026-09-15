@@ -33,8 +33,24 @@ import { stapVanStand, stroom, teLaat, type StapSleutel } from '../../lib/stroom
 import { standVan } from '../../lib/werklijst'
 import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
 import {
-  Badge, Card, Documentpaneel, Empty, Field, Filterbalk, Filterchips, Knop,
-  Kruimels, LeegStaat, Modal, Paginakop, Stand, Stat, Tabbladen, Tabel, Zoekveld,
+  Badge,
+  Card,
+  Documentpaneel,
+  Empty,
+  Field,
+  Filterbalk,
+  Filterchips,
+  Kiezer,
+  Knop,
+  Kruimels,
+  LeegStaat,
+  Modal,
+  Paginakop,
+  Stand,
+  Stat,
+  Tabbladen,
+  Tabel,
+  Zoekveld,
 } from '../../components/ui'
 /* Als type en niet als waarde. Release 1.74.0 viel om op precies het
    omgekeerde: een component die als "import type" binnenkwam en als waarde
@@ -1397,17 +1413,15 @@ function Splitsen({ bon, bedrijven }: {
 
             <label className="verdeel-veld">
               <span>Rekening</span>
-              <select
-                className="input"
-                value={r.grootboekCode ?? ''}
+              <Kiezer
+                waarde={r.grootboekCode}
                 disabled={!mag}
-                onChange={(e) => void pas(r, { grootboekCode: e.currentTarget.value || undefined })}
-              >
-                <option value="">— kies —</option>
-                {rekeningenVoor(rekeningen, bv, r.grootboekCode).map((g) => (
-                  <option key={g.id} value={g.code}>{g.code} · {g.naam}</option>
-                ))}
-              </select>
+                zoekHint="Nummer of naam"
+                opties={rekeningenVoor(rekeningen, bv, r.grootboekCode).map((g) => ({
+                  waarde: g.code, label: `${g.code} · ${g.naam}`, sub: g.categorie,
+                }))}
+                onKies={(v) => void pas(r, { grootboekCode: v || undefined })}
+              />
             </label>
 
             <label className="verdeel-veld">
@@ -1446,8 +1460,16 @@ function Splitsen({ bon, bedrijven }: {
         <span className="ts-sub op">
           Regels samen {money(som)} · op de factuur {money(bon.amountExcl)}
         </span>
+        {/*
+          * "sluit" stond hier als boekhoudterm: de bedragen sluiten. Casper
+          * las het als een knop -- "Sluiten" -- en klikte erop. Terecht, het
+          * is een groen pilletje naast een regel tekst.
+          *
+          * Nu een woord dat geen werkwoord kan zijn, en dat hetzelfde rijtje
+          * afmaakt als de andere twee: te veel, te weinig, precies.
+          */}
         {Math.abs(verschil) < 0.005
-          ? <Badge tone="ok" dot>sluit</Badge>
+          ? <Badge tone="ok" dot>precies</Badge>
           : (
             <Badge tone="danger" dot>
               {verschil > 0 ? 'te veel' : 'te weinig'}: {money(Math.abs(verschil))}
@@ -1468,18 +1490,44 @@ function Splitsen({ bon, bedrijven }: {
 /* ---------------------------- Het verloop ------------------------- */
 
 /**
+ * Eén regel in de historie, zoals het scherm hem toont.
+ *
+ * Bijna alles komt uit expense_gebeurtenis, maar niet alles: het binnenkomen
+ * van de mail en het voorlezen staan op de bon zelf. Die in de database
+ * dubbelen zou een tweede waarheid maken; hier bij elkaar zetten is een
+ * weergave. Vandaar dat soort hier gewoon tekst is en niet de vaste lijst
+ * van ExpenseGebeurtenis.
+ */
+interface HistorieRegel {
+  id: string
+  at: number
+  soort: string
+  tekst?: string
+  veld?: string
+  oud?: string
+  nieuw?: string
+  doorNaam?: string
+}
+
+/**
  * Alles wat er met deze factuur gebeurd is, en een veld om er iets bij te
  * zetten.
  *
- * Het Overzicht hierboven leidt zijn tijdlijn af uit de velden op de bon:
- * binnengekomen, voorgelezen, goedgekeurd. Dat is de korte versie en die
- * blijft, want dat is wat je in negen van de tien gevallen wilt zien.
+ * Hier stonden er twee van: een korte tijdlijn in het Overzicht en deze. Dat
+ * las niet als "kort en lang" maar als twee lijsten die elkaar tegenspraken
+ * -- de korte liet juist de wijzigingen weg die je zoekt. Casper: "bovenaan
+ * staat nog een stuk binnengekomen per mail, terwijl dat juist in de history
+ * moet."
  *
- * Dit is de lange. Hij komt uit een tabel die door een trigger wordt
- * gevuld, en die ziet ook wat het Overzicht niet kan weten: dat iemand het
- * bedrag heeft gecorrigeerd, dat de rekening is omgezet, wie de eerste
- * handtekening zette. Precies wat je terug wilt zoeken als een boeking
- * achteraf niet klopt.
+ * Nu één lijst. Het meeste komt uit expense_gebeurtenis, die door een trigger
+ * wordt gevuld en ook ziet wat er niet aan de bon af te lezen is: dat iemand
+ * het bedrag heeft gecorrigeerd, dat de rekening is omgezet, wie de eerste
+ * handtekening zette.
+ *
+ * Twee dingen staan daar niet in en worden erbij gerekend: wanneer de mail
+ * binnenkwam en wanneer de factuur is voorgelezen. Die staan op de bon zelf.
+ * Ze in de database dubbelen zou een tweede waarheid maken die uit de pas kan
+ * lopen; hier bij elkaar zetten is een weergave.
  */
 function Verloop({ bon }: { bon: Expense }) {
   const user = useAuth((s) => s.user)!
@@ -1490,8 +1538,55 @@ function Verloop({ bon }: { bon: Expense }) {
     () => db.expenseGebeurtenissen.where('expenseId').equals(bon.id).toArray(),
     [bon.id], [] as ExpenseGebeurtenis[])
 
-  const opVolgorde = useMemo(
-    () => [...regels].sort((a, b) => b.at - a.at), [regels])
+  /* De mail waar deze bon uit kwam; alleen voor het moment van binnenkomst. */
+  const post = useLiveQuery(
+    async () => (bon.mailboxId ? await db.mailbox.get(bon.mailboxId) : undefined),
+    [bon.mailboxId])
+
+  const opVolgorde = useMemo(() => {
+    /*
+     * Wat de trigger niet ziet, erbij.
+     *
+     * Een eigen soort en niet een bestaande lenen: 'aangemaakt' zou ook
+     * kunnen, maar dan staat er "Aangemaakt" waar "Binnengekomen per mail"
+     * hoort. Vandaar een eigen regeltype voor de weergave -- het is geen
+     * gebeurtenis in de database en hoort daar ook niet op te lijken.
+     */
+    const erbij: HistorieRegel[] = []
+
+    if (post?.at) {
+      erbij.push({
+        id: `afgeleid_post_${bon.id}`,
+        at: post.at,
+        soort: 'binnengekomen',
+        tekst: post.vanNaam ? `${post.vanNaam} <${post.van}>` : (post.van ?? ''),
+      })
+    }
+
+    const gelezen = bon.gelezen
+    if (gelezen?.gelezenOp) {
+      erbij.push({
+        id: `afgeleid_gelezen_${bon.id}`,
+        at: gelezen.gelezenOp,
+        soort: 'voorgelezen',
+        tekst: bon.attachmentName ? `uit ${bon.attachmentName}` : '',
+        doorNaam: bon.lezer ?? gelezen.gelezenDoor,
+      })
+    }
+
+    const uitDeTabel: HistorieRegel[] = regels.map((g) => ({
+      id: g.id,
+      at: g.at,
+      soort: g.soort,
+      tekst: g.tekst,
+      veld: g.veld,
+      oud: g.oud,
+      nieuw: g.nieuw,
+      doorNaam: g.doorNaam,
+    }))
+
+    return [...uitDeTabel, ...erbij].sort((a, b) => b.at - a.at)
+  }, [regels, post, bon])
 
   async function schrijf() {
     const schoon = tekst.trim()
@@ -1573,6 +1668,9 @@ const HISTORIE_KOP: Record<string, string> = {
   heropend: 'Heropend',
   notitie: 'Notitie',
   naar_exact: 'Naar Exact',
+  /* Deze twee komen niet uit de tabel maar van de bon zelf; zie Verloop(). */
+  binnengekomen: 'Binnengekomen per mail',
+  voorgelezen: 'Voorgelezen',
 }
 
 /* ---------------------------- Zoeken ------------------------------ */
@@ -1658,44 +1756,22 @@ function Overzicht({ bon }: { bon: Expense }) {
 
   const lezing = bon.gelezen
 
-  /* De loop van deze bon: alleen wat er werkelijk gebeurd is. */
-  const stappen: { wat: string; wanneer: number; door?: string }[] = []
-  if (mail?.at) stappen.push({ wat: 'Binnengekomen per mail', wanneer: mail.at, door: mail.vanNaam || mail.van })
-  if (lezing?.gelezenOp) {
-    stappen.push({
-      wat: 'Voorgelezen',
-      wanneer: lezing.gelezenOp,
-      door: bon.lezer ?? lezing.gelezenDoor,
-    })
-  }
-  if (bon.approvedAt) {
-    stappen.push({
-      wat: bon.status === 'afgekeurd' ? 'Afgekeurd' : 'Goedgekeurd',
-      wanneer: bon.approvedAt,
-      door: bon.approvedByName || undefined,
-    })
-  }
-  stappen.sort((a, b) => a.wanneer - b.wanneer)
+  /*
+   * De tijdlijn stond hier en staat nu in de Historie.
+   *
+   * Casper: "bovenaan staat nog een stuk binnengekomen per mail, terwijl dat
+   * juist in de history moet." Twee tijdlijnen op één scherm -- een korte
+   * bovenaan en een lange onderaan -- betekent dat je bij elke vraag
+   * ("wanneer kwam dit binnen") moet bedenken in welke van de twee je moet
+   * kijken. En de korte liet juist de wijzigingen weg die je zoekt.
+   *
+   * Wat hier wegvalt is niet verdwenen: Verloop() zet het binnenkomen en het
+   * voorlezen erbij, tussen de opgeslagen gebeurtenissen, op hun eigen
+   * moment in de rij.
+   */
 
   return (
     <Card title="Overzicht" hint="Waar deze bon vandaan komt en wat ermee gebeurd is" className="mb">
-      {/* ---- de loop ---- */}
-
-      {stappen.length > 0 && (
-        <div className="kosten-loop mb">
-          {stappen.map((st, i) => (
-            <div key={i} className="kosten-stap">
-              <span className="stip" />
-              <div>
-                <strong>{st.wat}</strong>{' '}
-                <span className="mono">{dateTime(st.wanneer)}</span>
-                {st.door && <span className="kosten-door"> · {st.door}</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* ---- waar hij vandaan komt ---- */}
 
       <div className="grid cols-2 mb">
@@ -1715,8 +1791,15 @@ function Overzicht({ bon }: { bon: Expense }) {
         <div>
           <Veld label="Vestiging" waarde={vestiging ? `${vestiging.name}${vestiging.city ? ` · ${vestiging.city}` : ''}` : undefined} />
           <Veld label="Ingediend door" waarde={bon.submittedByName || undefined} />
-          <Veld label="Bron" waarde={bon.source === 'mail' ? 'Per mail binnengekomen' : bon.source === 'app' ? 'In de app ingevoerd' : undefined} />
-          <Veld label="Gelezen door" waarde={bon.lezer} />
+          {/*
+            * "Bron" en "Gelezen door" stonden hier en zijn weg (Casper: "Dat
+            * gelezen door mag je ook wel weghalen net als die bron").
+            *
+            * Allebei zeiden ze hetzelfde als de regel eronder in de Historie,
+            * en allebei gingen ze over hoe het hier is gekomen in plaats van
+            * waar het over gaat. Wie wil weten wie het las, kijkt in de
+            * Historie -- daar staat het met een tijdstip erbij.
+            */}
         </div>
       </div>
 
@@ -1898,19 +1981,22 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
           label="Grootboekrekening"
           help={bon.indelingBron ? BRON_TEKST[bon.indelingBron] : undefined}
         >
-          <select
-            className="select"
-            value={bon.grootboekCode ?? ''}
+          <Kiezer
+            waarde={bon.grootboekCode}
             disabled={bezig}
-            onChange={(e) => void kiesRekening(e.target.value)}
-          >
-            <option value="">— nog niet ingedeeld —</option>
-            {bruikbaar.map((g) => (
-              <option key={g.id} value={g.code}>
-                {g.code} · {g.naam}{g.actief ? '' : ' (uit)'}
-              </option>
-            ))}
-          </select>
+            leeg="— nog niet ingedeeld —"
+            zoekHint="Nummer of naam, bijvoorbeeld 4000 of chemie"
+            legeLijst="Geen rekening met die tekst in deze onderneming"
+            opties={bruikbaar.map((g) => ({
+              waarde: g.code,
+              label: `${g.code} · ${g.naam}${g.actief ? '' : ' (uit)'}`,
+              sub: g.categorie,
+              /* De trefwoorden tellen mee bij het zoeken zonder in beeld te
+                 staan: wie "enexis" typt hoort bij Energie uit te komen. */
+              zoekwoorden: (g.trefwoorden ?? []).join(' '),
+            }))}
+            onKies={(v) => void kiesRekening(v)}
+          />
         </Field>
 
         {/*
@@ -1928,21 +2014,22 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
               ? BV_BRON_TEKST[bon.administratieBron]
               : 'Leeg: volgt de vestiging van deze bon'}
           >
-            <select
-              className="select"
-              value={bon.administratie ?? ''}
+            <Kiezer
+              waarde={bon.administratie}
               disabled={bezig}
-              onChange={(e) => void kiesOnderneming(e.target.value)}
-            >
-              <option value="">— volgt de vestiging —</option>
-              {bedrijven
+              leeg="— volgt de vestiging —"
+              zoekHint="Naam of nummer van de bv"
+              opties={bedrijven
                 .filter((b) => b.actief || b.code === bon.administratie)
-                .map((b) => (
-                  <option key={b.code} value={b.code}>
-                    {b.naam}{b.actief ? '' : ' (uit)'}
-                  </option>
-                ))}
-            </select>
+                .map((b) => ({
+                  waarde: b.code,
+                  label: `${b.naam}${b.actief ? '' : ' (uit)'}`,
+                  /* Het divisienummer eronder: dat is wat in Exact op het
+                     scherm staat en waar een foutmelding naar verwijst. */
+                  sub: b.code,
+                }))}
+              onKies={(v) => void kiesOnderneming(v)}
+            />
           </Field>
         )}
 

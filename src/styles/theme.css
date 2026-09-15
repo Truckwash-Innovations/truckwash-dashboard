@@ -6037,3 +6037,94 @@ table.data tr.aan td { font-weight: 600; }
 .postvak-mappen .map.nieuw { color: var(--text-3); }
 .postvak-mappen .map.nieuw:hover { color: var(--brand); }
 .postvak-lijst .bericht { cursor: pointer; }
+
+/* ==================================================================
+   Kiezen uit een lange lijst
+
+   Casper: "Bij grootboekrekening moet je ook een zoekbalkje hebben,
+   evenals onderneming." Een rekeningschema heeft honderden regels; dan
+   is scrollen langs 2040 Uitbetaalde lonen op zoek naar 4000 geen
+   keuzelijst maar een zoektocht.
+
+   De knop ziet eruit als .input, want dat is wat hij vervangt. Het
+   paneel staat via een portaal in de <body> -- zie de kop van
+   kiezer.tsx voor waarom dat moet.
+   ================================================================== */
+
+.kiezer-knop {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+.kiezer-knop:hover:not(:disabled) { border-color: var(--line-strong, var(--line)); }
+.kiezer-knop:disabled { opacity: .6; cursor: default; }
+.kiezer-knop.open { border-color: var(--brand); }
+
+/* De naam mag afkappen, de pijl nooit wegduwen. */
+.kiezer-waarde {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.kiezer-waarde.leeg { color: var(--text-3); }
+.kiezer-pijl { flex: none; color: var(--text-3); }
+
+.kiezer-paneel {
+  position: fixed;
+  z-index: 3000;
+  max-height: 320px;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-2, 0 12px 32px rgb(0 0 0 / .18));
+  overflow: hidden;
+}
+
+.kiezer-zoek {
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text-3);
+}
+.kiezer-invoer {
+  flex: 1; min-width: 0;
+  border: 0; background: none; outline: none;
+  color: var(--text); font: inherit; font-size: var(--fs-body);
+}
+
+.kiezer-lijst { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; }
+
+.kiezer-regel {
+  display: flex; align-items: flex-start; gap: 6px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0; border-radius: var(--radius-sm);
+  background: none; color: var(--text);
+  font: inherit; font-size: var(--fs-body);
+  text-align: left; cursor: pointer;
+}
+/* Muis en toetsenbord wijzen hetzelfde aan: de wijzer verspringt bij
+   hover, dus er is er altijd precies één gemarkeerd. */
+.kiezer-regel.wijzer { background: var(--brand); color: #fff; }
+.kiezer-regel.wijzer .kiezer-sub { color: rgb(255 255 255 / .8); }
+.kiezer-regel.aan { font-weight: 600; }
+
+.kiezer-vink { flex: none; width: 14px; display: flex; justify-content: center; }
+.kiezer-tekst { flex: 1; min-width: 0; }
+.kiezer-tekst.leeg { color: var(--text-3); }
+.kiezer-sub {
+  display: block;
+  font-size: var(--fs-meta); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.kiezer-niets { margin: 0; padding: 12px 10px; color: var(--text-3); font-size: var(--fs-meta); }

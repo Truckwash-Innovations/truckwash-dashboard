@@ -15,6 +15,7 @@ export * from './tabel'
 export * from './pagina'
 export * from './lade'
 export * from './document'
+export * from './kiezer'
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
