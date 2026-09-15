@@ -492,6 +492,61 @@ async function isDocumentPost(aanAdres: string): Promise<{ raak: boolean; vestig
   return { raak: true, vestiging: data?.id ?? null }
 }
 
+/* ------------------------------------------------------------------ *
+ *  Bij welk inkoopadres hoort deze post?
+ *
+ *  Casper: "de mailadressen moeten niet per vestiging, maar per onderneming,
+ *  je moet wel een vestiging kunnen koppelen aan een mailadres."
+ *
+ *  Tot 0095 werd het adres UITGEREKEND uit de website-slug van een vestiging,
+ *  en de vestiging er weer uit teruggerekend. Aardig zolang een adres één
+ *  ding betekent, en stuk zodra er meer aan hangt: de bv volgde uit de
+ *  vestiging, dus een bv zonder wasstraat -- Vastgoed, Techniek & Beheer --
+ *  had geen adres waarop zijn facturen konden binnenkomen.
+ *
+ *  Nu is een adres een rij met de bv eraan, eventueel een vestiging, en de
+ *  persoon die de tweede handtekening zet. Kennen we het adres niet, dan valt
+ *  hij terug op de oude weg -- adressen die al zijn uitgedeeld blijven zo
+ *  werken, ook als er nog geen rij voor is aangemaakt.
+ * ------------------------------------------------------------------ */
+
+interface Inkoopadres {
+  id: string
+  administratie: string
+  locationId: string | null
+  goedkeurder: string | null
+  goedkeurderNaam: string | null
+}
+
+async function welkInkoopadres(aanAdres: string): Promise<Inkoopadres | null> {
+  const { data, error } = await admin.rpc('inkoop_adres_van', { adres_in: aanAdres })
+  if (error) {
+    console.warn('[ontvang-mail] inkoopadres opzoeken mislukte: ' + error.message)
+    return null
+  }
+
+  const r = (Array.isArray(data) ? data[0] : data) as Willekeurig | undefined
+  if (!r) return null
+
+  /* De naam van de goedkeurder erbij, zodat hij op de bon kan worden
+     vastgelegd. Wisselt dat adres later van eigenaar, dan blijft een oude
+     factuur liggen waar hij lag -- en dan moet die naam er nog staan. */
+  let naam: string | null = null
+  const wie = String(r.goedkeurder ?? '').trim()
+  if (wie) {
+    const { data: p } = await admin.from('profiles').select('name').eq('id', wie).maybeSingle()
+    naam = String(p?.name ?? '').trim() || null
+  }
+
+  return {
+    id: String(r.id),
+    administratie: String(r.administratie ?? '').trim(),
+    locationId: String(r.location_id ?? '').trim() || null,
+    goedkeurder: wie || null,
+    goedkeurderNaam: naam,
+  }
+}
+
 async function welkeVestiging(aanAdres: string): Promise<string | null> {
   const bak = (aanAdres ?? '').trim().toLowerCase()
   if (!bak.includes('@')) return null
@@ -1239,7 +1294,13 @@ Deno.serve(async (req) => {
   const gemaakt: string[] = []
 
   if (kandidaten.length > 0) {
-    const vestiging = await welkeVestiging(aan.adres)
+    /*
+     * Eerst het inkoopadres (0095). Kennen we dat, dan weten we de bv, de
+     * vestiging én bij wie de tweede handtekening ligt. Kennen we het niet,
+     * dan de oude weg: de vestiging uit de slug.
+     */
+    const adres = await welkInkoopadres(aan.adres)
+    const vestiging = adres?.locationId ?? await welkeVestiging(aan.adres)
     const vanNaam = van.naam ?? van.adres
 
     for (const [i, bon] of kandidaten.entries()) {
@@ -1275,6 +1336,22 @@ Deno.serve(async (req) => {
         source: 'mail',
         mailbox_id: berichtId,
         location_id: vestiging,
+        /*
+         * De bv van het adres waarop hij binnenkwam.
+         *
+         * Bron 'adres' en niet 'vestiging': dit is het adres dat WIJ hebben
+         * uitgedeeld, dus wie daarheen stuurt factureert aan die bv. Sterker
+         * dan een naam die erop lijkt, zwakker dan een KvK-nummer op het stuk
+         * -- en de lezer mag hem dus overschrijven als hij daar iets hards
+         * vindt (0079).
+         */
+        ...(adres?.administratie
+          ? { administratie: adres.administratie, administratie_bron: 'adres' }
+          : {}),
+        /* En bij wie de tweede handtekening komt te liggen (0095/0096). */
+        inkoop_adres_id: adres?.id ?? null,
+        goedkeurder: adres?.goedkeurder ?? null,
+        goedkeurder_naam: adres?.goedkeurderNaam ?? null,
         attachment_path: bon.path,
         attachment_name: bon.naam,
       })

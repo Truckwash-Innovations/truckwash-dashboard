@@ -32,6 +32,7 @@ export const BRON_TEKST: Record<NonNullable<Expense['indelingBron']>, string> = 
 /** En hetzelfde voor de vennootschap waarop geboekt wordt (0079). */
 export const BV_BRON_TEKST: Record<NonNullable<Expense['administratieBron']>, string> = {
   gelezen: 'Van de factuur gelezen — de naam of het KvK-nummer klopte',
+  adres: 'Het inkoopadres waarop de factuur binnenkwam',
   vermoeden: 'Geraden op de naam — kijk dit na',
   vestiging: 'Afgeleid uit de vestiging van deze bon',
   handmatig: 'Met de hand ingesteld',

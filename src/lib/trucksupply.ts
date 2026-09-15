@@ -1488,6 +1488,62 @@ export async function exactKoppelLeverancier(
 }
 
 /* ------------------------------------------------------------------ *
+ *  Wat er op een tweede handtekening wacht
+ *
+ *  Casper: "de tweede goedkeuring moet dan komen te liggen bij een persoon
+ *  (...) maar ook in de lijst zoals op de foto van blue10."
+ * ------------------------------------------------------------------ */
+
+export interface OpHandtekeningRegel {
+  id: string
+  leverancier: string
+  factuurnummer: string | null
+  factuurdatum: number
+  vervaldatum: number | null
+  administratie: string | null
+  bedragExcl: number
+  bedragIncl: number
+  /** Bij wie hij ligt; leeg = bij niemand in het bijzonder. */
+  ligtBij: string | null
+  ligtBijNaam: string | null
+  eersteDoorNaam: string | null
+  /** Ging de eerste goedkeuring vanzelf (0050)? Dan is dit de eerste blik. */
+  automatisch: boolean
+  /** Hoe lang hij er al ligt, in hele dagen. */
+  dagen: number
+}
+
+/**
+ * De stapel die op een tweede handtekening wacht.
+ *
+ * Gaat rechtstreeks naar de database en niet langs een serverfunctie: het is
+ * een vraag en geen handeling, en de functie leest met de rechten van de
+ * aanroeper mee.
+ */
+export async function facturenOpHandtekening(wie?: string): Promise<OpHandtekeningRegel[]> {
+  const { data, error } = await supabase().rpc('facturen_op_handtekening', {
+    wie: wie ?? null,
+  })
+  if (error) throw new Error(error.message)
+
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id),
+    leverancier: String(r.leverancier ?? ''),
+    factuurnummer: (r.factuurnummer as string) ?? null,
+    factuurdatum: Number(r.factuurdatum) || 0,
+    vervaldatum: Number(r.vervaldatum) || null,
+    administratie: (r.administratie as string) ?? null,
+    bedragExcl: Number(r.bedrag_excl) || 0,
+    bedragIncl: Number(r.bedrag_incl) || 0,
+    ligtBij: (r.ligt_bij as string) ?? null,
+    ligtBijNaam: (r.ligt_bij_naam as string) ?? null,
+    eersteDoorNaam: (r.eerste_door_naam as string) ?? null,
+    automatisch: r.automatisch === true,
+    dagen: Number(r.dagen) || 0,
+  }))
+}
+
+/* ------------------------------------------------------------------ *
  *  De geschiedenis van Exact
  *
  *  Casper: "Kan je zorgen dat je ook de geschiedenis van exact kan zien,

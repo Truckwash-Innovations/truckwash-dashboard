@@ -124,6 +124,7 @@ const TABLES: Record<EntityName, string> = {
   truckyVragen: 'trucky_vragen',
   grootboek: 'grootboek',
   kostenTags: 'kosten_tags',
+  inkoopAdressen: 'inkoop_adres',
   voorraadAlarmen: 'voorraad_alarmen',
   bestellingen: 'bestellingen',
   bestelregels: 'bestelregels',

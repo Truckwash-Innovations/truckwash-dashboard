@@ -10778,7 +10778,7 @@ console.log('\n86. De btw-code vraag je aan Exact, niet aan een instelling')
     'de kaart die overal 0 liet zien staat er nog')
 
   check('en de grootboekrekeningen staan niet meer in Boekhouding',
-    /<Inkoopinstellingen rekeningen=\{false\} \/>/.test(dash),
+    /<Inkoopinstellingen[^>]*rekeningen=\{false\}/.test(dash),
     'de grootboeklijst staat nog op het administratiescherm')
 }
 
@@ -11053,6 +11053,168 @@ console.log('\n89. De nummers op de proeffacturen')
   check('het nummer waarop hij vastliep staat er niet meer op een factuur',
     !ibans.some((i) => i.replace(/\s/g, '') === 'NL55BNGH0285000122'),
     'NL55BNGH0285000122 staat nog op een proeffactuur')
+}
+
+/* ==================================================================== *
+ *  90. Een adres per onderneming, en een handtekening met een naam erbij
+ *
+ *  Casper: "De mailadressen moeten niet per vestiging, maar per onderneming,
+ *  je moet wel een vestiging kunnen koppelen aan een mailadres. (...) de
+ *  tweede goedkeuring moet dan komen te liggen bij een persoon (...)
+ *  daarbuiten moet iemand van management altijd het kunnen doen (als iemand
+ *  bijvoorbeeld op vakantie is ect) daarbuiten moet je ervoor zorgen dat het
+ *  dan op hun todo komt te staan, maar ook in de lijst zoals op de foto van
+ *  blue10."
+ *
+ *  Twee dingen die aan elkaar hangen.
+ *
+ *  Het adres werd UITGEREKEND uit de website-slug van een vestiging (0044), en
+ *  de bv volgde uit die vestiging (0059). Een bv zonder wasstraat -- Vastgoed,
+ *  Techniek & Beheer -- had dus geen adres waarop zijn facturen konden
+ *  binnenkomen; die moesten op een vestiging landen en daarna met de hand
+ *  worden omgezet.
+ *
+ *  En de tweede handtekening lag bij een GROEP. Werk dat bij een groep ligt,
+ *  ligt bij niemand: er staat geen naam bij, het komt op geen enkele
+ *  takenlijst, en na drie weken is "wie zou dit doen" niet te beantwoorden.
+ * ==================================================================== */
+
+console.log('\n90. Een adres per onderneming, en een handtekening met een naam')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const m95 = readFileSync(
+    'supabase/migrations/0095_een_inkoopadres_per_onderneming.sql', 'utf8')
+  const m96 = readFileSync(
+    'supabase/migrations/0096_de_tweede_handtekening_ligt_bij_iemand.sql', 'utf8')
+  const post = readFileSync('supabase/functions/ontvang-mail/index.ts', 'utf8')
+  const scherm = readFileSync('src/dashboards/administratie/Inkoopadressen.tsx', 'utf8')
+  const lijst = readFileSync('src/dashboards/administratie/OpHandtekening.tsx', 'utf8')
+  const dash = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
+
+  /* --- 1. het adres is een afspraak, geen berekening --- */
+
+  check('een inkoopadres is een eigen rij',
+    m95.includes('create table if not exists public.inkoop_adres'),
+    'het adres wordt nog steeds uitgerekend')
+
+  /* De bv is verplicht: een adres zonder administratie is een stapel die
+     nergens heen kan. De vestiging niet, want een holding heeft er geen. */
+  check('met de onderneming verplicht en de vestiging niet',
+    /administratie text not null/.test(m95)
+      && /location_id   text references public\.locations\(id\)/.test(m95),
+    'de bv is niet verplicht, of de vestiging juist wel')
+
+  /*
+   * De adressen die al zijn uitgedeeld staan bij leveranciers in het
+   * adresboek. Die horen te blijven werken, dus komen ze mee als rij.
+   */
+  check('en wat er al was komt mee',
+    /insert into public\.inkoop_adres[\s\S]{0,600}from public\.locations l/.test(m95),
+    'de bestaande adressen worden niet overgenomen')
+
+  check('de post zoekt het adres op',
+    post.includes('welkInkoopadres') && post.includes('inkoop_adres_van'),
+    'de post rekent de vestiging nog steeds uit')
+
+  /* En valt terug op de oude weg. Een adres dat nog geen rij heeft hoort niet
+     ineens nergens meer aan te komen. */
+  check('en valt terug op de oude weg als hij het adres niet kent',
+    /adres\?\.locationId \?\? await welkeVestiging\(aan\.adres\)/.test(post),
+    'een onbekend adres levert geen vestiging meer op')
+
+  /* De bv van het adres gaat mee, met een eigen bron: sterker dan een naam
+     die erop lijkt, zwakker dan een KvK-nummer op het stuk. */
+  check('de bv van het adres komt op de bon',
+    /administratie_bron: 'adres'/.test(post) && m95.includes("'adres'"),
+    'de onderneming van het adres wordt niet meegegeven')
+
+  /* --- 2. de tweede handtekening ligt bij iemand --- */
+
+  check('de goedkeurder staat op de bon',
+    m95.includes('add column if not exists goedkeurder'),
+    'er is geen veld voor wie moet tekenen')
+
+  /*
+   * Op de BON en niet alleen op het adres. Een adres kan van eigenaar
+   * wisselen; een factuur van vorige maand hoort dan niet ineens bij iemand
+   * anders te liggen.
+   */
+  check('en wordt bij het binnenkomen losgetrokken van het adres',
+    /goedkeurder: adres\?\.goedkeurder/.test(post)
+      && /goedkeurder_naam: adres\?\.goedkeurderNaam/.test(post),
+    'de goedkeurder wordt niet op de bon vastgelegd')
+
+  check('en alleen hij of het management mag tekenen',
+    m96.includes('create or replace function public.mag_tweede_handtekening'),
+    'iedereen die over kosten beslist kan nog tekenen')
+
+  /* Het management mag altijd. Zonder dat is een vakantie genoeg om de hele
+     stapel stil te zetten -- precies wat Casper erbij zei. */
+  check('en het management kan er altijd bij',
+    /public\.is_management\(\)/.test(m96)
+      && /new\.goedkeurder <> public\.my_id\(\)[\s\S]{0,80}not public\.is_management/.test(m96),
+    'het management kan niet invallen als iemand er niet is')
+
+  /* Dit staat in de database en niet in het scherm, om dezelfde reden als in
+     0060: de app praat rechtstreeks met de database. */
+  check('en dat wordt in de database bewaakt, niet in het scherm',
+    /raise exception 'Deze factuur ligt bij %/.test(m96),
+    'de regel staat alleen in het scherm')
+
+  /* --- 3. op de todo en in de lijst --- */
+
+  check('het komt op iemands takenlijst',
+    m96.includes('taak_bon2_') && m96.includes("bron, bron_id"),
+    'er wordt geen taak gemaakt')
+
+  /* En hij gaat er weer af. Een takenlijst die alleen groeit is een
+     takenlijst die niemand meer opent. */
+  check('en gaat er weer af als het getekend is',
+    /set status = 'klaar'[\s\S]{0,400}where id = 'taak_bon2_'/.test(m96),
+    'de taak blijft staan nadat er getekend is')
+
+  /* Ligt hij bij niemand, dan naar de rol -- werk hoort in ieder geval ergens
+     te STAAN. */
+  check('ligt hij bij niemand, dan naar de administratie',
+    /when wie is null then 'administratie'/.test(m96),
+    'een factuur zonder goedkeurder komt nergens terecht')
+
+  check('en er is een lijst van wat bij wie ligt',
+    m96.includes('create or replace function public.facturen_op_handtekening')
+      && lijst.includes('facturenOpHandtekening'),
+    'er is geen lijst zoals die van Blue10')
+
+  /*
+   * Hoeveel dagen het er ligt is de kolom waar het om begonnen is. Een
+   * factuur van vier maanden ziet er in een gewone lijst hetzelfde uit als
+   * een van gisteren, en blijft daarom vier maanden liggen.
+   */
+  check('met hoeveel dagen hij er al ligt',
+    m96.includes('dagen') && lijst.includes('r.dagen'),
+    'je ziet niet hoe lang iets er ligt')
+
+  /* --- 4. en het staat op het scherm --- */
+
+  check('de adressen zijn te beheren',
+    scherm.includes('export default function Inkoopadressen(')
+      && dash.includes('<Inkoopadressen />'),
+    'er is geen scherm om een adres in te stellen')
+
+  check('en de lijst staat bovenaan bij Boekhouding',
+    dash.includes('<OpHandtekening />'),
+    'de lijst staat nergens')
+
+  /* Twee lijsten met adressen op één scherm is er één te veel. */
+  check('de oude, berekende adressenlijst staat er niet meer naast',
+    /adressen=\{false\}/.test(dash),
+    'de berekende adressen staan er nog naast')
+
+  /* Een bv zonder adres kan geen facturen ontvangen. Dat hoort te blijken
+     voordat er een maand niets binnenkomt. */
+  check('en een bv zonder adres wordt gemeld',
+    scherm.includes('nog geen adres'),
+    'een onderneming zonder adres blijft onopgemerkt')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

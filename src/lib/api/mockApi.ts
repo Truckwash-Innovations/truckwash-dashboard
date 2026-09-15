@@ -52,6 +52,7 @@ class MockServerDB extends Dexie {
   truckyVragen!: Table<any, string>
   grootboek!: Table<any, string>
   kostenTags!: Table<any, string>
+  inkoopAdressen!: Table<any, string>
   voorraadAlarmen!: Table<any, string>
   bestellingen!: Table<any, string>
   bestelregels!: Table<any, string>
@@ -121,6 +122,7 @@ class MockServerDB extends Dexie {
       truckyVragen: 'id, updatedAt',
       grootboek: 'id, updatedAt',
       kostenTags: 'id, updatedAt',
+      inkoopAdressen: 'id, updatedAt',
       voorraadAlarmen: 'id, updatedAt',
       bestellingen: 'id, updatedAt',
       bestelregels: 'id, bestellingId, updatedAt',
@@ -193,6 +195,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   truckyVragen: () => server.truckyVragen,
   grootboek: () => server.grootboek,
   kostenTags: () => server.kostenTags,
+  inkoopAdressen: () => server.inkoopAdressen,
   voorraadAlarmen: () => server.voorraadAlarmen,
   bestellingen: () => server.bestellingen,
   bestelregels: () => server.bestelregels,

@@ -13,7 +13,7 @@ import type {
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, Postbus, PostbusLid, WerkMail, WerkMailMap,
-  TruckyContact, TruckyVraag, Grootboek, KostenTag,
+  TruckyContact, TruckyVraag, Grootboek, KostenTag, InkoopAdres,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
@@ -59,6 +59,7 @@ class TruckwashDB extends Dexie {
   truckyVragen!: Table<TruckyVraag, string>
   grootboek!: Table<Grootboek, string>
   kostenTags!: Table<KostenTag, string>
+  inkoopAdressen!: Table<InkoopAdres, string>
   voorraadAlarmen!: Table<VoorraadAlarm, string>
   bestellingen!: Table<Bestelling, string>
   bestelregels!: Table<Bestelregel, string>
@@ -301,6 +302,15 @@ class TruckwashDB extends Dexie {
       postbussen: 'id, adres, actief, updatedAt',
       postbusLeden: 'id, postbusId, userId, updatedAt',
       werkmailMappen: 'id, userId, postbusId, volgorde, updatedAt',
+    })
+
+    /* De adressen waarop facturen binnenkomen (0095).
+
+       Op administratie te vinden, want dat is de vraag die het scherm stelt:
+       welke adressen horen bij deze bv. En op goedkeurder, want dat is de
+       andere: wat ligt er bij mij. */
+    this.version(25).stores({
+      inkoopAdressen: 'id, adres, administratie, goedkeurder, actief, updatedAt',
     })
   }
 }

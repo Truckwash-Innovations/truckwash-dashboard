@@ -74,7 +74,7 @@ const LEZER_STIL_NA_MS = 5 * 60_000
  */
 const ROOD = { color: 'var(--text-danger)' } as const
 
-export default function Inkoop({ rekeningen = true }: {
+export default function Inkoop({ rekeningen = true, adressen = true }: {
   /*
    * Of de kaart met grootboekrekeningen meekomt.
    *
@@ -87,10 +87,20 @@ export default function Inkoop({ rekeningen = true }: {
    * wél iets -- daarop raadt de post de indeling van een nieuwe factuur.
    */
   rekeningen?: boolean
+  /*
+   * En of de berekende adressenlijst meekomt.
+   *
+   * Op het administratiescherm staat sinds 0095 een eigen kaart: adressen per
+   * ONDERNEMING, met een vestiging en een goedkeurder eraan. De lijst hier
+   * rekent ze nog uit uit de website-slug van een vestiging -- dat is wat er
+   * was, en het is nuttig om te zien welke adressen er van oudsher lopen,
+   * maar twee lijsten met adressen op één scherm is er één te veel.
+   */
+  adressen?: boolean
 } = {}) {
   return (
     <>
-      <Adressen />
+      {adressen && <Adressen />}
       <Proeffacturen />
       {rekeningen && <Rekeningen />}
       <Etiketten />

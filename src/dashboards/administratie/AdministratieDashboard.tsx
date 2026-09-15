@@ -19,6 +19,8 @@ import { OpenWijzigingen } from '../../components/Wijzigingen'
 import Aanmeldingen from '../management/Aanmeldingen'
 import Postbus from '../../components/Postbus'
 import Inkoopinstellingen from '../developer/Inkoop'
+import Inkoopadressen from './Inkoopadressen'
+import { OpHandtekening } from './OpHandtekening'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import MijnPostvak from '../../components/Postvak'
 import {
@@ -386,6 +388,19 @@ export default function AdministratieDashboard() {
             bovenaan, met de knop om het te verhelpen ernaast, en eronder wat
             er werkelijk is doorgekomen.
           */}
+          {/*
+            Bovenaan wat er op IEMAND wacht (0096). Dat is de stapel waar
+            werk blijft liggen: goedgekeurd door het systeem of door één
+            collega, en dan wachtend op een tweede handtekening die bij
+            niemand lag. Nu ligt hij bij een naam, staat hij op diens
+            takenlijst, en staat hier hoe lang hij er al ligt.
+          */}
+          <OpHandtekening />
+
+          {/* Waar facturen binnenkomen: per ONDERNEMING, met een vestiging en
+              een goedkeurder eraan (0095). */}
+          <Inkoopadressen />
+
           <NaarExact verbonden={verbonden} />
           {/*
             De grootboekrekeningen staan hier niet meer (0093). Bij een factuur
@@ -393,7 +408,7 @@ export default function AdministratieDashboard() {
             tussenstap die alleen wij nodig hadden. De trefwoorden waarop de
             post een factuur zelf indeelt staan bij Ontwikkeling → Inkoop.
           */}
-          <Inkoopinstellingen rekeningen={false} />
+          <Inkoopinstellingen rekeningen={false} adressen={false} />
           {/* De proefrit staat vóór de knop die facturen wegstuurt. Dat is de
               volgorde waarin je het doet: eerst kijken of het aankomt. */}
           <Proefrit verbonden={verbonden} />

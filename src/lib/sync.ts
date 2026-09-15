@@ -320,7 +320,7 @@ export const PUSH_ORDER: EntityName[] = [
   'expenseGebeurtenissen', 'expenseRegels',
   'agendaItems', 'employerLinks', 'employerRules',
   'truckyVragen', 'truckyContact', 'instellingen',
-  'grootboek', 'kostenTags',
+  'grootboek', 'kostenTags', 'inkoopAdressen',
   // Een regel hangt aan een bestelling; een alarm aan een artikel (dat staat
   // hoger, bij inventory).
   'voorraadAlarmen', 'bestellingen', 'bestelregels',
@@ -608,6 +608,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   truckyVragen: () => db.truckyVragen,
   grootboek: () => db.grootboek,
   kostenTags: () => db.kostenTags,
+  inkoopAdressen: () => db.inkoopAdressen,
   voorraadAlarmen: () => db.voorraadAlarmen,
   bestellingen: () => db.bestellingen,
   bestelregels: () => db.bestelregels,

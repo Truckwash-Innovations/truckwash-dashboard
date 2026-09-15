@@ -660,7 +660,20 @@ export interface Expense {
    *   vestiging   afgeleid uit de vestiging van de bon
    *   handmatig   een mens heeft het gezet, en dat wint van de rest
    */
-  administratieBron?: 'gelezen' | 'vermoeden' | 'vestiging' | 'handmatig'
+  /*
+   * 'adres' kwam erbij in 0095: het inkoopadres waarop de factuur binnenkwam.
+   * Sterker dan een naam die erop lijkt -- het is het adres dat wij hebben
+   * uitgedeeld -- en zwakker dan een KvK-nummer dat op het stuk klopt.
+   */
+  administratieBron?: 'gelezen' | 'adres' | 'vermoeden' | 'vestiging' | 'handmatig'
+
+  /* --- bij wie de tweede handtekening ligt (0095/0096) --- */
+
+  /** Van het inkoopadres, en daarna losgetrokken: een adres kan van eigenaar
+   *  wisselen, een factuur van vorige maand niet. */
+  goedkeurder?: string
+  goedkeurderNaam?: string
+  inkoopAdresId?: string
   /**
    * Aan welke vennootschap de factuur volgens het stuk gericht is, letterlijk.
    *
@@ -762,6 +775,30 @@ export interface Grootboek {
    */
   administratie?: string
   actief: boolean
+  updatedAt: number
+}
+
+/**
+ * Een adres waarop facturen binnenkomen (0095).
+ *
+ * Per ONDERNEMING en niet meer per vestiging. Tot 0095 werd het adres
+ * uitgerekend uit de website-slug van een vestiging, en dan heeft een bv
+ * zonder wasstraat -- Vastgoed, Techniek & Beheer -- geen adres waarop zijn
+ * facturen kunnen binnenkomen.
+ */
+export interface InkoopAdres {
+  id: string
+  adres: string
+  /** Verplicht: hier worden de facturen van dit adres geboekt. */
+  administratie: string
+  /** Mag. Staat hij er, dan draagt de bon ook meteen de vestiging. */
+  locationId?: string
+  /** Wie de tweede handtekening zet. Leeg = iedereen die over kosten beslist. */
+  goedkeurder?: string
+  omschrijving?: string
+  actief: boolean
+  door?: string
+  createdAt: number
   updatedAt: number
 }
 
@@ -2638,7 +2675,7 @@ export type EntityName =
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
   | 'truckyVragen' | 'truckyContact' | 'instellingen'
-  | 'grootboek' | 'kostenTags'
+  | 'grootboek' | 'kostenTags' | 'inkoopAdressen'
   | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
   | 'taken' | 'taakProjecten' | 'taakReacties'
   | 'vacatures' | 'sollicitaties'
