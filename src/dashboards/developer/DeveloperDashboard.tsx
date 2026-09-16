@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, RefreshCw, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
+  AlarmClock, ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, Play, RefreshCw, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
 } from 'lucide-react'
 import Shell from '../../components/Shell'
 import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
@@ -25,7 +25,8 @@ import { useUpdates } from '../../lib/updates'
 import { activeBackend } from '../../lib/api'
 import {
   SCHEMA_VERWACHT, functiesAchter, schemaLooptAchter, serverStand,
-  type ServerStand,
+  wekkerAntwoord, wekkerNu, wekkers,
+  type ServerStand, type Wekker,
 } from '../../lib/serverstand'
 import { toast } from '../../store/useToasts'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -953,6 +954,168 @@ function ServerStandKaart() {
   )
 }
 
+/* ================================================================== *
+ *  De wekkers, en een knop om er een te laten afgaan
+ *
+ *  Casper: "Daarbuiten moet ik bij ontwikkelaar een knop hebben, zodat ik die
+ *  timers functie handmatig kan doen, zodat we gelijk zien of het werkt."
+ *
+ *  Drie taken staan in de database (pg_cron) en roepen een edge function aan:
+ *  de voorraad om het kwartier, de ochtendmail en de takenmail. Ze gaan 's
+ *  nachts af, dus het antwoord op "werkt het" was tot nu toe: kijk morgen nog
+ *  eens. En dan is het te laat om er iets van te leren.
+ *
+ *  De knop voert precies dezelfde opdracht uit als de cron -- dezelfde tekst,
+ *  uit wekker_opdracht() (0107). Anders bewijst een geslaagde klik alleen dat
+ *  de knop werkt.
+ *
+ *  En hij wacht op het ANTWOORD. net.http_post() is asynchroon: het verzoek
+ *  wordt weggezet en de cron heet dan geslaagd, ook als de functie er een 403
+ *  op teruggeeft. Dat verschil is precies waar deze knop voor is.
+ * ================================================================== */
+
+function Wekkers() {
+  const [rijen, setRijen] = useState<Wekker[] | null>(null)
+  const [fout, setFout] = useState('')
+  const [bezig, setBezig] = useState(true)
+  const [loopt, setLoopt] = useState('')
+  const [uitkomst, setUitkomst] = useState<Record<string, string>>({})
+
+  const haal = useCallback(() => {
+    setBezig(true)
+    setFout('')
+    wekkers()
+      .then(setRijen)
+      .catch((e) => setFout(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBezig(false))
+  }, [])
+
+  useEffect(() => { haal() }, [haal])
+
+  async function nu(naam: string) {
+    setLoopt(naam)
+    setUitkomst((o) => ({ ...o, [naam]: 'bezig…' }))
+    try {
+      const ronde = await wekkerNu(naam)
+      if (!ronde.gelukt || ronde.verzoekId === null) {
+        setUitkomst((o) => ({ ...o, [naam]: ronde.waarom || 'het verzoek is niet weggezet' }))
+        return
+      }
+
+      /*
+       * Wachten op het antwoord, maar niet eindeloos.
+       *
+       * Een edge function die koud start doet er een paar seconden over; de
+       * wekkers zelf mogen er twee minuten over doen. Tien rondes van anderhalve
+       * seconde is ruim genoeg om te zien dat het AANKOMT -- en dat is de vraag.
+       * Duurt het langer, dan staat het antwoord straks in de tabel hierboven.
+       */
+      for (let poging = 0; poging < 10; poging++) {
+        await new Promise((r) => setTimeout(r, 1500))
+        const a = await wekkerAntwoord(ronde.verzoekId)
+        if (a.klaar) {
+          setUitkomst((o) => ({
+            ...o,
+            [naam]: a.waarom
+              ? `${a.waarom}${a.inhoud ? ' — ' + a.inhoud.slice(0, 160) : ''}`
+              : `gelukt (${a.status}) ${a.inhoud.slice(0, 160)}`,
+          }))
+          haal()
+          return
+        }
+      }
+      setUitkomst((o) => ({
+        ...o,
+        [naam]: 'verstuurd, nog geen antwoord — kijk zo bij "laatst gehoord"',
+      }))
+      haal()
+    } catch (e) {
+      setUitkomst((o) => ({
+        ...o, [naam]: e instanceof Error ? e.message : String(e),
+      }))
+    } finally {
+      setLoopt('')
+    }
+  }
+
+  return (
+    <Card
+      title="De wekkers"
+      hint="Wat er vanzelf draait, en wat de functie ervan terugstuurde"
+      className="mb"
+      action={
+        <button className="btn ghost sm" onClick={haal} disabled={bezig}>
+          <RefreshCw size={14} /> Opnieuw
+        </button>
+      }
+    >
+      {fout ? (
+        <Empty text={`De stand ophalen lukte niet: ${fout}`} icon={<TriangleAlert size={22} />} />
+      ) : !rijen ? (
+        <Empty text={bezig ? 'Bezig met ophalen…' : 'Geen verbinding.'} />
+      ) : rijen.length === 0 ? (
+        <Empty
+          text="Er staat geen enkele wekker gepland. Draai in de SQL-editor: select * from public.wekkers_instellen();"
+          icon={<AlarmClock size={22} />}
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Wekker</th>
+                <th style={{ width: 120 }}>Planning</th>
+                <th style={{ width: 140 }}>Laatst gehoord</th>
+                <th>Wat de functie zei</th>
+                <th style={{ width: 110 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {rijen.map((w) => (
+                <tr key={w.naam}>
+                  <td>
+                    <code>{w.naam}</code>{' '}
+                    {!w.actief && <Badge tone="warn">uit</Badge>}
+                  </td>
+                  <td className="mono" style={{ fontSize: '.8rem' }}>{w.planning}</td>
+                  <td style={{ color: 'var(--text-2)' }}>
+                    {w.laatstAt ? relative(w.laatstAt) : '—'}
+                  </td>
+                  <td className="afgekapt">
+                    {uitkomst[w.naam]
+                      ? <strong>{uitkomst[w.naam]}</strong>
+                      : w.antwoordHoe
+                        ? <span style={{ color: 'var(--warn)' }}>{w.antwoordHoe}</span>
+                        : w.antwoord
+                          ? `${w.antwoord} — in orde`
+                          : <span className="ts-sub">nog niets gehoord</span>}
+                  </td>
+                  <td>
+                    <button
+                      className="btn sm"
+                      onClick={() => nu(w.naam)}
+                      disabled={loopt !== ''}
+                    >
+                      <Play size={13} /> Nu
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="help" style={{ marginTop: 10, color: 'var(--text-3)' }}>
+        "Nu" voert dezelfde opdracht uit als de cron zelf, en wacht op het
+        antwoord van de functie. Dat is een echte proef: de cron-taak heet
+        namelijk al geslaagd zodra het verzoek is weggezet, ook als de functie
+        er een fout op teruggeeft.
+      </p>
+    </Card>
+  )
+}
+
 function Systeem({ tickets, logs }: { tickets: Ticket[]; logs: LogEvent[] }) {
   const sync = useSync()
   const { version, channel, state } = useUpdates()
@@ -989,6 +1152,7 @@ function Systeem({ tickets, logs }: { tickets: Ticket[]; logs: LogEvent[] }) {
   return (
     <>
       <ServerStandKaart />
+      <Wekkers />
 
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat

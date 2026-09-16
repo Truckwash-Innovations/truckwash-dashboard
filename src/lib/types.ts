@@ -673,6 +673,16 @@ export interface Expense {
    *  wisselen, een factuur van vorige maand niet. */
   goedkeurder?: string
   goedkeurderNaam?: string
+  /**
+   * Waarom hij bij die persoon ligt (0106): adres, geheugen, eerste of
+   * handmatig.
+   *
+   * Zonder dit is "ligt bij Milos" een feit zonder reden, en dan is de enige
+   * manier om te zien of de routering doet wat je hebt ingesteld: wachten
+   * tot het een keer misgaat. 'handmatig' betekent bovendien dat de
+   * routering er niet meer aan komt -- een keuze van een mens blijft staan.
+   */
+  routeBron?: 'adres' | 'geheugen' | 'eerste' | 'handmatig'
   inkoopAdresId?: string
   /**
    * Aan welke vennootschap de factuur volgens het stuk gericht is, letterlijk.

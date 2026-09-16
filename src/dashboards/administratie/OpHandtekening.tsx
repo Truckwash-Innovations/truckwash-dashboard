@@ -17,6 +17,9 @@
  * ==================================================================== */
 
 import { useEffect, useMemo, useState } from 'react'
+import {
+  ROUTE_TEKST, ROUTE_UITLEG, type RouteBron,
+} from '../../lib/routering'
 import { AlertTriangle, Clock, Loader2, RefreshCw } from 'lucide-react'
 
 import { Card, Empty, Field } from '../../components/ui'
@@ -144,6 +147,23 @@ export function OpHandtekening({ onOpen }: { onOpen?: (id: string) => void }) {
                         ?? (r.ligtBij
                           ? r.ligtBij
                           : <span className="ts-sub">niemand in het bijzonder</span>)}
+                      {/*
+                        En waarom hij daar ligt (0106). Zonder die reden is
+                        "ligt bij Milos" een feit zonder herkomst, en dan is de
+                        enige manier om te zien of de routering doet wat je
+                        hebt ingesteld: wachten tot het een keer misgaat.
+                      */}
+                      {r.routeBron && (
+                        <>
+                          <br />
+                          <span
+                            className="ts-sub"
+                            title={ROUTE_UITLEG[r.routeBron as RouteBron]}
+                          >
+                            {ROUTE_TEKST[r.routeBron as RouteBron] ?? r.routeBron}
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td className="num">
                       {/* Boven de twee weken oranje. Een grens is willekeurig;

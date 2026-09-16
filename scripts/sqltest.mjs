@@ -9421,5 +9421,261 @@ console.log('\n73. Wat van de server is, staat in een lijst')
   await sv.close()
 }
 
+console.log('\n74. Een factuur weet bij wie hij hoort')
+
+{
+  /*
+   * Casper, met een schermafdruk van de suggestieroutes in Blue10: "Je moet
+   * dus ai laten kijken, en evt direct laten daarzetten naar degene die
+   * akkoord moet geven. Maar als AI hem nog niet kent ect, moet je hem onder
+   * de eerste persoon zetten."
+   *
+   * Drie lagen, en de volgorde ertussen is het hele punt. Een adres wint van
+   * het geheugen, het geheugen wint van de eerste persoon, en wat een mens
+   * met de hand heeft gezet wint van alles.
+   */
+  const rt = await fresh()
+  await rt.exec(sqlFile('supabase/setup.sql'))
+  await asServer(rt)
+
+  const AAP = '74000000-0000-0000-0000-000000000001'
+  const NOOT = '74000000-0000-0000-0000-000000000002'
+  const MIES = '74000000-0000-0000-0000-000000000003'
+
+  await rt.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${AAP}',  'aap74@truckwash1group.nl',  '{"name":"Aap"}'::jsonb),
+      ('${NOOT}', 'noot74@truckwash1group.nl', '{"name":"Noot"}'::jsonb),
+      ('${MIES}', 'mies74@truckwash1group.nl', '{"name":"Mies"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['administratie'], active = true
+     where auth_id in ('${AAP}', '${NOOT}', '${MIES}');
+
+    insert into public.exact_administratie (code, naam, actief, hoofd) values
+      ('740', 'Truckwash 1 Steenwijk B.V.', true, true)
+    on conflict (code) do nothing;
+  `)
+
+  const wie = async (naam) => (await rt.query(
+    "select id from public.profiles where email = $1", [naam])).rows[0].id
+
+  const aap = await wie('aap74@truckwash1group.nl')
+  const noot = await wie('noot74@truckwash1group.nl')
+  const mies = await wie('mies74@truckwash1group.nl')
+
+  const route = async (lev, adres = null) => (await rt.query(
+    'select * from public.factuur_route($1, $2, $3)', ['740', lev, adres])).rows[0]
+
+  /* --- zonder iets ingesteld: niemand, zoals het was --- */
+
+  const kaal = await route('Shell Nederland')
+  check('zonder route ligt hij bij niemand',
+    kaal.wie === null && kaal.bron === null, JSON.stringify(kaal))
+
+  /* --- de eerste persoon van de bv --- */
+
+  await rt.exec(`
+    insert into public.bv_route (id, eerste, ai_direct, vanaf_keren)
+    values ('740', '${aap}', true, 3)
+    on conflict (id) do update set eerste = excluded.eerste;
+  `)
+
+  const eerste = await route('Shell Nederland')
+  check('een onbekende factuur gaat naar de eerste persoon',
+    eerste.wie === aap && eerste.bron === 'eerste', JSON.stringify(eerste))
+
+  /* --- het geheugen wint van de eerste persoon --- */
+
+  await rt.exec(`
+    insert into public.leverancier_route (administratie, leverancier, goedkeurder, keren)
+    values ('740', 'shell nederland', '${noot}', 5)
+    on conflict (administratie, leverancier) do update
+      set goedkeurder = excluded.goedkeurder, keren = excluded.keren;
+  `)
+
+  const uitGeheugen = await route('Shell Nederland')
+  check('een bekende leverancier gaat direct naar zijn tekenaar',
+    uitGeheugen.wie === noot && uitGeheugen.bron === 'geheugen', JSON.stringify(uitGeheugen))
+
+  /* En hoofdletters doen er niet toe: de leverancier staat op het papier
+     zoals de drukker hem zette. */
+  const anders = await route('SHELL NEDERLAND  ')
+  check('en dat luistert niet naar hoofdletters',
+    anders.wie === noot, JSON.stringify(anders))
+
+  /*
+   * Maar alleen als het vaak genoeg is gebeurd. Eén waarneming is een
+   * aanwijzing, geen gewoonte -- en een route op één waarneming is raden met
+   * een naam eronder.
+   */
+  await rt.exec("update public.leverancier_route set keren = 1 where leverancier = 'shell nederland'")
+  const teWeinig = await route('Shell Nederland')
+  check('één keer is niet genoeg om een route te zijn',
+    teWeinig.wie === aap && teWeinig.bron === 'eerste', JSON.stringify(teWeinig))
+  await rt.exec("update public.leverancier_route set keren = 5 where leverancier = 'shell nederland'")
+
+  /* --- en het is per bv uit te zetten --- */
+
+  await rt.exec("update public.bv_route set ai_direct = false where id = '740'")
+  const uit = await route('Shell Nederland')
+  check('met direct doorzetten uit gaat alles langs de eerste persoon',
+    uit.wie === aap && uit.bron === 'eerste', JSON.stringify(uit))
+  await rt.exec("update public.bv_route set ai_direct = true where id = '740'")
+
+  /* --- het adres wint van allebei --- */
+
+  const viaAdres = await route('Shell Nederland', mies)
+  check('een adres met een naam eraan gaat voor',
+    viaAdres.wie === mies && viaAdres.bron === 'adres', JSON.stringify(viaAdres))
+
+  /* --- iemand die weg is telt niet meer mee --- */
+
+  await rt.exec(`update public.profiles set active = false where id = '${noot}'`)
+  const weg = await route('Shell Nederland')
+  check('een vertrokken collega bepaalt de route niet meer',
+    weg.wie === aap && weg.bron === 'eerste', JSON.stringify(weg))
+  await rt.exec(`update public.profiles set active = true where id = '${noot}'`)
+
+  /* ---------------------------------------------------------------- *
+   *  En het zetten op de bon
+   * ---------------------------------------------------------------- */
+
+  await rt.exec(`
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron)
+    values ('exp_74', 1, 'overig', 'Shell Nederland', 'Diesel', 100, 21,
+            'open', 'mail', '740', 'handmatig')
+    on conflict (id) do nothing;
+  `)
+
+  await rt.exec("select * from public.factuur_route_zetten('exp_74')")
+  const bon = async () => (await rt.query(
+    "select goedkeurder, goedkeurder_naam, route_bron, status from public.expenses where id = 'exp_74'")).rows[0]
+
+  const gezet = await bon()
+  check('de bon krijgt de goedkeurder en de reden erop',
+    gezet.goedkeurder === noot && gezet.route_bron === 'geheugen', JSON.stringify(gezet))
+  check('met de naam erbij, zodat de lijst leesbaar blijft',
+    gezet.goedkeurder_naam === 'Noot', String(gezet.goedkeurder_naam))
+
+  /* --- een keuze van een mens blijft staan --- */
+
+  /*
+   * Dit is de regel waar het management aan hangt: "degene met managment kan
+   * het override". Zonder deze regel zou de eerstvolgende ronde die keuze
+   * terugdraaien met een gok, en dat merkt niemand.
+   */
+  await rt.exec(`
+    update public.expenses set goedkeurder = '${mies}', goedkeurder_naam = 'Mies',
+           route_bron = 'handmatig'
+     where id = 'exp_74'
+  `)
+  await rt.exec("select * from public.factuur_route_zetten('exp_74')")
+  const metHand = await bon()
+  check('een keuze met de hand wordt niet overschreven',
+    metHand.goedkeurder === mies && metHand.route_bron === 'handmatig',
+    JSON.stringify(metHand))
+
+  /* --- en een factuur die al getekend is verhuist niet meer --- */
+
+  await rt.exec(`
+    update public.expenses
+       set route_bron = 'eerste', status = 'eerste_akkoord',
+           eerste_door = '${aap}', eerste_at = public.now_ms()
+     where id = 'exp_74';
+    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
+     where id = 'exp_74';
+  `)
+  await rt.exec("select * from public.factuur_route_zetten('exp_74')")
+  const getekend = await bon()
+  check('een getekende factuur blijft liggen waar hij lag',
+    getekend.goedkeurder === mies, JSON.stringify(getekend))
+
+  /* ---------------------------------------------------------------- *
+   *  Het geheugen leert van echte handtekeningen
+   * ---------------------------------------------------------------- */
+
+  await rt.exec(`
+    delete from public.leverancier_route where leverancier = 'gamma bouwmarkt';
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron, eerste_door, eerste_at)
+    values ('exp_74b', 1, 'overig', 'Gamma Bouwmarkt', 'Schroeven', 50, 21,
+            'eerste_akkoord', 'mail', '740', 'handmatig', '${aap}', public.now_ms())
+    on conflict (id) do nothing;
+  `)
+
+  await rt.exec(`
+    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
+     where id = 'exp_74b'
+  `)
+
+  const geleerd = (await rt.query(
+    "select goedkeurder, keren from public.leverancier_route where leverancier = 'gamma bouwmarkt'")).rows[0]
+  check('een echte handtekening wordt onthouden',
+    geleerd?.goedkeurder === noot && geleerd?.keren === 1, JSON.stringify(geleerd))
+
+  /* En een automatische goedkeuring niet. Een geheugen dat leert van zijn
+     eigen gokken bevestigt voortaan zijn eigen vergissingen. */
+  await rt.exec(`
+    delete from public.leverancier_route where leverancier = 'praxis';
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron, goedkeuring_bron)
+    values ('exp_74c', 1, 'overig', 'Praxis', 'Verf', 30, 21,
+            'eerste_akkoord', 'mail', '740', 'handmatig', 'automatisch')
+    on conflict (id) do nothing;
+
+    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
+     where id = 'exp_74c';
+  `)
+
+  const nietGeleerd = (await rt.query(
+    "select count(*)::int as n from public.leverancier_route where leverancier = 'praxis'")).rows[0]
+  check('een automatische goedkeuring leert het geheugen niets',
+    nietGeleerd.n === 0, String(nietGeleerd.n))
+
+  /*
+   * En een tekenaar zonder dossier houdt de handtekening niet tegen. Dit is
+   * een AFTER-trigger op de factuur zelf: een fout hier draait de hele
+   * goedkeuring terug, en dan mislukt het tekenen omdat er iets te onthouden
+   * viel. Dat is het omgekeerde van wat dit moet doen.
+   */
+  await rt.exec(`
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron)
+    values ('exp_74d', 1, 'overig', 'Onbekend BV', 'Iets', 10, 21,
+            'eerste_akkoord', 'mail', '740', 'handmatig')
+    on conflict (id) do nothing;
+  `)
+  let tekenenLukte = true
+  try {
+    await rt.exec(`
+      update public.expenses set status = 'goedgekeurd', approved_by = 'u_bestaat_niet'
+       where id = 'exp_74d'
+    `)
+  } catch { tekenenLukte = false }
+  check('een tekenaar zonder dossier houdt de handtekening niet tegen',
+    tekenenLukte, 'de goedkeuring liep stuk op het geheugen')
+
+  /* ---------------------------------------------------------------- *
+   *  Het overzicht voor het scherm
+   * ---------------------------------------------------------------- */
+
+  await asUser(rt, AAP)
+  const overzicht = (await rt.query('select * from public.bv_routes()')).rows
+  check('het overzicht kent de bv', overzicht.length === 1, JSON.stringify(overzicht))
+  check('met de naam van de eerste persoon erbij',
+    overzicht[0]?.eerste_naam === 'Aap', JSON.stringify(overzicht[0]))
+  check('en hoeveel het geheugen weet',
+    Number(overzicht[0]?.onthouden) >= 1, JSON.stringify(overzicht[0]))
+  await asServer(rt)
+
+  await rt.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

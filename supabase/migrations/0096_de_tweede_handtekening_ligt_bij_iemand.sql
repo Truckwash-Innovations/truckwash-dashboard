@@ -230,6 +230,12 @@ comment on function public.expense_tweede_handtekening_taak() is
 --  Zonder `wie` alles wat openstaat; met `wie` wat er bij die persoon ligt.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: 0106 geeft deze functie een kolom erbij, en create or replace
+   kan het teruggegeven type niet veranderen. Zonder deze regel loopt een
+   tweede ronde van bijwerken.sql hier stuk op "cannot change return type of
+   existing function" -- de derde keer dat die val hier toeslaat. */
+drop function if exists public.facturen_op_handtekening(text);
+
 create or replace function public.facturen_op_handtekening(wie text default null)
 returns table (
   id              text,

@@ -1536,6 +1536,8 @@ export interface OpHandtekeningRegel {
   /** Bij wie hij ligt; leeg = bij niemand in het bijzonder. */
   ligtBij: string | null
   ligtBijNaam: string | null
+  /** Waarom hij daar ligt (0106): adres, geheugen, eerste, handmatig. */
+  routeBron: string | null
   eersteDoorNaam: string | null
   /** Ging de eerste goedkeuring vanzelf (0050)? Dan is dit de eerste blik. */
   automatisch: boolean
@@ -1567,6 +1569,7 @@ export async function facturenOpHandtekening(wie?: string): Promise<OpHandtekeni
     bedragIncl: Number(r.bedrag_incl) || 0,
     ligtBij: (r.ligt_bij as string) ?? null,
     ligtBijNaam: (r.ligt_bij_naam as string) ?? null,
+    routeBron: (r.route_bron as string) ?? null,
     eersteDoorNaam: (r.eerste_door_naam as string) ?? null,
     automatisch: r.automatisch === true,
     dagen: Number(r.dagen) || 0,

@@ -20,6 +20,7 @@ import Aanmeldingen from '../../components/Aanmeldingen'
 import Postbus from '../../components/Postbus'
 import Inkoopinstellingen from '../../components/Inkoop'
 import Inkoopadressen from './Inkoopadressen'
+import Routering from './Routering'
 import { OpHandtekening } from './OpHandtekening'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import MijnPostvak from '../../components/Postvak'
@@ -382,6 +383,11 @@ export default function AdministratieDashboard() {
             takenlijst, en staat hier hoe lang hij er al ligt.
           */}
           <OpHandtekening />
+
+          {/* Bij wie een factuur terechtkomt, per onderneming (0106). Staat
+              vóór de adressen: dit is de regel, een adres is de uitzondering
+              erop. */}
+          <Routering />
 
           {/* Waar facturen binnenkomen: per ONDERNEMING, met een vestiging en
               een goedkeurder eraan (0095). */}

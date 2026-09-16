@@ -20398,6 +20398,12 @@ comment on function public.expense_tweede_handtekening_taak() is
 --  Zonder `wie` alles wat openstaat; met `wie` wat er bij die persoon ligt.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: 0106 geeft deze functie een kolom erbij, en create or replace
+   kan het teruggegeven type niet veranderen. Zonder deze regel loopt een
+   tweede ronde van bijwerken.sql hier stuk op "cannot change return type of
+   existing function" -- de derde keer dat die val hier toeslaat. */
+drop function if exists public.facturen_op_handtekening(text);
+
 create or replace function public.facturen_op_handtekening(wie text default null)
 returns table (
   id              text,
@@ -23552,5 +23558,864 @@ comment on function public.betalen_blijft_van_de_server() is
 do $stand$ begin
   if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
     perform public.migratie_gedaan(105, 'Wat van de server is, staat in een lijst -- niet in een trigger erbij');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een factuur weet bij wie hij hoort
+--
+--  Casper, met een schermafdruk van de suggestieroutes in Blue10: "Je moet dus
+--  ai laten kijken, en evt direct laten daarzetten naar degene die akkoord
+--  moet geven. Maar als AI hem nog niet kent ect, moet je hem onder de eerste
+--  persoon zetten, degene met managment kan het override, maar krijgt hem niet
+--  in zijn todo. Zorg dat je dit per bv kan instellen."
+--
+--  Wat er stond
+--  ------------
+--
+--  Eén regel: de goedkeurder van het inkoopadres waarop de factuur binnenkwam
+--  (0095). Staat daar niemand -- en dat is bij vrijwel elk adres zo, want die
+--  namen zijn nooit ingevuld -- dan ligt de factuur bij niemand en gaat de
+--  taak naar de rol administratie. Dat is een stapel, geen route.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Drie lagen, van sterk naar zwak, en elke factuur draagt welke het was:
+--
+--    adres       een mens heeft dit postvak aan iemand toegewezen. Dat is een
+--                keuze, en die wint van alles wat wij afleiden.
+--    geheugen    deze leverancier is in deze bv eerder door dezelfde persoon
+--                getekend, vaak genoeg om het geen toeval te noemen. Dit is
+--                het "AI kent hem" uit de vraag: hij mag er direct heen.
+--    eerste      we kennen hem niet. Dan gaat hij naar de eerste persoon van
+--                die bv -- iemand, met een naam, in plaats van een stapel.
+--
+--  Het geheugen leert van wat er echt gebeurt: wie de tweede handtekening
+--  zet, wordt onthouden bij die leverancier in die bv.
+--
+--  Waarom niet van een automatische goedkeuring
+--  --------------------------------------------
+--
+--  Dezelfde reden als bij het boeken (lib/boeking.ts): een geheugen dat leert
+--  van zijn eigen gokken bevestigt voortaan zijn eigen vergissingen, en dan
+--  is het geen geheugen meer maar een echo. Alleen een handtekening van een
+--  mens telt.
+--
+--  En het management
+--  -----------------
+--
+--  Dat mag altijd overschrijven -- de rem in expenses_vier_ogen() laat
+--  is_management() er al door. Wat erbij komt is dat zo'n keuze blijft staan:
+--  hij krijgt bron 'handmatig', en daar blijft de routering vanaf. Zonder dat
+--  zou de eerstvolgende ronde de keuze van een mens overschrijven met een gok.
+--
+--  Wat het management NIET krijgt is de taak. Die volgt de goedkeurder, en
+--  een rol-taak gaat naar de rol administratie -- niet naar management. Dat
+--  was al zo (isVanMij in lib/werk.ts kijkt naar rollen, niet naar rechten);
+--  hier wordt het alleen niet stukgemaakt.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Per bv: wie krijgt een factuur die we niet kennen
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.bv_route (
+  /*
+   * De sleutel heet id en niet administratie, en dat is geen smaakkwestie.
+   *
+   * rij_bestaat() -- de uitweg uit de upsert-val hieronder -- zoekt hard op
+   * "where id = $1". Een tabel met een andere sleutelnaam levert daar
+   * stilletjes niets op, en dan zit die uitweg altijd dicht. Zelfde afspraak
+   * als in 0044 en 0087; de sqltest bewaakt hem.
+   *
+   * De waarde is de administratiecode van Exact.
+   */
+  id            text primary key,
+  /* Wie een onbekende factuur krijgt. Leeg = zoals het was: de rol
+     administratie, en dan ligt hij bij iedereen en dus bij niemand. */
+  eerste        text references public.profiles(id) on delete set null,
+  /* Mag het geheugen een factuur direct bij de vorige tekenaar leggen? */
+  ai_direct     boolean not null default true,
+  /*
+   * Vanaf hoeveel keer het geheugen meetelt.
+   *
+   * Eén keer is een aanwijzing, drie keer is een gewoonte. Hetzelfde getal
+   * dat het automatisch goedkeuren gebruikt (0075), en om dezelfde reden:
+   * een route op één waarneming is raden met een naam eronder.
+   */
+  vanaf_keren   integer not null default 3 check (vanaf_keren >= 1),
+  updated_at    bigint not null default public.now_ms()
+);
+
+comment on table public.bv_route is
+  'Per bv: wie een onbekende inkoopfactuur krijgt, en of het geheugen hem '
+  'direct bij de vorige tekenaar mag leggen (0106).';
+
+alter table public.bv_route enable row level security;
+
+drop policy if exists bv_route_select on public.bv_route;
+create policy bv_route_select on public.bv_route
+  for select to authenticated using (public.is_staff());
+
+drop policy if exists bv_route_insert on public.bv_route;
+create policy bv_route_insert on public.bv_route
+  for insert to authenticated
+  /* rij_bestaat() is de uitweg uit de upsert-val (0033): een upsert op een
+     rij die al bestaat wordt door PostgREST als INSERT aangeboden, en zonder
+     deze regel weigert de insert-policy een gewone wijziging met "new row
+     violates row-level security policy". */
+  with check (public.rij_bestaat('public.bv_route'::regclass, id)
+              or public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists bv_route_update on public.bv_route;
+create policy bv_route_update on public.bv_route
+  for update to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'))
+  with check (public.is_management() or public.heeft_recht('admin.desk'));
+
+drop policy if exists bv_route_delete on public.bv_route;
+create policy bv_route_delete on public.bv_route
+  for delete to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'));
+
+-- ---------------------------------------------------------------------------
+--  2. Het geheugen: wie tekent de facturen van deze leverancier
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.leverancier_route (
+  /* Per bv, want dezelfde leverancier kan in twee administraties bij twee
+     verschillende mensen liggen. */
+  administratie text not null,
+  /* lower(trim(naam)), zoals in leverancier_boeking. */
+  leverancier   text not null,
+  goedkeurder   text not null references public.profiles(id) on delete cascade,
+  keren         integer not null default 1,
+  laatst_at     bigint not null default public.now_ms(),
+  updated_at    bigint not null default public.now_ms(),
+  primary key (administratie, leverancier)
+);
+
+comment on table public.leverancier_route is
+  'Wie de facturen van deze leverancier in deze bv tekent (0106). Geleerd van '
+  'echte handtekeningen, niet van automatische goedkeuringen.';
+
+alter table public.leverancier_route enable row level security;
+
+/* Lezen mag wie erbij hoort te kunnen; schrijven doet de trigger hieronder,
+   en die is security definer. */
+drop policy if exists leverancier_route_select on public.leverancier_route;
+create policy leverancier_route_select on public.leverancier_route
+  for select to authenticated using (public.is_staff());
+
+/* Wissen mag de administratie wel: een route die niet meer klopt moet je
+   kunnen vergeten zonder in de database te hoeven. */
+drop policy if exists leverancier_route_delete on public.leverancier_route;
+create policy leverancier_route_delete on public.leverancier_route
+  for delete to authenticated
+  using (public.is_management() or public.heeft_recht('admin.desk'));
+
+-- ---------------------------------------------------------------------------
+--  3. Waarom een factuur ligt waar hij ligt
+-- ---------------------------------------------------------------------------
+
+alter table public.expenses add column if not exists route_bron text;
+
+do $$
+begin
+  alter table public.expenses drop constraint if exists expenses_route_bron_check;
+  alter table public.expenses add constraint expenses_route_bron_check
+    check (route_bron is null
+           or route_bron in ('adres', 'geheugen', 'eerste', 'handmatig'));
+exception when others then
+  raise notice 'route_bron-controle niet gezet: %', sqlerrm;
+end $$;
+
+comment on column public.expenses.route_bron is
+  'Waarom deze factuur bij deze persoon ligt (0106): adres, geheugen, eerste '
+  'of handmatig. Handmatig blijft staan -- de routering overschrijft nooit '
+  'een keuze van een mens.';
+
+-- ---------------------------------------------------------------------------
+--  4. Bij wie hoort deze factuur?
+--
+--  Puur een vraag; hij verandert niets. Zo is hij ook te gebruiken om op het
+--  scherm te laten zien wat er ZOU gebeuren.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.factuur_route(
+  administratie_in text,
+  leverancier_in   text,
+  adres_wie_in     text default null
+)
+returns table (wie text, naam text, bron text)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  sleutel text := lower(trim(coalesce(leverancier_in, '')));
+  r       record;
+  bv      record;
+begin
+  /* --- 1. het adres: een mens heeft dit postvak aan iemand gegeven --- */
+  if coalesce(trim(adres_wie_in), '') <> '' then
+    select p.id, p.name into r from public.profiles p where p.id = adres_wie_in;
+    if found then
+      wie := r.id; naam := r.name; bron := 'adres';
+      return next; return;
+    end if;
+  end if;
+
+  select * into bv from public.bv_route b where b.id = administratie_in;
+
+  /* --- 2. het geheugen: deze leverancier ging hier al vaker heen --- */
+  if sleutel <> '' and coalesce(bv.ai_direct, true) then
+    select lr.goedkeurder, p.name, lr.keren into r
+      from public.leverancier_route lr
+      join public.profiles p on p.id = lr.goedkeurder
+     where lr.administratie = administratie_in
+       and lr.leverancier = sleutel
+       and lr.keren >= coalesce(bv.vanaf_keren, 3)
+       and p.active;
+    if found then
+      wie := r.goedkeurder; naam := r.name; bron := 'geheugen';
+      return next; return;
+    end if;
+  end if;
+
+  /* --- 3. de eerste persoon van deze bv --- */
+  if bv.eerste is not null then
+    select p.id, p.name into r from public.profiles p
+     where p.id = bv.eerste and p.active;
+    if found then
+      wie := r.id; naam := r.name; bron := 'eerste';
+      return next; return;
+    end if;
+  end if;
+
+  /* --- 4. niemand: dan de stapel, zoals het was --- */
+  wie := null; naam := null; bron := null;
+  return next;
+end $$;
+
+revoke execute on function public.factuur_route(text, text, text) from public, anon;
+grant  execute on function public.factuur_route(text, text, text) to authenticated, service_role;
+
+comment on function public.factuur_route(text, text, text) is
+  'Bij wie deze factuur hoort te liggen, en waarom (0106). Verandert niets; '
+  'het scherm gebruikt hem ook om te laten zien wat er zou gebeuren.';
+
+-- ---------------------------------------------------------------------------
+--  5. En hem erop zetten
+--
+--  Apart van de vraag, zodat het scherm kan kijken zonder iets te doen.
+--
+--  Wat er NIET gebeurt: een keuze van een mens overschrijven. Staat er
+--  'handmatig', dan blijft het zoals het staat -- ook als het geheugen
+--  inmiddels iets anders zou zeggen. Zonder die regel zou de eerstvolgende
+--  ronde de beslissing van het management terugdraaien, en dat merkt niemand.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.factuur_route_zetten(expense_in text)
+returns table (wie text, naam text, bron text)
+language plpgsql security definer set search_path = public as $$
+declare
+  e   record;
+  r   record;
+begin
+  select id, supplier, goedkeurder, route_bron, inkoop_adres_id, status
+    into e from public.expenses where id = expense_in;
+  if not found then return; end if;
+
+  /* Een keuze van een mens blijft staan. */
+  if e.route_bron = 'handmatig' then
+    wie := e.goedkeurder;
+    select p.name into naam from public.profiles p where p.id = e.goedkeurder;
+    bron := 'handmatig';
+    return next; return;
+  end if;
+
+  /*
+   * En een factuur die al getekend is ook. Verplaatsen wat al door de tweede
+   * handtekening heen is, zou de historie laten liegen over waar hij lag.
+   */
+  if e.status in ('goedgekeurd', 'afgekeurd') then
+    wie := e.goedkeurder;
+    select p.name into naam from public.profiles p where p.id = e.goedkeurder;
+    bron := e.route_bron;
+    return next; return;
+  end if;
+
+  select * into r from public.factuur_route(
+    public.bon_administratie(e.id),
+    e.supplier,
+    (select ia.goedkeurder from public.inkoop_adres ia where ia.id = e.inkoop_adres_id)
+  );
+
+  update public.expenses
+     set goedkeurder      = r.wie,
+         goedkeurder_naam = r.naam,
+         route_bron       = r.bron
+   where id = e.id;
+
+  wie := r.wie; naam := r.naam; bron := r.bron;
+  return next;
+end $$;
+
+revoke execute on function public.factuur_route_zetten(text) from public, anon;
+grant  execute on function public.factuur_route_zetten(text) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+--  6. Het geheugen leert van echte handtekeningen
+-- ---------------------------------------------------------------------------
+
+create or replace function public.route_onthouden()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  sleutel text := lower(trim(coalesce(new.supplier, '')));
+  bv      text;
+begin
+  /* Alleen op het moment dat hij goedgekeurd RAAKT. */
+  if new.status <> 'goedgekeurd' or coalesce(old.status, '') = 'goedgekeurd' then
+    return null;
+  end if;
+
+  /*
+   * En alleen als een mens tekende. Een geheugen dat leert van zijn eigen
+   * automatische goedkeuringen bevestigt voortaan zijn eigen vergissingen.
+   */
+  if coalesce(new.goedkeuring_bron, '') = 'automatisch' then return null; end if;
+  if new.approved_by is null or sleutel = '' then return null; end if;
+
+  bv := public.bon_administratie(new.id);
+  if coalesce(bv, '') = '' then return null; end if;
+
+  /*
+   * En alleen als die persoon een dossier heeft.
+   *
+   * approved_by verwijst niet naar profiles -- dat is een tekstveld dat ook
+   * gevuld kan zijn met iemand die er niet (meer) is. Zonder deze vraag
+   * loopt het geheugen tegen zijn eigen verwijzing aan, en dan MISLUKT DE
+   * GOEDKEURING. Een handtekening die stukloopt omdat er iets te onthouden
+   * viel, is het omgekeerde van wat dit moet doen.
+   */
+  if not exists (select 1 from public.profiles p where p.id = new.approved_by) then
+    return null;
+  end if;
+
+  insert into public.leverancier_route
+    (administratie, leverancier, goedkeurder, keren, laatst_at, updated_at)
+  values (bv, sleutel, new.approved_by, 1, public.now_ms(), public.now_ms())
+  on conflict (administratie, leverancier) do update
+    set keren = case
+                  /* Dezelfde persoon: een keer erbij. Een ander: dan is de
+                     gewoonte veranderd en begint het tellen opnieuw -- anders
+                     blijft een vertrokken collega jaren de route bepalen. */
+                  when public.leverancier_route.goedkeurder = excluded.goedkeurder
+                    then public.leverancier_route.keren + 1
+                  else 1
+                end,
+        goedkeurder = excluded.goedkeurder,
+        laatst_at   = excluded.laatst_at,
+        updated_at  = excluded.updated_at;
+
+  return null;
+exception when others then
+  /*
+   * Wat er ook misgaat aan het onthouden: de goedkeuring gaat door.
+   *
+   * Dit is een AFTER-trigger op de factuur zelf, dus een fout hier draait de
+   * hele handtekening terug. Dat mag nooit -- het geheugen is een gemak, de
+   * handtekening is het werk.
+   */
+  raise warning 'route onthouden mislukte voor %: %', new.id, sqlerrm;
+  return null;
+end $$;
+
+revoke execute on function public.route_onthouden() from public, anon, authenticated;
+
+drop trigger if exists expenses_route_onthouden on public.expenses;
+create trigger expenses_route_onthouden
+  after update on public.expenses
+  for each row execute function public.route_onthouden();
+
+-- ---------------------------------------------------------------------------
+--  7. Een keuze van een mens is een keuze
+--
+--  Zet iemand de goedkeurder met de hand om -- en dat mag alleen het
+--  management, of degene bij wie hij ligt -- dan is de bron vanaf dat moment
+--  'handmatig'. Anders zou de volgende ronde het terugdraaien.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.route_handmatig()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  /* De server routeert zelf en zet de bron er dan bij; dit gaat over wat
+     iemand in het scherm doet. */
+  if public.my_id() is null then return new; end if;
+
+  if new.goedkeurder is distinct from old.goedkeurder
+     and new.route_bron is not distinct from old.route_bron then
+    new.route_bron := 'handmatig';
+  end if;
+
+  return new;
+end $$;
+
+revoke execute on function public.route_handmatig() from public, anon, authenticated;
+
+/*
+ * De naam bepaalt de volgorde: BEFORE UPDATE-triggers lopen op alfabet, en
+ * deze moet ná expenses_blijft_van_de_server draaien -- die zet kolommen
+ * terug, en daarna pas is te zien wat er werkelijk verandert. "route" komt
+ * na "blijft", "btw" en "exact_fout"; dat klopt.
+ */
+drop trigger if exists expenses_route_handmatig on public.expenses;
+create trigger expenses_route_handmatig
+  before update on public.expenses
+  for each row execute function public.route_handmatig();
+
+-- ---------------------------------------------------------------------------
+--  8. Wat er per bv staat, in één vraag
+--
+--  Voor het scherm: elke actieve bv, met de route die er staat en hoeveel het
+--  geheugen er inmiddels van weet.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.bv_routes()
+returns table (
+  administratie text,
+  bv_naam       text,
+  eerste        text,
+  eerste_naam   text,
+  ai_direct     boolean,
+  vanaf_keren   integer,
+  onthouden     integer,
+  wachtend      integer
+)
+language sql stable security definer set search_path = public as $$
+  select a.code,
+         a.naam,
+         r.eerste,
+         p.name,
+         coalesce(r.ai_direct, true),
+         coalesce(r.vanaf_keren, 3),
+         (select count(*)::integer from public.leverancier_route lr
+           where lr.administratie = a.code),
+         (select count(*)::integer from public.expenses e
+           where e.status = 'eerste_akkoord'
+             and public.bon_administratie(e.id) = a.code)
+    from public.exact_administratie a
+    left join public.bv_route r on r.id = a.code
+    left join public.profiles  p on p.id = r.eerste
+   where a.actief
+     and public.is_staff()
+   order by a.hoofd desc nulls last, a.naam;
+$$;
+
+revoke execute on function public.bv_routes() from public, anon;
+grant  execute on function public.bv_routes() to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+--  9. En de werklijst zegt erbij waarom
+--
+--  "Ligt bij Milos" is een feit zonder reden. Staat er niet bij waar dat
+--  vandaan komt, dan is de enige manier om te zien of de routering doet wat
+--  je hebt ingesteld: wachten tot het een keer misgaat.
+--
+--  drop eerst: het antwoord krijgt een kolom erbij, en create or replace kan
+--  het teruggegeven type niet veranderen.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.facturen_op_handtekening(text);
+
+create or replace function public.facturen_op_handtekening(wie text default null)
+returns table (
+  id              text,
+  leverancier     text,
+  factuurnummer   text,
+  factuurdatum    bigint,
+  vervaldatum     bigint,
+  administratie   text,
+  bedrag_excl     numeric,
+  bedrag_incl     numeric,
+  ligt_bij        text,
+  ligt_bij_naam   text,
+  eerste_door_naam text,
+  automatisch     boolean,
+  dagen           integer,
+  route_bron      text
+)
+language sql stable security definer set search_path = public as $$
+  select e.id,
+         coalesce(e.supplier, ''),
+         e.factuurnummer,
+         e.expense_date,
+         e.vervaldatum,
+         public.bon_administratie(e.id),
+         e.amount_excl,
+         round(coalesce(e.amount_excl, 0) * (1 + coalesce(e.vat_pct, 0) / 100.0), 2),
+         e.goedkeurder,
+         e.goedkeurder_naam,
+         e.eerste_door_naam,
+         coalesce(e.goedkeuring_bron, '') = 'automatisch',
+         /* Sinds hij op de tweede handtekening wacht, en anders sinds hij
+            binnenkwam. In hele dagen; uren zeggen hier niets. */
+         greatest(0, ((public.now_ms() - coalesce(e.eerste_at, e.expense_date))
+                      / (24 * 60 * 60 * 1000))::integer),
+         e.route_bron
+    from public.expenses e
+   where e.status = 'eerste_akkoord'
+     and (wie is null or e.goedkeurder = wie or e.goedkeurder is null)
+   order by coalesce(e.vervaldatum, e.expense_date);
+$$;
+
+revoke execute on function public.facturen_op_handtekening(text) from public, anon;
+grant  execute on function public.facturen_op_handtekening(text) to authenticated, service_role;
+
+comment on function public.facturen_op_handtekening(text) is
+  'Wat er op de tweede handtekening wacht, met bij wie het ligt, waarom het '
+  'daar ligt en hoeveel dagen het er staat (0096, uitgebreid in 0106).';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(106, 'Een factuur weet bij wie hij hoort');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een wekker die je zelf kunt laten afgaan
+--
+--  Casper: "Daarbuiten moet ik bij ontwikkelaar een knop hebben, zodat ik die
+--  timers functie handmatig kan doen, zodat we gelijk zien of het werkt."
+--
+--  Wat er stond
+--  ------------
+--
+--  Drie wekkers die om vier uur 's nachts en om het kwartier afgaan, en
+--  verder niets. Wilde je weten of ze werkten, dan was het antwoord: wacht
+--  tot morgenochtend en kijk dan in wekkers_stand(). Een koppeling die je pas
+--  de volgende dag kunt controleren, controleer je niet.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Dezelfde opdracht, nu ook met de hand af te vuren. Letterlijk dezelfde:
+--  de tekst die cron.schedule() krijgt en de tekst die de knop uitvoert komen
+--  uit één functie. Zou de knop zijn eigen versie hebben, dan bewijst een
+--  geslaagde klik alleen dat de KNOP werkt -- en dat is precies het soort
+--  proef waar je niets aan hebt.
+--
+--  Wat je ervan ziet
+--  -----------------
+--
+--  Het verzoeknummer, en daarmee het antwoord van de functie zelf. Dat is de
+--  enige die zegt of er iets is gebeurd: net.http_post() is asynchroon, dus
+--  "de opdracht is weggezet" zegt niets over wat de functie ervan vond.
+--  Vandaar wekker_antwoord(): die kijkt in net._http_response, en werkt ook
+--  op een database waar pg_cron niet eens aanstaat.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Welke wekkers er zijn, op één plek
+--
+--  Stond als een VALUES-lijst midden in wekkers_instellen(). Nu een functie,
+--  zodat de knop dezelfde lijst ziet.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekkers_lijst()
+returns table (naam text, planning text, functie text, actie text, sleutel text)
+language sql stable as $$
+  select * from (values
+    ('voorraad-direct',  '*/15 * * * *', 'trucksupply', 'direct',  'voorraad_cron_secret'),
+    ('voorraad-ochtend', '0 4-9 * * *',  'trucksupply', 'ochtend', 'voorraad_cron_secret'),
+    ('takenmail',        '0 4-14 * * *', 'takenmail',   'normaal', 'taken_cron_secret')
+  ) as t(naam, planning, functie, actie, sleutel);
+$$;
+
+revoke execute on function public.wekkers_lijst() from public, anon;
+grant  execute on function public.wekkers_lijst() to authenticated, service_role;
+
+comment on function public.wekkers_lijst() is
+  'De wekkers en wat ze aanroepen (0107). Eén lijst, gebruikt door zowel '
+  'wekkers_instellen() als wekker_nu() -- anders bewijst een handmatige proef '
+  'alleen dat de knop werkt.';
+
+-- ---------------------------------------------------------------------------
+--  2. De opdracht van één wekker
+--
+--  Geeft de SQL terug die de wekker uitvoert. Het geheim staat er niet in;
+--  alleen de opzoekvraag (0102).
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekker_opdracht(naam_in text)
+returns text
+language plpgsql stable security definer set search_path = public as $$
+declare
+  basis text;
+  w     record;
+begin
+  select nullif(trim(i.waarde), '') into basis
+    from public.instellingen i where i.sleutel = 'functies_url';
+  if basis is null then return null; end if;
+  basis := rtrim(basis, '/');
+
+  select * into w from public.wekkers_lijst() l where l.naam = naam_in;
+  if not found then return null; end if;
+
+  return format(
+    $sql$insert into public.wekker_ronde (naam, verzoek_id)
+         values (%L, net.http_post(
+           url := %L,
+           headers := jsonb_build_object('Content-Type', 'application/json'),
+           body := jsonb_build_object(
+             'actie', %L,
+             'geheim', coalesce(public.wekker_geheim(%L), '')),
+           timeout_milliseconds := 120000))$sql$,
+    w.naam, basis || '/' || w.functie, w.actie, w.sleutel);
+end $$;
+
+revoke execute on function public.wekker_opdracht(text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+--  3. Instellen gebruikt diezelfde opdracht
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekkers_instellen()
+returns table (naam text, planning text, gelukt boolean, waarom text)
+language plpgsql security definer set search_path = public as $$
+declare
+  w    record;
+  lijf text;
+  fout text;
+  uit  record;
+begin
+  for w in
+    select * from (values
+      ('pg_cron', 'cron', 'schedule'),
+      ('pg_net',  'net',  'http_post')
+    ) as t(uitbreiding, schemanaam, functie)
+  loop
+    if not exists (
+      select 1 from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = w.schemanaam and p.proname = w.functie)
+    then
+      return query select 'alle'::text, ''::text, false, (
+        case
+          when not exists (
+            select 1 from pg_available_extensions a where a.name = w.uitbreiding)
+            then format('%s is op deze database niet beschikbaar. Dat is een '
+                        'grens van het platform, geen instelling.', w.uitbreiding)
+          when exists (
+            select 1 from pg_extension e where e.extname = w.uitbreiding)
+            then format('%s staat aan, maar %I.%I bestaat niet. Dat is '
+                        'ongewoon; draai "drop extension %s; create extension %s;".',
+                        w.uitbreiding, w.schemanaam, w.functie,
+                        w.uitbreiding, w.uitbreiding)
+          else format('%s staat niet aan. Zet hem aan met: '
+                      'create extension %s;', w.uitbreiding, w.uitbreiding)
+        end)::text;
+      return;
+    end if;
+  end loop;
+
+  if public.wekker_opdracht((select l.naam from public.wekkers_lijst() l limit 1)) is null then
+    return query select 'alle'::text, ''::text, false,
+      'De instelling functies_url is leeg; vul daar het adres van de Edge '
+      'Functions in.'::text;
+    return;
+  end if;
+
+  for uit in select * from public.wekkers_lijst()
+  loop
+    begin
+      execute format('select cron.unschedule(%L)', uit.naam);
+    exception when others then
+      null;
+    end;
+
+    lijf := public.wekker_opdracht(uit.naam);
+
+    fout := null;
+    begin
+      execute format('select cron.schedule(%L, %L, %L)', uit.naam, uit.planning, lijf);
+    exception when others then
+      fout := sqlerrm;
+    end;
+
+    return query select uit.naam::text, uit.planning::text, fout is null, fout;
+  end loop;
+end $$;
+
+revoke execute on function public.wekkers_instellen() from public, anon, authenticated;
+grant  execute on function public.wekkers_instellen() to service_role;
+
+-- ---------------------------------------------------------------------------
+--  4. En hem nu laten afgaan
+--
+--  Alleen de ontwikkelaar: dit stuurt een verzoek naar buiten met een geheim
+--  eraan, en dat is niets voor een knop die iedereen kan vinden.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekker_nu(naam_in text)
+returns table (naam text, verzoek_id bigint, gelukt boolean, waarom text)
+language plpgsql security definer set search_path = public as $$
+declare
+  lijf text;
+  fout text;
+  nr   bigint;
+begin
+  if not public.is_developer() then
+    raise exception 'Alleen ontwikkeling kan een wekker met de hand laten afgaan.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if not exists (select 1 from public.wekkers_lijst() l where l.naam = naam_in) then
+    return query select naam_in, null::bigint, false, 'Die wekker bestaat niet.'::text;
+    return;
+  end if;
+
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'net' and p.proname = 'http_post')
+  then
+    return query select naam_in, null::bigint, false,
+      'pg_net staat niet aan; zonder die uitbreiding kan de database geen '
+      'verzoek versturen.'::text;
+    return;
+  end if;
+
+  lijf := public.wekker_opdracht(naam_in);
+  if lijf is null then
+    return query select naam_in, null::bigint, false,
+      'De instelling functies_url is leeg; vul daar het adres van de Edge '
+      'Functions in.'::text;
+    return;
+  end if;
+
+  begin
+    execute lijf;
+  exception when others then
+    fout := sqlerrm;
+  end;
+
+  if fout is not null then
+    return query select naam_in, null::bigint, false, fout;
+    return;
+  end if;
+
+  select r.verzoek_id into nr
+    from public.wekker_ronde r
+   where r.naam = naam_in
+   order by r.gestart_at desc
+   limit 1;
+
+  return query select naam_in, nr, true, null::text;
+end $$;
+
+revoke execute on function public.wekker_nu(text) from public, anon;
+grant  execute on function public.wekker_nu(text) to authenticated, service_role;
+
+comment on function public.wekker_nu(text) is
+  'Laat één wekker nu afgaan, met precies de opdracht die de cron ook '
+  'uitvoert (0107). Alleen voor ontwikkeling.';
+
+-- ---------------------------------------------------------------------------
+--  5. Wat de functie ervan vond
+--
+--  net.http_post() is asynchroon: hij geeft een nummer terug en gaat verder.
+--  Het antwoord komt later in net._http_response te staan, en dat is het
+--  enige dat zegt of er werkelijk iets gebeurd is. Ze worden zes uur
+--  bewaard.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekker_antwoord(verzoek_in bigint)
+returns table (klaar boolean, status_code integer, inhoud text, waarom text)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_developer() then
+    raise exception 'Alleen ontwikkeling kan het antwoord van een wekker opvragen.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if to_regclass('net._http_response') is null then
+    return query select false, null::integer, null::text,
+      'pg_net bewaart hier geen antwoorden.'::text;
+    return;
+  end if;
+
+  return query execute format($sql$
+    select true,
+           a.status_code,
+           left(coalesce(a.content, ''), 2000),
+           case
+             when a.timed_out then 'de functie antwoordde niet op tijd'
+             when a.error_msg is not null then a.error_msg
+             when a.status_code between 200 and 299 then null
+             else 'de functie gaf ' || a.status_code
+           end::text
+      from net._http_response a
+     where a.id = %s
+  $sql$, verzoek_in);
+
+  if not found then
+    return query select false, null::integer, null::text,
+      'nog geen antwoord'::text;
+  end if;
+end $$;
+
+revoke execute on function public.wekker_antwoord(bigint) from public, anon;
+grant  execute on function public.wekker_antwoord(bigint) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+--  6. En de stand, voor het scherm
+--
+--  wekkers_stand() is sinds 0102 alleen voor de servicesleutel -- terecht: er
+--  staan adressen en foutmeldingen in die niet voor iedereen zijn. Maar het
+--  ontwikkelaarsscherm moet hem wel kunnen laten zien, anders is de knop
+--  hierboven een klik zonder uitkomst.
+--
+--  Een dun laagje eromheen dus, met de vraag wie je bent. Geen tweede versie
+--  van de stand zelf: dat zou betekenen dat het scherm iets anders toont dan
+--  de cron doet, en dan bewijst een groene regel niets.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wekkers_overzicht(hoeveel integer default 20)
+returns table (
+  naam          text,
+  planning      text,
+  actief        boolean,
+  laatst_at     timestamptz,
+  antwoord      integer,
+  antwoord_hoe  text,
+  mislukt       integer
+)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_developer() then
+    raise exception 'Alleen ontwikkeling kan de stand van de wekkers zien.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return query select * from public.wekkers_stand(hoeveel);
+end $$;
+
+revoke execute on function public.wekkers_overzicht(integer) from public, anon;
+grant  execute on function public.wekkers_overzicht(integer) to authenticated, service_role;
+
+comment on function public.wekkers_overzicht(integer) is
+  'wekkers_stand() voor het ontwikkelaarsscherm (0107). Zelfde antwoord, met '
+  'de vraag wie je bent ervoor.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(107, 'Een wekker die je zelf kunt laten afgaan');
   end if;
 end $stand$;

@@ -374,6 +374,35 @@ export async function vulInVanuitLezing(admin: any, opties: {
     return
   }
 
+  /* ---------------------------------------------------------------- *
+   *  En bij wie hij komt te liggen
+   *
+   *  Casper: "Je moet dus ai laten kijken, en evt direct laten daarzetten
+   *  naar degene die akkoord moet geven. Maar als AI hem nog niet kent ect,
+   *  moet je hem onder de eerste persoon zetten."
+   *
+   *  Dit moet HIER gebeuren en niet eerder, en dat is de hele reden dat het
+   *  niet bij het binnenkomen van de mail staat: de route hangt aan de
+   *  leverancier en de bv, en die weten we pas nadat er gelezen is. Zet je
+   *  hem bij binnenkomst, dan is het antwoord altijd "we kennen hem niet".
+   *
+   *  factuur_route_zetten() laat een keuze van een mens met rust en raakt
+   *  een al getekende factuur niet aan; zie 0106.
+   * ---------------------------------------------------------------- */
+  const { data: route, error: routeFout } = await admin
+    .rpc('factuur_route_zetten', { expense_in: expenseId })
+
+  if (routeFout) {
+    /* Geen reden om het lezen te laten mislukken: zonder route ligt hij bij
+       de rol administratie, precies zoals het vóór 0106 ging. */
+    console.warn('[verwerking] routeren mislukte: ' + routeFout.message)
+  } else {
+    const r = Array.isArray(route) ? route[0] : route
+    if (r?.wie) {
+      console.log(`[verwerking] ligt bij ${r.naam ?? r.wie} (${r.bron})`)
+    }
+  }
+
   console.log('[verwerking] geboekt ' + JSON.stringify({
     expenseId,
     /*
