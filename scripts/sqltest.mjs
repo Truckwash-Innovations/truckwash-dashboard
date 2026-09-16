@@ -9248,5 +9248,178 @@ console.log('\n72. Eén rekeningschema, en niet drie')
   await gb.close()
 }
 
+console.log('\n73. Wat van de server is, staat in een lijst')
+
+{
+  /*
+   * Er stonden twee triggers die hetzelfde deden: kolommen terugzetten die
+   * de app niet mag schrijven. Elke nieuwe serverkolom vroeg om een regel
+   * erbij -- of om een derde trigger. Dat is vervangen door één lijst en één
+   * trigger.
+   *
+   * Wat hier hard moet zijn: dat de rem nog steeds remt, dat hij voor de
+   * NIEUWE kolommen ook remt (exact_id vooral: dat is het bewijs dat er al
+   * geboekt is), dat de server zelf er wél doorheen komt, en dat de volgorde
+   * van de triggers klopt.
+   */
+  const sv = await fresh()
+  await sv.exec(sqlFile('supabase/setup.sql'))
+  await asServer(sv)
+
+  await sv.exec(`
+    insert into auth.users (id, email, raw_user_meta_data)
+    values ('73737373-0000-0000-0000-000000007373', 'proef.rem@truckwash1group.nl',
+            '{"name":"Proefpersoon","roles":["management"]}'::jsonb)
+    on conflict (id) do nothing;
+
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct, status, source)
+    values ('exp_rem', 1, 'overig', 'CleanChem', 'Proefbon', 100, 21, 'open', 'mail')
+    on conflict (id) do nothing;
+
+    update public.expenses
+       set exact_id = 'GEBOEKT-1', gelezen = '{"leverancier":"Shell"}'::jsonb,
+           exact_fout = 'crediteur onbekend', grootboek_code = '4000'
+     where id = 'exp_rem';
+  `)
+
+  const bon = async () => (await sv.query(`
+    select exact_id, gelezen, betaald_at, exact_fout, grootboek_code, tags
+      from public.expenses where id = 'exp_rem'`)).rows[0]
+
+  /* --- de app komt er niet doorheen --- */
+
+  await asUser(sv, '73737373-0000-0000-0000-000000007373')
+  await sv.exec(`
+    update public.expenses
+       set exact_id = null, gelezen = null, betaald_at = 1,
+           tags = array['aangevinkt']
+     where id = 'exp_rem'
+  `).catch(() => { /* de rem mag ook een fout geven */ })
+  await asServer(sv)
+
+  const na = await bon()
+
+  /*
+   * exact_id is het bewijs dat deze factuur in Exact staat. Stond niet in de
+   * oude remmen; sinds de wachtrij een leeggemaakt veld als null meestuurt,
+   * kon een gewone wijziging hem wissen -- en dan staat een geboekte factuur
+   * weer in de lijst om geboekt te worden.
+   */
+  check('exact_id is niet vanuit de app te wissen',
+    na.exact_id === 'GEBOEKT-1', String(na.exact_id))
+  check('gelezen blijft het verslag van de lezer',
+    na.gelezen !== null, JSON.stringify(na.gelezen))
+  check('en betaald_at blijft van de bank',
+    na.betaald_at === null, String(na.betaald_at))
+
+  /* Maar wat de app WEL mag, komt gewoon aan. Een rem die alles tegenhoudt
+     is geen rem maar een muur. */
+  check('een tag aanvinken lukt nog steeds',
+    Array.isArray(na.tags) && na.tags.includes('aangevinkt'), JSON.stringify(na.tags))
+
+  /* --- de server zelf wel --- */
+
+  await sv.exec("update public.expenses set betaald_at = 999 where id = 'exp_rem'")
+  check('de server zet betaald_at wel',
+    Number((await bon()).betaald_at) === 999, String((await bon()).betaald_at))
+
+  /* --- de volgorde van de triggers --- */
+
+  /*
+   * De rem zet exact_fout terug op wat er stond; de opruiming wist hem zodra
+   * er iets is veranderd waar de weigering over ging. Draaien ze in de
+   * verkeerde volgorde, dan wint de rem en blijft een opgeloste weigering
+   * staan. Postgres laat BEFORE UPDATE-triggers op alfabet lopen, dus de
+   * naam draagt hier betekenis.
+   */
+  const volgorde = (await sv.query(`
+    select tgname from pg_trigger
+     where tgrelid = 'public.expenses'::regclass and not tgisinternal
+       and (tgtype & 2) <> 0 and (tgtype & 16) <> 0
+     order by tgname
+  `)).rows.map((r) => r.tgname)
+
+  check('de rem draait vóór de opruiming van de weigering',
+    volgorde.indexOf('expenses_blijft_van_de_server')
+      < volgorde.indexOf('expenses_exact_fout_opruimen'),
+    JSON.stringify(volgorde))
+
+  /* En dat is niet alleen de volgorde op papier: het werkt ook. */
+  await sv.exec("update public.expenses set exact_fout = 'crediteur onbekend' where id = 'exp_rem'")
+  await asUser(sv, '73737373-0000-0000-0000-000000007373')
+  await sv.exec("update public.expenses set grootboek_code = '4010' where id = 'exp_rem'")
+    .catch(() => {})
+  await asServer(sv)
+
+  const opgelost = await bon()
+  check('een opgeloste weigering verdwijnt nog steeds',
+    opgelost.exact_fout === null && opgelost.grootboek_code === '4010',
+    JSON.stringify(opgelost))
+
+  /* --- een kolom erbij is een regel, geen trigger --- */
+
+  /*
+   * Dit is waar het allemaal om gaat. De klacht was dat er bij elke nieuwe
+   * serverkolom een trigger bij moest; hier wordt er een beschermd zonder
+   * dat er iets aan de database verandert behalve één rij.
+   */
+  await sv.exec(`
+    insert into public.kolom_van_de_server (tabel, kolom, waarom)
+    values ('expenses', 'factuurnummer', 'alleen voor deze proef')
+    on conflict (tabel, kolom) do nothing;
+  `)
+  await sv.exec("update public.expenses set factuurnummer = 'F-1' where id = 'exp_rem'")
+
+  await asUser(sv, '73737373-0000-0000-0000-000000007373')
+  await sv.exec("update public.expenses set factuurnummer = 'F-2' where id = 'exp_rem'")
+    .catch(() => {})
+  await asServer(sv)
+
+  const fn = (await sv.query(
+    "select factuurnummer from public.expenses where id = 'exp_rem'")).rows[0]
+  check('een kolom beschermen is één regel in een tabel',
+    fn.factuurnummer === 'F-1', String(fn.factuurnummer))
+
+  await sv.exec("delete from public.kolom_van_de_server where kolom = 'factuurnummer'")
+
+  /* --- en een kolom die niet bestaat gooit niets om --- */
+
+  /*
+   * jsonb_set geeft null terug zodra één argument null is. Zonder de
+   * "bestaat deze kolom" -vraag zou één verkeerde regel in die tabel elke
+   * wijziging aan die tabel leegmaken -- en dat is het soort fout dat je pas
+   * ziet als de gegevens al weg zijn.
+   */
+  await sv.exec(`
+    insert into public.kolom_van_de_server (tabel, kolom, waarom)
+    values ('expenses', 'bestaat_niet', 'proef')
+    on conflict (tabel, kolom) do nothing;
+  `)
+  await asUser(sv, '73737373-0000-0000-0000-000000007373')
+  await sv.exec("update public.expenses set tags = array['nog een'] where id = 'exp_rem'")
+    .catch(() => {})
+  await asServer(sv)
+
+  const heel = await bon()
+  check('een kolom die niet bestaat laat de rij heel',
+    heel.exact_id === 'GEBOEKT-1' && heel.grootboek_code === '4010',
+    JSON.stringify(heel))
+
+  await sv.exec("delete from public.kolom_van_de_server where kolom = 'bestaat_niet'")
+
+  /* --- de oude triggers zijn weg --- */
+
+  const oud = (await sv.query(`
+    select tgname from pg_trigger
+     where tgrelid = 'public.expenses'::regclass and not tgisinternal
+       and tgname in ('expenses_lezing', 'expenses_betalen_van_de_server')
+  `)).rows
+  check('de twee oude remmen staan er niet meer', oud.length === 0,
+    JSON.stringify(oud.map((r) => r.tgname)))
+
+  await sv.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
