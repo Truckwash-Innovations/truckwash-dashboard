@@ -26,9 +26,25 @@ name: Takenwekker
 # een schedule soms twee keer, en twee identieke mails om zeven uur is erger
 # dan geen mail: dan gaat de volgende ook ongelezen weg.
 
+#
+# LET OP -- de planning is hier weggehaald (0101).
+#
+# Deze wekker draait sinds 0101 in de database zelf, met pg_cron, naast de
+# functie die hij wekt. Reden: GitHub zet geplande workflows bij drukte
+# achteraan en laat ze soms helemaal vallen -- en op het kwartier, waar
+# iedereen plant, het vaakst. Bovendien stond de uitkomst van een ronde
+# alleen in het Actions-tabblad; in de database staat hij in
+# cron.job_run_details en kunnen wij hem tonen.
+#
+# Wat hier blijft staan is de HANDknop (workflow_dispatch). Die is er voor
+# twee gevallen: pg_cron blijkt niet te kunnen op dit project, of je wilt hem
+# nu meteen laten lopen zonder op de klok te wachten. Daarvoor zijn de
+# repo-secrets hierboven dus nog steeds nodig.
+#
+# Terugzetten is één blok: zet de schedule-regels terug onder `on:`.
+#
+
 on:
-  schedule:
-    - cron: '0 4-14 * * *'
   workflow_dispatch:
     inputs:
       actie:

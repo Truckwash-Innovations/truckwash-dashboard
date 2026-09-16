@@ -8746,5 +8746,82 @@ console.log('\n68. Wat de tegenlezer vond')
   await tl.close()
 }
 
+/* ==================================================================== *
+ *  69. De wekkers gaan naast wat ze wekken
+ *
+ *  Casper: "Die cronjobs op github lopen steeds vaker fout, kan dat niet via
+ *  iets anders?"
+ *
+ *  Ze verhuizen naar pg_cron, naast de functies die ze wekken. Maar deze
+ *  testdatabase (PGlite) heeft geen pg_cron, geen pg_net en geen kluis -- en
+ *  dat maakt hem juist de goede plek om te controleren wat er gebeurt als
+ *  die er NIET zijn.
+ *
+ *  Want dat is de vraag die ertoe doet. Een wekker die stil niets doet is
+ *  erger dan geen wekker: je denkt dat de voorraadmelding elk kwartier
+ *  langskomt terwijl er sinds de verhuizing niets meer gebeurt.
+ * ==================================================================== */
+
+console.log('\n69. De wekkers gaan naast wat ze wekken')
+
+{
+  const wk = await fresh()
+  await wk.exec(sqlFile('supabase/setup.sql'))
+  await asServer(wk)
+
+  /* --- zonder pg_cron zegt hij dat, en doet hij niet alsof --- */
+
+  const uit = (await wk.query('select * from public.wekkers_instellen()')).rows
+  check('zonder pg_cron wordt er geen wekker gepland',
+    uit.every((r) => r.gelukt === false), JSON.stringify(uit))
+
+  check('en staat erbij waarom',
+    uit.some((r) => String(r.waarom ?? '').toLowerCase().includes('pg_cron')),
+    JSON.stringify(uit.map((r) => r.waarom)))
+
+  /*
+   * En het valt niet om. Dit draait vanuit een migratie die ook op een
+   * database zonder deze uitbreidingen moet kunnen laden; een fout hier zou
+   * betekenen dat bijwerken.sql halverwege stopt.
+   */
+  check('en er valt niets om', uit.length > 0)
+
+  /* --- de stand vraagt zonder cron-tabellen geeft niets, geen fout --- */
+
+  const stand = (await wk.query('select * from public.wekkers_stand(5)')).rows
+  check('de stand is leeg in plaats van stuk', stand.length === 0)
+
+  /* --- en het geheim komt niet uit een lege kluis vallen --- */
+
+  const geheim = (await wk.query(
+    "select public.wekker_geheim('voorraad_cron_secret') as g")).rows[0]
+  check('een ontbrekende kluis levert niets op, geen fout',
+    geheim.g === null, String(geheim.g))
+
+  /* --- het adres van de functies is een instelling, geen geheim --- */
+
+  const url = (await wk.query(
+    "select waarde from public.instellingen where sleutel = 'functies_url'")).rows[0]
+  check('er is een instelling voor het adres van de functies',
+    url !== undefined, 'de instelling functies_url ontbreekt')
+
+  /*
+   * Met een adres maar zonder pg_cron nog steeds nee -- en met de reden die
+   * er dan toe doet. Anders zou iemand het adres invullen en denken dat het
+   * daarmee geregeld is.
+   */
+  await wk.exec(`
+    update public.instellingen set waarde = 'https://proef.supabase.co/functions/v1'
+     where sleutel = 'functies_url'
+  `)
+  const uit2 = (await wk.query('select * from public.wekkers_instellen()')).rows
+  check('met een adres maar zonder pg_cron nog steeds eerlijk nee',
+    uit2.every((r) => r.gelukt === false)
+      && uit2.some((r) => String(r.waarom ?? '').toLowerCase().includes('pg_cron')),
+    JSON.stringify(uit2))
+
+  await wk.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

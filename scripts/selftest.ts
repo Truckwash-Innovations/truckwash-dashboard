@@ -12032,5 +12032,76 @@ console.log('\n97. De lange lijn hield zijn eigen belofte niet')
     'een blip ziet er hetzelfde uit als een echte storing')
 }
 
+/* ==================================================================== *
+ *  98. De wekkers gaan naast wat ze wekken
+ *
+ *  Casper: "Die cronjobs op github lopen steeds vaker fout, kan dat niet via
+ *  iets anders?"
+ *
+ *  Ja: pg_cron, in de database, naast de functies die ze wekken. GitHub zet
+ *  geplande workflows bij drukte achteraan en laat ze soms vallen -- en op
+ *  het kwartier, waar iedereen plant, het vaakst. En de uitkomst van een
+ *  ronde stond alleen in het Actions-tabblad van een website.
+ *
+ *  Wat er gebeurt als pg_cron er NIET is, staat in sqltest 69 -- daar draait
+ *  het echt, op een database zonder die uitbreidingen.
+ * ==================================================================== */
+
+console.log('\n98. De wekkers gaan naast wat ze wekken')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const m101 = readFileSync(
+    'supabase/migrations/0101_de_wekkers_gaan_naast_wat_ze_wekken.sql', 'utf8')
+  const taken = readFileSync('.github/workflows/taken.yml', 'utf8')
+  const voorraad = readFileSync('.github/workflows/voorraad.yml', 'utf8')
+
+  check('de wekkers worden in de database gepland',
+    m101.includes('cron.schedule') && m101.includes('net.http_post'),
+    'er wordt niets in de database gepland')
+
+  /*
+   * Met dezelfde stut als 0042: de testdatabase kent geen uitbreidingen, en
+   * zonder vangst kan bijwerken.sql daar niet eens laden.
+   */
+  check('en het ontbreken van de uitbreidingen laat niets omvallen',
+    /create extension if not exists pg_cron;\s*\nexception when others/.test(m101)
+      && /create extension if not exists pg_net;\s*\nexception when others/.test(m101),
+    'een database zonder pg_cron struikelt over deze migratie')
+
+  /*
+   * Het geheim hoort NIET in de cron-regel. Wat daar staat komt in cron.job
+   * en dus in elke back-up en elke dump. In de tekst van de taak staat
+   * alleen de opzoekvraag.
+   */
+  check('het geheim staat niet in de geplande taak, alleen de opzoekvraag',
+    m101.includes('public.wekker_geheim') && m101.includes('vault.decrypted_secrets'),
+    'het wachtwoord belandt in cron.job')
+
+  /* En dat is de winst: de uitkomst van elke ronde is een tabel. */
+  check('en wat de wekkers deden is uit te lezen',
+    m101.includes('cron.job_run_details') && m101.includes('wekkers_stand'),
+    'of een ronde gelukt is staat nergens')
+
+  /* --- en bij GitHub staat de planning niet meer --- */
+
+  check('GitHub plant de wekkers niet meer',
+    !/^\s*- cron:/m.test(taken) && !/^\s*- cron:/m.test(voorraad),
+    'er staan nog geplande runs in GitHub Actions')
+
+  /*
+   * Maar de handknop blijft. Blijkt pg_cron niet te kunnen op dit project,
+   * dan is er iets om op terug te vallen -- en anders is het een manier om
+   * niet op de klok te hoeven wachten.
+   */
+  check('maar de handknop blijft staan',
+    taken.includes('workflow_dispatch') && voorraad.includes('workflow_dispatch'),
+    'er is geen manier meer om een wekker met de hand te starten')
+
+  check('en er staat bij waarom de planning weg is',
+    taken.includes('0101') && voorraad.includes('0101'),
+    'wie dit later leest ziet niet waarom de planning ontbreekt')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
