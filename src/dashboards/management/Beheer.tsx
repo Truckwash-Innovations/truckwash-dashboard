@@ -631,6 +631,44 @@ function GedeeldePostvakken() {
   const [bezig, setBezig] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
 
+  /* ---------------------------------------------------------------- *
+   *  Op welk domein staat dit adres?
+   *
+   *  Hier staat een vrij tekstveld, en het controleert alleen de VORM van
+   *  een adres. Dat betekent dat je info@watdanook.nl kunt aanmaken en dat
+   *  er nooit iets binnenkomt -- precies waar Casper op vastliep met zijn
+   *  eigen werkadres: Resend neemt alleen post aan op een domein dat daar
+   *  is ingesteld, en het weigeren gebeurt aan die kant, dus er komt geen
+   *  foutmelding.
+   *
+   *  Het veld blijft vrij, en met opzet: een gedeeld postvak mag op het
+   *  werkdomein staan én op het inkoopdomein -- dat zijn hier twee
+   *  verschillende domeinen. Wat erbij komt is dat het het zegt zodra je
+   *  iets intikt dat op geen van beide staat.
+   * ---------------------------------------------------------------- */
+  const [domeinen, setDomeinen] = useState<string[]>([])
+
+  useEffect(() => {
+    let levend = true
+    void Promise.all([
+      leesInstelling(SLEUTELS.werkDomein),
+      leesInstelling(SLEUTELS.inkoopDomein),
+    ]).then(([werk, inkoop]) => {
+      if (!levend) return
+      setDomeinen([werk, inkoop]
+        .map((d) => (d ?? '').trim().toLowerCase())
+        .filter(Boolean))
+    })
+    return () => { levend = false }
+  }, [])
+
+  const domeinVan = (a: string) => a.trim().toLowerCase().split('@')[1] ?? ''
+  const onbekendDomein = (a: string) => {
+    const d = domeinVan(a)
+    /* Niets ingevuld, of nog geen @: dan is er niets te melden. */
+    return d !== '' && domeinen.length > 0 && !domeinen.includes(d)
+  }
+
   async function maak() {
     setBezig(true)
     try {
@@ -671,6 +709,14 @@ function GedeeldePostvakken() {
                     {v.adres} · {hoeveel === 0
                       ? 'nog niemand'
                       : `${hoeveel} ${hoeveel === 1 ? 'persoon' : 'mensen'}`}
+                    {onbekendDomein(v.adres) && (
+                      <>
+                        {' · '}
+                        <span style={{ color: 'var(--warn)' }}>
+                          @{domeinVan(v.adres)} is geen ingesteld domein
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
@@ -712,6 +758,18 @@ function GedeeldePostvakken() {
           Aanmaken
         </button>
       </div>
+
+      {onbekendDomein(adres) && (
+        <p className="help" style={{ marginTop: 8, color: 'var(--warn)' }}>
+          <TriangleAlert size={13} style={{ verticalAlign: -2 }} />{' '}
+          <strong>@{domeinVan(adres)}</strong> is hier nergens ingesteld.
+          {domeinen.length === 1
+            ? ` Het enige domein dat dit systeem kent is @${domeinen[0]}.`
+            : ` Dit systeem kent ${domeinen.map((d) => '@' + d).join(' en ')}.`}{' '}
+          Je kunt het postvak aanmaken, maar als Resend dit domein niet kent
+          komt er niets in en gaat er niets weg — zonder foutmelding.
+        </p>
+      )}
 
       <p className="help" style={{ marginTop: 12 }}>
         Het adres moet bij Resend op een geverifieerd domein staan en naar de
