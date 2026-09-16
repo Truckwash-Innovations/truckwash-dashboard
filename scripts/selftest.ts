@@ -11951,5 +11951,86 @@ console.log('\n96. Betaald is iets wat Exact zegt')
     'elke standopvraag trekt dertig SEPA-bestanden uit de database')
 }
 
+/* ==================================================================== *
+ *  97. De lange lijn hield zijn eigen belofte niet
+ *
+ *  Casper stuurde het logboek van de pc:
+ *
+ *    02:25:11 ai: server niet bereikbaar, de server antwoordde niet binnen 40 s
+ *    02:25:58 ai: server weer bereikbaar
+ *    02:33:28 ai: server niet bereikbaar, de server antwoordde niet binnen 40 s
+ *    02:34:10 ai: server weer bereikbaar
+ *
+ *  De hele nacht door, en altijd op 'ai-werk' -- bijna nooit op 'werk'. Dat
+ *  verschil wijst de weg: 'werk' antwoordt meteen, 'ai-werk' hangt aan een
+ *  lange lijn die de server tot vijfentwintig seconden openhoudt.
+ *
+ *  Twee dingen klopten daar niet.
+ *
+ *  De server begon zijn klok NA het huishoudelijke werk -- opruimen, hartslag,
+ *  stand wegschrijven, drie databasevragen. Bij een koude worker kwam daar zo
+ *  tien seconden bij bovenop de vijfentwintig, en de pc brak af op veertig.
+ *  De belofte "je hoort binnen vijfentwintig seconden iets van me" was dus
+ *  niet waar, en precies daar zat de ruimte tussen.
+ *
+ *  En de pc riep bij de EERSTE misser meteen "server niet bereikbaar". Aan een
+ *  lange lijn over een serverloos platform is een verbroken verbinding gewoon
+ *  wat er af en toe gebeurt. Het gevolg was erger dan de storing zelf: een
+ *  logboek vol nachtelijke alarmregels waarin de ene ECHTE storing -- acht
+ *  minuten stil, allebei de lussen -- er precies hetzelfde uitziet als de ruis.
+ * ==================================================================== */
+
+console.log('\n97. De lange lijn hield zijn eigen belofte niet')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/lezer/index.ts', 'utf8')
+  const pc = readFileSync('lezer/lezer.mjs', 'utf8')
+
+  /* --- 1. de klok telt alles mee --- */
+
+  check('de lange lijn telt zijn klok vanaf het begin van het verzoek',
+    /const gestart = Date\.now\(\)\s*\n\s*const tot = gestart \+ LANGE_LIJN_MS/.test(fn),
+    'de klok begint pas na het huishoudelijke werk')
+
+  /*
+   * En hij kijkt VOORDAT er weer een vraag uitgaat. Andersom betekent elke
+   * ronde: de tijd is op, maar we doen er nog een select en een pauze
+   * overheen -- en bij een trage database is dat het stuk dat de lijn over
+   * zijn eigen belofte heen duwt.
+   */
+  check('en kijkt op de klok vóór de volgende vraag, niet erna',
+    /for \(;;\) \{[\s\S]{0,600}if \(Date\.now\(\) >= tot - LIJN_KIJK_MS\)/.test(fn),
+    'de klok wordt pas na de databasevraag gecontroleerd')
+
+  /* --- 2. en de marge is echt een marge --- */
+
+  /*
+   * Narekenen in plaats van beschrijven. Deze twee getallen staan in
+   * verschillende bestanden en zijn een keer uit elkaar gegroeid; dat hoort
+   * een test te vangen en niet een opmerking.
+   */
+  const lijn = Number(/const LANGE_LIJN_MS = ([0-9_]+)/.exec(fn)?.[1].replace(/_/g, '') ?? 0)
+  const wacht = Number(/'ai-werk': ([0-9_]+)/.exec(pc)?.[1].replace(/_/g, '') ?? 0)
+  check('de pc wacht ruim langer dan de server de lijn openhoudt',
+    lijn > 0 && wacht >= lijn * 2,
+    `server ${lijn} ms, pc ${wacht} ms`)
+
+  /* --- 3. één misser is geen storing --- */
+
+  check('een enkele misser is nog geen melding',
+    /const MELD_NA = 3/.test(pc) && /missers >= MELD_NA/.test(pc),
+    'de eerste mislukte poging heet meteen een storing')
+
+  /*
+   * En als hij terugkomt, hoe lang het duurde. Zonder dat getal is een blip
+   * van veertig seconden niet te onderscheiden van acht minuten stilte, en
+   * dat was precies het probleem met dit logboek.
+   */
+  check('en bij herstel staat erbij hoe lang het duurde',
+    /weer bereikbaar na/.test(pc) && /eersteMisserAt/.test(pc),
+    'een blip ziet er hetzelfde uit als een echte storing')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

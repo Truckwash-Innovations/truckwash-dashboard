@@ -597,6 +597,23 @@ async function bewaarStand(body: Willekeurig) {
 
 async function aiWerk(body: Willekeurig): Promise<Response> {
   /*
+   * De klok begint HIER, niet na het huishoudelijke werk.
+   *
+   * Dat was de fout. De deadline werd gezet nadat het opruimen, de hartslag
+   * en de stand waren weggeschreven -- drie databasevragen. Was de database
+   * even traag (een koude worker, een trage verbinding), dan kwam daar zo
+   * tien seconden bij bovenop de vijfentwintig van de lijn zelf. De pc breekt
+   * af op zestig, maar stond eerder op veertig, en dan is dat precies genoeg
+   * om er elke nacht een handvol "server niet bereikbaar" uit te krijgen voor
+   * een server die gewoon stond te wachten.
+   *
+   * Nu telt alles mee wat deze functie doet, en is de belofte "je hoort
+   * binnen LANGE_LIJN_MS iets van me" ook echt waar.
+   */
+  const gestart = Date.now()
+  const tot = gestart + LANGE_LIJN_MS
+
+  /*
    * Bij elke ronde even opruimen. Geen aparte wekker nodig: er komt hier toch
    * elke halve minuut iemand langs, en gebeurt dat niet, dan draait er ook
    * niets dat rijen achterlaat.
@@ -613,9 +630,18 @@ async function aiWerk(body: Willekeurig): Promise<Response> {
   await bewaarStand(body)
 
   const grens = Date.now() - AI_VASTGELOPEN_NA
-  const tot = Date.now() + LANGE_LIJN_MS
 
   for (;;) {
+    /*
+     * Kijken of er nog tijd is VOORDAT er weer een vraag uitgaat, en niet
+     * pas erna. Andersom betekent elke ronde: de tijd is op, maar we doen er
+     * nog een select en een pauze overheen. Bij een trage database is dat
+     * precies het stuk dat de lijn over zijn eigen belofte heen duwt.
+     */
+    if (Date.now() >= tot - LIJN_KIJK_MS) {
+      return json({ ok: true, opdracht: null, wachtte: Date.now() - gestart })
+    }
+
     const { data, error } = await admin
       .from('ai_opdrachten')
       .select('id, soort, systeem, gebruiker, model, schema, plaatjes, status, geclaimd_at')
@@ -660,7 +686,6 @@ async function aiWerk(body: Willekeurig): Promise<Response> {
       continue
     }
 
-    if (Date.now() >= tot) return json({ ok: true, opdracht: null })
     await rust(LIJN_KIJK_MS)
   }
 }

@@ -236,8 +236,14 @@ const SERVER_TIMEOUT = {
    * open als er niets te doen is; hier moet dus meer dan 25 in staan, anders
    * breekt deze kant de lijn af terwijl de server nog netjes aan het wachten
    * is -- en dan zie je elke halve minuut een time-out die geen storing is.
+   *
+   * Stond op 40, en dat was te krap. De server telde zijn vijfentwintig
+   * seconden pas NA drie databasevragen, dus bij een koude worker kon het
+   * antwoord er zomaar vijftien seconden later zijn -- precies over de rand.
+   * Dat is aan de serverkant rechtgezet; deze marge staat er nu naast, zodat
+   * het niet opnieuw op een paar seconden hoeft te passen.
    */
-  'ai-werk': 40_000,
+  'ai-werk': 60_000,
   'ai-klaar': 60_000,
 }
 
@@ -687,18 +693,45 @@ async function verwerkStuk(stuk, werk) {
  * ------------------------------------------------------------------ */
 
 async function aiLus() {
+  /*
+   * Eén misser is geen storing.
+   *
+   * Hier werd de eerste mislukte poging meteen als "server niet bereikbaar"
+   * gemeld. Aan een lange lijn over een serverloos platform is dat gewoon wat
+   * er af en toe gebeurt: een worker wordt opgeruimd terwijl de lijn openhangt
+   * en je krijgt een ECONNRESET. Veertig seconden later staat er "weer
+   * bereikbaar" en is er niets gebeurd.
+   *
+   * Het gevolg was erger dan de storing: een logboek vol nachtelijke
+   * alarmregels waarin de ENE echte storing -- acht minuten stil, allebei de
+   * lussen -- er precies hetzelfde uitziet als de ruis. Een melding die altijd
+   * staat, zegt niets meer.
+   *
+   * Dus pas melden na drie keer achter elkaar, met hoeveel het er waren en
+   * hoe lang het duurde. Dan is wat er staat ook echt iets.
+   */
+  const MELD_NA = 3
   let stilGemeld = false
+  let missers = 0
+  let eersteMisserAt = 0
 
   while (!stoppen) {
     let opdracht = null
     try {
       const uit = await server('ai-werk', { stand: standNu() })
       opdracht = uit.opdracht ?? null
-      if (stilGemeld) { log('ai: server weer bereikbaar'); stilGemeld = false }
+      if (stilGemeld) {
+        log('ai: server weer bereikbaar na',
+          Math.round((Date.now() - eersteMisserAt) / 1000), 's en', missers, 'pogingen')
+        stilGemeld = false
+      }
+      missers = 0
     } catch (e) {
       if (e instanceof StopFout) throw e
-      if (!stilGemeld) {
-        log('ai: server niet bereikbaar,', foutTekst(e))
+      if (missers === 0) eersteMisserAt = Date.now()
+      missers++
+      if (!stilGemeld && missers >= MELD_NA) {
+        log(`ai: server niet bereikbaar (${missers}e poging),`, foutTekst(e))
         stilGemeld = true
       }
       if (!stoppen) await slaap(10_000, stop.signal)
