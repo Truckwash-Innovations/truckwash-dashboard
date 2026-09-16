@@ -36,11 +36,14 @@
  * ==================================================================== */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+
+import { db } from './db'
 
 import { exactGrootboekStand } from './trucksupply'
-import { rekeningenVoor } from './boeking'
+import { rekeningenVan } from './boeking'
 import type { KiezerOptie } from '../components/ui'
-import type { Grootboek } from './types'
+import type { ExactGrootboek, Grootboek } from './types'
 
 /** Eén rekening zoals de keuzelijst hem nodig heeft. */
 interface Regel {
@@ -137,11 +140,24 @@ async function haal(bv: string): Promise<Regel[]> {
  */
 export function useRekeningen(
   bv: string | undefined,
-  lokaal: Grootboek[],
   huidige?: string,
 ): { opties: KiezerOptie[]; laden: boolean } {
   const [uitExact, setUitExact] = useState<Regel[] | null>(null)
   const [laden, setLaden] = useState(false)
+
+  /*
+   * De twee lijsten worden hier gelezen en niet doorgegeven.
+   *
+   * Elke aanroeper deed dat eerst zelf -- db.grootboek.toArray() in het
+   * scherm, en dan als argument mee. Dat betekende dat elk scherm moest weten
+   * dat er twee lijsten zijn en hoe ze zich verhouden, en dat bleek telkens
+   * net anders te worden opgeschreven. De vraag is "welke rekeningen kan ik
+   * hier kiezen"; waar dat vandaan komt is het antwoord, niet de vraag.
+   */
+  const schema = useLiveQuery(
+    () => db.exactGrootboek.toArray(), [], [] as ExactGrootboek[])
+  const lokaal = useLiveQuery(
+    () => db.grootboek.toArray(), [], [] as Grootboek[])
 
   useEffect(() => {
     if (!bv) { setUitExact(null); return }
@@ -165,8 +181,17 @@ export function useRekeningen(
 
   return useMemo(() => {
     if (!uitExact) {
+      /*
+       * Zonder verbinding: het schema dat de synchronisatie heeft meegebracht.
+       *
+       * Hier stond rekeningenVoor() over onze eigen kopie, en die kopie kon
+       * niet kloppen: in IndexedDB staat grootboek op code, dus van twintig
+       * bv's bleef er lokaal één rij per code over. Sinds 0104 staat het
+       * schema van Exact er zelf in, per bv, en dat is dezelfde lijst die de
+       * server hierboven zou hebben teruggegeven.
+       */
       return {
-        opties: rekeningenVoor(lokaal, bv, huidige).map((g) => ({
+        opties: rekeningenVan(schema, lokaal, bv, huidige).map((g) => ({
           waarde: g.code,
           label: `${g.code} · ${g.naam}`,
           sub: g.categorie ?? undefined,
@@ -196,5 +221,5 @@ export function useRekeningen(
         })),
       laden,
     }
-  }, [uitExact, lokaal, bv, huidige, laden])
+  }, [uitExact, schema, lokaal, bv, huidige, laden])
 }

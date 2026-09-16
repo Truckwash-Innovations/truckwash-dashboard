@@ -20,7 +20,7 @@
 import { db } from './db'
 import { enqueue } from './sync'
 import { supabase, supabaseConfigured } from './api/supabaseApi'
-import type { Expense, Grootboek } from './types'
+import type { ExactGrootboek, Expense, Grootboek } from './types'
 
 /** Waar de indeling vandaan komt, in gewone taal. */
 export const BRON_TEKST: Record<NonNullable<Expense['indelingBron']>, string> = {
@@ -201,63 +201,85 @@ export function bvVanBon(
 /**
  * De rekeningen die in DEZE bv te kiezen zijn.
  *
- * Drie dingen blijven staan, en elk om een eigen reden:
+ * Het schema is van Exact, de trefwoorden zijn van ons
+ * ----------------------------------------------------
  *
- *   - een rekening zonder bv geldt overal. Dat is hoe het was voordat er meer
- *     dan één administratie was (0059), en die rijen horen niet te verdwijnen
- *     omdat er een kolom bij is gekomen.
- *   - de rekening die er NU op staat blijft kiesbaar, ook als hij uit staat
- *     of bij een andere bv hoort. Anders springt een bestaande boeking bij
- *     het openen naar leeg en verander je hem door alleen te kijken.
- *   - is de bv onbekend, dan alles. Niets tonen zou betekenen dat je geen
- *     rekening kunt kiezen omdat de onderneming nog niet vaststaat, terwijl
- *     dat juist twee aparte dingen zijn.
+ * Hier stond rekeningenVoor(), die de lijst uit onze eigen kopie haalde en
+ * daar op administratie in filterde. Dat kon niet werken, om een reden die
+ * pas zichtbaar wordt als je de app ernaast legt: in IndexedDB staat
+ * grootboek op CODE. Eén rij per code, ongeacht bv -- wie twintig bv's
+ * ophaalt houdt lokaal de laatste over. Het veld administratie waarop hier
+ * werd gefilterd, was dus de bv die toevallig als laatste binnenkwam.
+ *
+ * Sinds 0104 staat het schema van Exact zelf in de app (exactGrootboek, op
+ * division::code). Dat is de lijst waar het boeken ook op leunt: bij het
+ * versturen wordt de guid opgezocht in exact_grootboek, niet bij ons.
+ *
+ * Wat van ons blijft, is wat van ons is: de naam als iemand er een heeft
+ * bedacht, de trefwoorden, de btw en de categorie. Die horen bij een code en
+ * niet bij een bv -- daarom zoekt dit op code.
  */
-export function rekeningenVoor(
-  alle: Grootboek[],
-  bv: string | undefined,
+export function rekeningenVan(
+  schema: ExactGrootboek[],
+  onze: Grootboek[],
+  bv?: string,
   huidige?: string,
 ): Grootboek[] {
+  const eigen = new Map(onze.map((g) => [g.code, g]))
+
   /*
-   * Heeft DEZE bv een eigen schema?
+   * Geen schema binnen? Dan onze eigen lijst, zoals het was.
    *
-   * Hier zat de fout. De regel was "een rekening zonder bv geldt overal", en
-   * dat klonk als een nette terugval op de oude situatie. In de praktijk zijn
-   * die rekeningen zonder bv precies de lijst die ooit als eerste is
-   * binnengehaald -- die van de hoofdadministratie. Casper: "maar hij geeft
-   * nog steeds codes van de hoofdvestiging, terwijl ik een andere
-   * geselecteerd heb."
-   *
-   * Terecht. Zodra een bv zijn eigen schema heeft, is een rekening zonder bv
-   * geen aanvulling maar ruis: hij bestaat daar niet, en wie hem kiest krijgt
-   * bij het boeken "rekening X bestaat niet in administratie Y".
-   *
-   * Dit is bovendien de regel die de server al hanteert: factuur_indelen()
-   * (0086) eist `g.administratie = administratie_in` en kijkt dus nooit naar
-   * een rekening zonder bv. Twee regels voor dezelfde vraag, en de strengste
-   * was de juiste.
+   * Dat gebeurt bij een installatie zonder Exact-koppeling, en bij wie het
+   * scherm opent voordat de eerste synchronisatie klaar is. Een lege
+   * keuzelijst zou daar zeggen "er is geen enkele rekening", en dat is iets
+   * anders dan "ik weet het nog niet".
    */
-  const eigen = bv
-    ? alle.some((g) => g.actief && (g.administratie ?? '').trim() === bv)
-    : false
+  if (schema.length === 0) {
+    return [...onze]
+      .filter((g) => g.actief || g.code === huidige)
+      .sort((a, b) => a.code.localeCompare(b.code))
+  }
 
-  return alle
-    .filter((g) => {
-      /* De rekening die er NU op staat blijft kiesbaar, ook als hij uit is of
-         bij een andere bv hoort. Anders springt een bestaande boeking bij het
-         openen naar leeg en verander je hem door alleen te kijken. */
-      if (huidige && g.code === huidige) return true
-      if (!g.actief) return false
-      if (!bv) return true
+  const uit = new Map<string, Grootboek>()
 
-      const van = (g.administratie ?? '').trim()
-      if (van === bv) return true
-      /* Zonder bv: alleen zolang deze administratie zelf nog niets heeft.
-         Anders staat het scherm leeg bij wie het schema nog moet overnemen,
-         en dat is een lege lijst om een opruimactie die hij niet kent. */
-      return van === '' && !eigen
+  for (const e of schema) {
+    if (bv && e.division !== bv) continue
+
+    /* De rekening die er NU op staat blijft kiesbaar, ook als hij geblokkeerd
+       is. Anders springt een bestaande boeking bij het openen naar leeg en
+       verander je hem door alleen te kijken. */
+    if (e.geblokkeerd && e.code !== huidige) continue
+
+    /* Zonder bv kan dezelfde code in meer administraties staan; dan is de
+       eerste goed genoeg -- het gaat dan om de naam, niet om de bv. */
+    if (uit.has(e.code)) continue
+
+    const vanOns = eigen.get(e.code)
+
+    uit.set(e.code, {
+      id: e.id,
+      code: e.code,
+      naam: vanOns?.naam?.trim() || e.omschrijving.trim() || e.code,
+      trefwoorden: vanOns?.trefwoorden ?? [],
+      categorie: vanOns?.categorie ?? e.soort,
+      btwPct: vanOns?.btwPct,
+      administratie: e.division,
+      actief: !e.geblokkeerd,
+      updatedAt: e.updatedAt,
     })
-    .sort((a, b) => a.code.localeCompare(b.code))
+  }
+
+  /*
+   * En de rekening die er nu op staat, ook als Exact hem niet (meer) kent.
+   * Een oude boeking op een opgeheven rekening hoort leesbaar te blijven.
+   */
+  if (huidige && !uit.has(huidige)) {
+    const vanOns = eigen.get(huidige)
+    if (vanOns) uit.set(huidige, vanOns)
+  }
+
+  return [...uit.values()].sort((a, b) => a.code.localeCompare(b.code))
 }
 
 /**
@@ -268,10 +290,25 @@ export function rekeningenVoor(
  * boeking op een rekening die later is weggehaald, en dan is het nummer
  * tonen beter dan een leeg vakje.
  */
-export function rekeningNaam(code: string | undefined, lijst: Grootboek[]): string {
+export function rekeningNaam(
+  code: string | undefined,
+  lijst: Grootboek[],
+  schema: ExactGrootboek[] = [],
+): string {
   if (!code) return ''
   const gevonden = lijst.find((g) => g.code === code)
-  return gevonden ? `${gevonden.code} · ${gevonden.naam}` : code
+  if (gevonden) return `${gevonden.code} · ${gevonden.naam}`
+
+  /*
+   * En anders in het schema van Exact. Sinds 0104 bewaren we van een rekening
+   * waar wij niets over te zeggen hebben geen eigen kopie meer; zonder deze
+   * regel zou een boeking op zo'n rekening het nummer tonen zonder naam, en
+   * dat is precies wat deze functie moest voorkomen.
+   */
+  const uitExact = schema.find((e) => e.code === code)
+  return uitExact
+    ? `${uitExact.code} · ${uitExact.omschrijving || uitExact.code}`
+    : code
 }
 
 /**

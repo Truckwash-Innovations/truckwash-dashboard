@@ -130,6 +130,7 @@ export const TABLES: Record<EntityName, string> = {
   locationPhotos: 'location_photos',
   truckyVragen: 'trucky_vragen',
   grootboek: 'grootboek',
+  exactGrootboek: 'exact_grootboek',
   kostenTags: 'kosten_tags',
   inkoopAdressen: 'inkoop_adres',
   voorraadAlarmen: 'voorraad_alarmen',
@@ -453,6 +454,122 @@ export class GeenRechten extends Error {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ *  Ophalen tot er niets meer is, in plaats van tot tweeduizend
+ *
+ *  Hier stond .limit(2000), en daarnaast schoof de cursor na afloop door
+ *  naar de servertijd van dat moment. Die twee samen zijn een lek: kwamen er
+ *  precies tweeduizend rijen terug, dan was dat vrijwel zeker afgekapt -- en
+ *  de rest werd nooit meer opgehaald, want de cursor stond er al voorbij.
+ *
+ *  Zolang geen enkele tabel in één keer over de tweeduizend ging viel dat
+ *  niet op. Het rekeningschema van Exact gaat er wél overheen: twintig bv's
+ *  met een paar honderd rekeningen. De eerste synchronisatie zou dan een half
+ *  schema opleveren, en niets zou dat zeggen.
+ *
+ *  Dus doorpagineren op (updated_at, id). Op allebei, want een bulkinvoer
+ *  geeft honderden rijen dezelfde tijdstempel; zou de cursor alleen op de
+ *  tijd staan, dan slaat hij bij zo'n groep de rest over of haalt hij ze
+ *  eeuwig opnieuw op. Met het id erbij is de volgorde volledig bepaald.
+ * ------------------------------------------------------------------ */
+
+/** Zoals Supabase een fout teruggeeft: een melding, met soms een code erbij. */
+interface PostgrestFout { code?: string; message: string; details?: string | null }
+
+/** Hoeveel rijen per ronde. Kleiner dan de oude grens, maar nu met vervolg. */
+const PAGINA = 1000
+
+/**
+ * De veiligheidsklep.
+ *
+ * Als er iets misgaat aan de cursor -- een tabel zonder id, een rij die
+ * zichzelf blijft bijwerken -- dan is doorlopen erger dan stoppen. Dit is
+ * ruim boven wat een normale ronde ophaalt en ver onder oneindig.
+ */
+const MAX_PER_TABEL = 50_000
+
+/** Waar de volgende ronde begint. */
+export interface Cursor { tijd: number; id: string }
+
+/**
+ * Het filter voor een vervolgronde.
+ *
+ * Alles wat later is, PLUS wat op hetzelfde tijdstip staat maar een hoger id
+ * heeft. Dat tweede stuk is precies de groep die anders tussen wal en schip
+ * valt: een bulkinvoer geeft honderden rijen dezelfde tijdstempel, en een
+ * cursor die alleen op de tijd staat slaat bij zo'n groep de rest over (met
+ * "groter dan") of haalt ze eeuwig opnieuw op (met "vanaf").
+ */
+export function naFilter(c: Cursor): string {
+  return `updated_at.gt.${c.tijd},and(updated_at.eq.${c.tijd},id.gt."${c.id}")`
+}
+
+/**
+ * Waar de volgende ronde begint, of null als we er zijn.
+ *
+ * Null betekent klaar: een pagina die niet vol is, of een rij waar niet op
+ * verder te tellen valt. Dat laatste is geen normale situatie -- elke tabel
+ * in dit schema heeft een id -- maar doorgaan zou daar een lus zijn die
+ * nooit afloopt, en dat is erger dan te vroeg stoppen.
+ */
+export function volgendeCursor(
+  rijen: Record<string, unknown>[],
+  pagina: number,
+): Cursor | null {
+  if (rijen.length < pagina) return null
+
+  const laatste = rijen[rijen.length - 1]
+  const tijd = Number(laatste.updated_at)
+  const id = String(laatste.id ?? '')
+
+  if (!id || !Number.isFinite(tijd)) return null
+  return { tijd, id }
+}
+
+async function paginaVoorPagina(
+  tabel: string,
+  since: number,
+): Promise<{ data: Record<string, unknown>[] | null; error: PostgrestFout | null }> {
+  const uit: Record<string, unknown>[] = []
+  let cursor: Cursor | null = null
+
+  for (;;) {
+    const basis = supabase()
+      .from(tabel)
+      .select('*')
+      .order('updated_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(PAGINA)
+
+    const vraag = cursor === null
+      ? basis.gt('updated_at', since)
+      : basis.or(naFilter(cursor))
+
+    const { data, error } = await vraag
+    if (error) return { data: null, error }
+
+    const rijen = (data ?? []) as Record<string, unknown>[]
+    uit.push(...rijen)
+
+    const vol = rijen.length >= PAGINA
+    cursor = volgendeCursor(rijen, PAGINA)
+
+    if (!cursor) {
+      if (vol) {
+        console.warn(`[sync] ${tabel} geeft rijen zonder id of updated_at; ` +
+                     `ophalen gestopt na ${uit.length} rijen.`)
+      }
+      return { data: uit, error: null }
+    }
+
+    if (uit.length >= MAX_PER_TABEL) {
+      console.warn(`[sync] ${tabel} gaf meer dan ${MAX_PER_TABEL} rijen in één ronde; ` +
+                   'de rest volgt bij de volgende synchronisatie.')
+      return { data: uit, error: null }
+    }
+  }
+}
+
 export const supabaseApi: ApiAdapter = {
   name: 'supabase',
 
@@ -617,12 +734,7 @@ export const supabaseApi: ApiAdapter = {
     // Parallel ophalen: zeven kleine queries in plaats van zeven wachtrondes.
     const results = await Promise.all(
       (Object.keys(TABLES) as EntityName[]).map(async (entity) => {
-        const { data, error } = await supabase()
-          .from(TABLES[entity])
-          .select('*')
-          .gt('updated_at', since)
-          .order('updated_at', { ascending: true })
-          .limit(2000)
+        const { data, error } = await paginaVoorPagina(TABLES[entity], since)
 
         if (error && geenRechten(error)) {
           return [entity, [] as Record<string, unknown>[]] as const

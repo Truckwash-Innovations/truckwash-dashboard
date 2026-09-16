@@ -748,6 +748,35 @@ export interface Expense {
  * -- voor alle tabellen -- en een tabel die daarvan afwijkt levert daar
  * stilletjes niets op.
  */
+/**
+ * Het rekeningschema zoals Exact het kent, per administratie.
+ *
+ * De waarheid over welke rekening bestaat. Bij het boeken wordt hier de guid
+ * opgezocht -- wat in Grootboek staat komt daar niet aan te pas.
+ *
+ * Hij staat sinds 0104 ook in de app, en dat is de reden dat Grootboek mocht
+ * krimpen. Daarvoor bewaarden we van elke rekening een eigen kopie, alleen
+ * om er offline een naam bij te kunnen tonen en om een keuzelijst te kunnen
+ * vullen. Dat is dit, en dan zonder de kans dat de twee uit elkaar lopen.
+ *
+ * De app schrijft hier nooit in: er staat op de server geen enkele regel die
+ * dat toestaat. Wat erin komt, komt van "sync-grootboek".
+ */
+export interface ExactGrootboek {
+  /** division::code -- alleen zodat de synchronisatie hem kan behandelen. */
+  id: string
+  code: string
+  omschrijving: string
+  /** De interne sleutel van Exact; nodig bij het boeken. */
+  exactId?: string
+  /** Kosten, balans, ... zoals Exact het noemt. */
+  soort?: string
+  geblokkeerd: boolean
+  /** De administratie waar deze rekening bij hoort. */
+  division: string
+  updatedAt: number
+}
+
 export interface Grootboek {
   id: string
   code: string
@@ -2675,7 +2704,7 @@ export type EntityName =
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
   | 'truckyVragen' | 'truckyContact' | 'instellingen'
-  | 'grootboek' | 'kostenTags' | 'inkoopAdressen'
+  | 'grootboek' | 'exactGrootboek' | 'kostenTags' | 'inkoopAdressen'
   | 'voorraadAlarmen' | 'bestellingen' | 'bestelregels'
   | 'taken' | 'taakProjecten' | 'taakReacties'
   | 'vacatures' | 'sollicitaties'

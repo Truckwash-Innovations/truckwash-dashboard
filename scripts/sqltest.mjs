@@ -9082,5 +9082,171 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
   await vn.close()
 }
 
+console.log('\n72. Eén rekeningschema, en niet drie')
+
+{
+  /*
+   * De fout die dit repareert was niet te zien aan een foutmelding maar aan
+   * een leeg resultaat: een trefwoord was een feit van één bv. Wie bij bv A
+   * "shell" op rekening 4010 zette, kreeg bij bv B niets -- daar stond een
+   * eigen kopie van 4010 zonder trefwoorden. Met twintig bv's betekende dat
+   * twintig keer intikken, of negentien bv's waar niets zichzelf indeelt.
+   */
+  const gb = await fresh()
+  await gb.exec(sqlFile('supabase/setup.sql'))
+  await asServer(gb)
+
+  await gb.exec(`
+    insert into public.exact_administratie (code, naam, actief, hoofd) values
+      ('100', 'Truckwash1 Holding', true, true),
+      ('200', 'Truckwash1 Venlo',   true, false)
+    on conflict (code) do nothing;
+
+    insert into public.exact_grootboek (code, omschrijving, division, geblokkeerd, soort) values
+      ('4010', 'Brandstof',        '100', false, 'kosten'),
+      ('4010', 'Brandstof',        '200', false, 'kosten'),
+      ('4020', 'Onderhoud',        '100', false, 'kosten'),
+      ('4030', 'Oude rekening',    '100', true,  'kosten'),
+      ('4040', 'Alleen in Venlo',  '200', false, 'kosten'),
+      ('4050', 'Kantoorkosten',    '100', false, 'kosten')
+    on conflict (division, code) do nothing;
+
+    insert into public.grootboek (id, code, naam, administratie, trefwoorden, btw_pct, actief)
+    values ('gb_100_4010', '4010', 'Brandstof', '100', array['shell','tankpas'], 21, true)
+    on conflict (id) do nothing;
+  `)
+
+  const deel = async (lev, oms, bv) => (await gb.query(
+    'select * from public.factuur_indelen($1, $2, $3)', [lev, oms, bv])).rows[0]
+
+  /* --- een trefwoord van bv 100 werkt ook in bv 200 --- */
+
+  const inHolding = await deel('Shell Nederland', 'diesel', '100')
+  check('een trefwoord deelt de factuur in binnen de eigen bv',
+    inHolding?.grootboek_code === '4010', JSON.stringify(inHolding))
+
+  const inVenlo = await deel('Shell Nederland', 'diesel', '200')
+  check('en in een bv waar het trefwoord nooit is ingetikt',
+    inVenlo?.grootboek_code === '4010', JSON.stringify(inVenlo))
+
+  /* --- maar alleen als Exact die rekening daar kent --- */
+
+  await gb.exec(`
+    insert into public.grootboek (id, code, naam, administratie, trefwoorden, btw_pct, actief)
+    values ('gb_200_4040', '4040', 'Alleen in Venlo', '200', array['venlopost'], 21, true)
+    on conflict (id) do nothing;
+  `)
+
+  const alleenVenlo = await deel('Venlopost BV', 'zending', '100')
+  check('een rekening die deze bv niet kent wordt niet voorgesteld',
+    (alleenVenlo?.grootboek_code ?? null) === null, JSON.stringify(alleenVenlo))
+  const welVenlo = await deel('Venlopost BV', 'zending', '200')
+  check('en in de bv die hem wel kent juist wel',
+    welVenlo?.grootboek_code === '4040', JSON.stringify(welVenlo))
+
+  /* --- en alleen als hij niet geblokkeerd staat --- */
+
+  await gb.exec(`
+    insert into public.grootboek (id, code, naam, administratie, trefwoorden, btw_pct, actief)
+    values ('gb_100_4030', '4030', 'Oude rekening', '100', array['sloopbedrijf'], 21, true)
+    on conflict (id) do nothing;
+  `)
+  const geblokkeerd = await deel('Sloopbedrijf Jansen', 'puin', '100')
+  check('een rekening die Exact heeft geblokkeerd wordt niet voorgesteld',
+    (geblokkeerd?.grootboek_code ?? null) === null, JSON.stringify(geblokkeerd))
+
+  /* --- het geheugen leunt op Exact, niet op onze kopie --- */
+
+  /*
+   * Dit was de tweede helft van dezelfde fout. Het geheugen ("deze
+   * leverancier boek je op 4020") werd alleen gebruikt als WIJ een rij voor
+   * die code in die bv hadden. Voor negentien van de twintig bv's hadden we
+   * die niet, en dan kwam de factuur leeg binnen terwijl het antwoord bekend
+   * was.
+   */
+  await gb.exec(`
+    insert into public.leverancier_boeking (leverancier, grootboek_code, tags, keren)
+    values ('garage de wit', '4020', '{}', 5)
+    on conflict (leverancier) do update set grootboek_code = excluded.grootboek_code;
+  `)
+
+  const uitGeheugen = await deel('Garage de Wit', 'reparatie', '100')
+  check('het geheugen werkt zonder dat wij een eigen rij hebben',
+    uitGeheugen?.grootboek_code === '4020' && uitGeheugen?.bron === 'geheugen',
+    JSON.stringify(uitGeheugen))
+
+  const geheugenElders = await deel('Garage de Wit', 'reparatie', '200')
+  check('maar niet in een bv waar Exact die rekening niet kent',
+    (geheugenElders?.grootboek_code ?? null) === null, JSON.stringify(geheugenElders))
+
+  /* --- overnemen kopieert het schema niet meer --- */
+
+  const voor = (await gb.query(
+    "select count(*)::int as n from public.grootboek where administratie = '200'")).rows[0].n
+  await gb.exec("select * from public.grootboek_overnemen('200')")
+  const na = (await gb.query(
+    "select count(*)::int as n from public.grootboek where administratie = '200'")).rows[0].n
+
+  check('overnemen maakt geen rij voor rekeningen waar wij niets over zeggen',
+    na === voor, `${voor} -> ${na}`)
+
+  /* --- en de opruiming spaart wat iets bewaart --- */
+
+  /*
+   * Een kopie zonder trefwoorden, met de naam van Exact en 21% btw, voegt
+   * niets toe: alles wat erin staat staat al in exact_grootboek. Maar zodra
+   * er iets van ons in zit -- een eigen naam, een trefwoord -- of er staat
+   * een kostenpost op, dan blijft hij. Een rij te veel is goedkoper dan een
+   * trefwoord dat iemand kwijt is.
+   */
+  await gb.exec(`
+    insert into public.grootboek (id, code, naam, administratie, trefwoorden, btw_pct, actief) values
+      ('gb_100_4050',  '4050', 'Kantoorkosten',  '100', '{}', 21, true),
+      ('gb_200_4010b', '4010', 'Eigen naam',     '200', '{}', 21, true)
+    on conflict (id) do nothing;
+  `)
+
+  /* De opruiming staat in 0104 zelf; hem nog een keer draaien is precies wat
+     een tweede ronde van bijwerken.sql doet. */
+  await gb.exec(sqlFile('supabase/migrations/0104_een_rekeningschema_en_niet_drie.sql'))
+
+  const over = (await gb.query(
+    'select id from public.grootboek order by id')).rows.map((r) => r.id)
+
+  check('een kale kopie wordt opgeruimd',
+    !over.includes('gb_100_4050'), JSON.stringify(over))
+  check('maar een eigen naam blijft staan',
+    over.includes('gb_200_4010b'), JSON.stringify(over))
+  check('en trefwoorden blijven staan',
+    over.includes('gb_100_4010') && over.includes('gb_200_4040'), JSON.stringify(over))
+
+  /* --- en na de opruiming deelt hij nog steeds in --- */
+
+  const naOpruimen = await deel('Shell Nederland', 'diesel', '200')
+  check('en indelen werkt na het opruimen nog steeds',
+    naOpruimen?.grootboek_code === '4010', JSON.stringify(naOpruimen))
+
+  /* --- het schema is leesbaar voor de app, en niet schrijfbaar --- */
+
+  const kolom = (await gb.query(`
+    select is_generated from information_schema.columns
+     where table_schema = 'public' and table_name = 'exact_grootboek' and column_name = 'id'
+  `)).rows[0]
+  check('exact_grootboek heeft een id dat zichzelf bijhoudt',
+    kolom?.is_generated === 'ALWAYS', JSON.stringify(kolom))
+
+  const beleid = (await gb.query(`
+    select cmd, count(*)::int as n from pg_policies
+     where schemaname = 'public' and tablename = 'exact_grootboek'
+     group by cmd
+  `)).rows
+  check('er is een leesregel voor het schema',
+    beleid.some((r) => r.cmd === 'SELECT'), JSON.stringify(beleid))
+  check('en geen enkele schrijfregel',
+    !beleid.some((r) => r.cmd !== 'SELECT'), JSON.stringify(beleid))
+
+  await gb.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

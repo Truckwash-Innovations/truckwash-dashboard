@@ -9,7 +9,7 @@ import {
 import { db, uid } from '../../lib/db'
 import { expenses as expRepo } from '../../lib/repo'
 import type {
-  Expense, ExpenseGebeurtenis, ExpenseRegel, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
+  ExactGrootboek, Expense, ExpenseGebeurtenis, ExpenseRegel, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
 } from '../../lib/types'
 import {
   bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
@@ -1128,6 +1128,15 @@ function Historie({ bon }: { bon: Expense }) {
   const alle = useLiveQuery(() => db.expenses.toArray(), [], [] as Expense[])
   const rekeningen = useLiveQuery(
     () => db.grootboek.toArray(), [], [] as Grootboek[])
+  /*
+   * En het schema van Exact erbij, voor de naam bij een code.
+   *
+   * Sinds 0104 bewaren we van een rekening waar wij niets over te zeggen
+   * hebben geen eigen kopie meer. Zonder deze lijst zou een eerdere boeking
+   * hier als kaal nummer staan -- en "4031" zegt niemand iets.
+   */
+  const schema = useLiveQuery(
+    () => db.exactGrootboek.toArray(), [], [] as ExactGrootboek[])
 
   const h = useMemo(() => historieVan(bon, alle), [bon, alle])
 
@@ -1172,7 +1181,7 @@ function Historie({ bon }: { bon: Expense }) {
               <tr key={e.id}>
                 <td>{datumMisschienTijd(e.date)}</td>
                 <td className="afgekapt">{e.description || '—'}</td>
-                <td className="afgekapt">{rekeningNaam(e.grootboekCode, rekeningen) || '—'}</td>
+                <td className="afgekapt">{rekeningNaam(e.grootboekCode, rekeningen, schema) || '—'}</td>
                 <td className="num">{e.amountExcl > 0 ? money(e.amountExcl) : '—'}</td>
                 <td>
                   {e.status === 'eerste_akkoord' && <Badge tone="warn">1 van 2</Badge>}
@@ -1223,7 +1232,6 @@ function Splitsen({ bon, bedrijven }: {
   const regels = useLiveQuery(
     () => db.expenseRegels.where('expenseId').equals(bon.id).toArray(),
     [bon.id], [] as ExpenseRegel[])
-  const rekeningen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
   const vestigingen = useLiveQuery(() => db.locations.toArray(), [], [] as Location[])
   /* De bv van deze bon, en dus welke rekeningen er te kiezen zijn. Een regel
      van de verdeling boekt in dezelfde administratie als de bon zelf; een
@@ -1239,7 +1247,7 @@ function Splitsen({ bon, bedrijven }: {
    * zit in useRekeningen zelf, dus twee keuzelijsten op hetzelfde scherm
    * sturen samen één vraag. Zie de kop van lib/rekeningen.ts.
    */
-  const { opties: rekeningOpties } = useRekeningen(bv, rekeningen)
+  const { opties: rekeningOpties } = useRekeningen(bv)
 
   const opVolgorde = useMemo(
     () => [...regels].sort((a, b) => a.volgorde - b.volgorde), [regels])
@@ -2007,8 +2015,6 @@ function Rekeningnummer({ bon }: { bon: Expense }) {
  * Dat tweede is de vraag die de accountant stelt.
  */
 function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministratie[] }) {
-  const rekeningen = useLiveQuery(
-    () => db.grootboek.toArray(), [], [] as Grootboek[])
   const tags = useLiveQuery(() => db.kostenTags.toArray(), [], [] as KostenTag[])
   /* Nodig om te weten in welke bv deze bon valt: die volgt uit de vestiging
      als er niets op de bon staat (0079). */
@@ -2024,7 +2030,7 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
    * stonden ze allemaal door elkaar: 0010 en 4040 van elke bv in één lijst,
    * en pas bij het boeken bleek dat de gekozen rekening in die administratie
    * niet bestond. useRekeningen() haalt ze nu per bv op; zonder verbinding
-   * valt hij terug op rekeningenVoor() over onze eigen kopie.
+   * valt hij terug op het schema dat de synchronisatie heeft meegebracht.
    */
   const bv = useMemo(
     () => bvVanBon(bon, vestigingen, bedrijven),
@@ -2040,7 +2046,7 @@ function Boeking({ bon, bedrijven }: { bon: Expense; bedrijven: ExactAdministrat
    * hebben overgenomen of niet.
    */
   const { opties: bruikbaar, laden: rekeningenLaden } = useRekeningen(
-    bv, rekeningen, bon.grootboekCode)
+    bv, bon.grootboekCode)
 
   const beschikbaar = useMemo(
     () => [...new Set([...tags.map((t) => t.naam), ...(bon.tags ?? [])])].sort(),

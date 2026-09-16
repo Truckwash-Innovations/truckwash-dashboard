@@ -35,6 +35,24 @@ const setOnline = (v: boolean) => { onLine = v }
 
 /* ---- test-hulpjes --------------------------------------------------- */
 
+/**
+ * De broncode zonder commentaar.
+ *
+ * Nodig bij elke controle van de vorm "deze tekst staat er niet meer".
+ * Uitleg noemt namelijk juist wat er weg is -- dat is waar uitleg voor
+ * dient -- en dan meet de controle het commentaar in plaats van de code.
+ *
+ * Dat is hier vijf keer gebeurd (groep 89, 95, 98, 100 en 102), elke keer
+ * op een andere plek, en elke keer werd het ter plekke opgelost. Vijf keer
+ * dezelfde fout is geen toeval maar een ontbrekend gereedschap.
+ */
+function zonderCommentaar(bron: string): string {
+  return bron
+    .replace(/\/\*[\s\S]*?\*\//g, '')   // blokken
+    .replace(/^[ \t]*\/\/.*$/gm, '')     // hele regels
+}
+
+
 let passed = 0
 let failed = 0
 
@@ -10322,7 +10340,9 @@ console.log('\n81. Per onderneming, en niet meer door de PDF heen')
    * administraties, met welk mechanisme dan ook.
    */
   check('en het scherm laat alleen die van deze onderneming zien',
-    (scherm.match(/useRekeningen\(\s*\n?\s*bv,/g) ?? []).length >= 2,
+    /* Met of zonder komma erachter: sinds de lijsten in de hook zelf worden
+       gelezen heeft de ene aanroep nog maar één argument. */
+    (scherm.match(/useRekeningen\(\s*\n?\s*bv[,)]/g) ?? []).length >= 2,
     'niet elke rekeninglijst krijgt de bv van deze bon mee')
 
   /* Twee lijsten: de rekening van de bon, en die van elke regel van de
@@ -10529,68 +10549,108 @@ console.log('\n82. Vijf kleine dingen aan het factuurscherm')
 console.log('\n83. Welke rekeningen bij welke onderneming horen')
 
 {
-  const { rekeningenVoor, bvVanBon } = await import('../src/lib/boeking')
+  const { rekeningenVan, rekeningNaam, bvVanBon } = await import('../src/lib/boeking')
 
-  const rek = (code: string, administratie?: string, actief = true) => ({
-    id: `gb_${administratie ?? 'oud'}_${code}`,
+  /* Wat Exact kent, per administratie. Dit is de bron; wij kopiëren hem niet
+     meer (0104). */
+  const uitExact = (code: string, division: string, geblokkeerd = false) => ({
+    id: `${division}::${code}`,
     code,
-    naam: `Rekening ${code}`,
-    trefwoorden: [] as string[],
-    actief,
-    administratie,
+    omschrijving: `Exact ${code}`,
+    geblokkeerd,
+    division,
     updatedAt: 0,
   })
 
-  /* Zoals het er bij Casper staat: een oude lijst zonder bv (de
-     hoofdadministratie), en een bv waarvan het schema is overgenomen. */
-  const lijst = [
-    rek('4000'), rek('4010'), rek('2200'),
-    rek('4000', '3630506'), rek('7100', '3630506'),
+  /* En wat van ons is: een eigen naam en de trefwoorden. Op code, want daar
+     horen ze bij. */
+  const vanOns = (code: string, trefwoorden: string[] = [], naam?: string) => ({
+    id: `gb_${code}`,
+    code,
+    naam: naam ?? `Rekening ${code}`,
+    trefwoorden,
+    actief: true,
+    updatedAt: 0,
+  })
+
+  const schema = [
+    uitExact('4000', '3630506'), uitExact('7100', '3630506'),
+    uitExact('4000', '2392511'), uitExact('4010', '2392511'),
+    uitExact('4900', '3630506', true),
   ]
+  const onze = [vanOns('4000', ['shell', 'tankpas'], 'Brandstof')]
 
-  const codes = (bv: string | undefined, huidige?: string) =>
-    rekeningenVoor(lijst, bv, huidige).map((g) => g.code).join(',')
+  const codes = (bv?: string, huidige?: string) =>
+    rekeningenVan(schema, onze, bv, huidige).map((g) => g.code).join(',')
 
-  check('een bv met een eigen schema ziet alleen zijn eigen rekeningen',
-    codes('3630506') === '4000,7100',
-    codes('3630506'))
+  check('een bv ziet de rekeningen die Exact daar kent',
+    codes('3630506') === '4000,7100', codes('3630506'))
 
-  /* Dit is wat er gemeld werd: 2200 en 4010 bestaan alleen in de oude lijst
-     en kwamen mee in elke bv. */
-  check('en dus niet meer die van de hoofdadministratie',
-    !rekeningenVoor(lijst, '3630506').some((g) => g.code === '2200'),
-    '2200 staat er nog bij')
+  /* Dit was de melding: rekeningen van de ene administratie doken op in de
+     andere. Nu kan dat niet meer -- de lijst kómt uit die administratie. */
+  check('en niet die van een andere administratie',
+    !codes('3630506').includes('4010'), codes('3630506'))
+
+  check('een andere bv ziet de zijne',
+    codes('2392511') === '4000,4010', codes('2392511'))
 
   /*
-   * Maar wie het schema nog moet overnemen mag geen leeg scherm krijgen. Een
-   * lege lijst om een opruimactie die hij niet kent, is erger dan een lijst
-   * die te ruim is.
+   * En dit is de kern van 0104: een trefwoord hoort bij de CODE. Wie bij de
+   * ene bv "shell" op 4000 zet, hoort dat bij de andere terug te zien --
+   * daarvoor moest het twintig keer worden ingetikt, of deed het bij
+   * negentien bv's niets.
    */
-  check('een bv zonder eigen schema valt terug op de oude lijst',
-    codes('9999') === '2200,4000,4010',
-    codes('9999'))
+  const inVenlo = rekeningenVan(schema, onze, '2392511').find((g) => g.code === '4000')
+  check('een trefwoord van één bv geldt bij alle bv’s',
+    (inVenlo?.trefwoorden ?? []).includes('shell'),
+    JSON.stringify(inVenlo?.trefwoorden))
+  check('en onze eigen naam reist mee',
+    inVenlo?.naam === 'Brandstof', String(inVenlo?.naam))
 
-  check('en zonder bv staat alles er nog',
-    codes(undefined) === '2200,4000,4000,4010,7100',
-    codes(undefined))
+  /* Waar wij niets over te zeggen hebben, gebruikt hij de naam van Exact. */
+  const zonderOns = rekeningenVan(schema, onze, '3630506').find((g) => g.code === '7100')
+  check('en anders die van Exact',
+    zonderOns?.naam === 'Exact 7100', String(zonderOns?.naam))
 
-  /* Een uitgezette rekening is niet te kiezen -- behalve die er nu op staat.
-     Anders springt een bestaande boeking bij het openen naar leeg. */
-  const metUit = [...lijst, rek('4900', '3630506', false)]
-  check('een uitgezette rekening staat er niet bij',
-    !rekeningenVoor(metUit, '3630506').some((g) => g.code === '4900'),
-    'een inactieve rekening is toch te kiezen')
-
+  /* Een in Exact geblokkeerde rekening is niet te boeken -- behalve als hij
+     er nu op staat, want dan hoort te blijven staan wat er staat. */
+  check('een geblokkeerde rekening staat er niet bij',
+    !codes('3630506').includes('4900'), codes('3630506'))
   check('behalve de rekening die er nu op staat',
-    rekeningenVoor(metUit, '3630506', '4900').some((g) => g.code === '4900'),
-    'de huidige rekening verdwijnt uit de lijst')
+    codes('3630506', '4900').includes('4900'), codes('3630506', '4900'))
 
-  /* En die uitzondering geldt ook over de bv-grens heen: staat er een
-     rekening van een andere administratie op, dan hoort hij zichtbaar te
-     blijven zolang hij er staat. */
-  check('ook als die bij een andere bv hoort',
-    rekeningenVoor(lijst, '3630506', '4010').some((g) => g.code === '4010'),
-    'een rekening uit een andere bv verdwijnt, en dan lijkt het veld leeg')
+  /* Zonder bv: alles, en elke code één keer. */
+  check('zonder bv staat elke code er één keer',
+    codes(undefined) === '4000,4010,7100', codes(undefined))
+
+  /*
+   * Geen schema binnengehaald? Dan onze eigen lijst. Dat is de installatie
+   * zonder Exact-koppeling, en het moment vlak na het inloggen. Een lege
+   * keuzelijst zou daar zeggen "er is geen enkele rekening", en dat is iets
+   * anders dan "ik weet het nog niet".
+   */
+  check('zonder schema valt hij terug op onze eigen lijst',
+    rekeningenVan([], onze, '3630506').map((g) => g.code).join(',') === '4000',
+    rekeningenVan([], onze, '3630506').map((g) => g.code).join(','))
+
+  /* --- de naam bij een code --- */
+
+  check('de naam komt van ons als wij er een hebben',
+    rekeningNaam('4000', onze, schema) === '4000 · Brandstof',
+    rekeningNaam('4000', onze, schema))
+
+  /*
+   * En anders uit het schema van Exact. Sinds 0104 bewaren we van een
+   * rekening waar wij niets over te zeggen hebben geen eigen kopie meer;
+   * zonder die tweede bron zou een oude boeking hier als kaal nummer staan.
+   */
+  check('en anders uit het schema van Exact',
+    rekeningNaam('7100', onze, schema) === '7100 · Exact 7100',
+    rekeningNaam('7100', onze, schema))
+
+  check('en als niemand hem kent, het nummer zelf',
+    rekeningNaam('9999', onze, schema) === '9999',
+    rekeningNaam('9999', onze, schema))
 
   /* --- en welke bv het is --- */
 
@@ -10672,8 +10732,20 @@ console.log('\n84. De rekeningen komen van de bv zelf')
    * bereikbaar was, is erger dan een lijst die een dag oud is.
    */
   check('zonder verbinding blijft de lokale lijst staan',
-    lib.includes('rekeningenVoor(lokaal, bv, huidige)'),
+    lib.includes('rekeningenVan(schema, lokaal, bv, huidige)'),
     'er is geen terugval op wat er lokaal staat')
+
+  /*
+   * En die terugval leest het schema van Exact, niet onze eigen kopie.
+   *
+   * Dat verschil is niet cosmetisch. In IndexedDB staat grootboek op CODE,
+   * dus van twintig bv's bleef er lokaal één rij per code over -- de bv die
+   * als laatste binnenkwam. Zonder verbinding keek je dus naar de rekeningen
+   * van een willekeurige administratie, met het label van de jouwe.
+   */
+  check('en die terugval komt uit het schema van Exact',
+    lib.includes('db.exactGrootboek.toArray()'),
+    'de terugval leest nog de eigen kopie')
 
   check('en een mislukte ronde wordt niet onthouden',
     /belofte\.catch\(\(\) => \{ onderweg\.delete\(bv\) \}\)/.test(lib),
@@ -12525,9 +12597,14 @@ console.log('\n100. Het virtuele kantoor')
    * in de ene administratie en niet in de andere. En standaard alleen wat
    * een trefwoord HEEFT, want een lijst waarin negenennegentig procent niets
    * doet, is een lijst waarin je het ene dat wel iets doet niet meer vindt.
+   *
+   * De lijst komt sinds 0104 uit het schema van Exact en niet meer uit onze
+   * eigen kopie. Dat moest wel: lokaal staat grootboek op code, dus die kopie
+   * hield van twintig bv's er één over, en het filter op administratie
+   * filterde op de bv die toevallig als laatste binnenkwam.
    */
   check('de trefwoorden zijn per onderneming te bekijken',
-    inkoopScherm.includes('rekeningenVoor'),
+    inkoopScherm.includes('rekeningenVan(schema, rijen, bv || undefined)'),
     'alle bv-en staan nog door elkaar')
 
   /* Dezelfde regel als bij het boeken, en niet een tweede versie ervan. */
@@ -12573,8 +12650,7 @@ console.log('\n100. Het virtuele kantoor')
    * meet het commentaar in plaats van de opmaak. Vierde keer dat deze val
    * toeslaat; zie ook groep 89, 95 en 98.
    */
-  const zonderUitleg = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const eigenKleuren = (zonderUitleg.match(/#[0-9a-f]{3,8}\b/gi) ?? [])
+  const eigenKleuren = (zonderCommentaar(css).match(/#[0-9a-f]{3,8}\b/gi) ?? [])
   check('en de opmaak verzint geen eigen kleuren',
     eigenKleuren.length === 0, eigenKleuren.join(', '))
 }
@@ -12745,6 +12821,87 @@ console.log('\n101. De server zegt welke versie hij draait')
   check('en slikt elke fout',
     standTs.includes('catch (e)') && standTs.includes('console.warn'),
     'een mislukte melding mag geen verzoek laten stranden')
+}
+
+/* ==================================================================== *
+ *  102. Ophalen tot er niets meer is, in plaats van tot tweeduizend
+ *
+ *  Het rekeningschema van Exact staat sinds 0104 in de app: twintig bv's met
+ *  elk een paar honderd rekeningen. Daarmee ging de synchronisatie voor het
+ *  eerst over een grens heen die er altijd al zat.
+ *
+ *  Het ophalen deed .limit(2000), en zette daarna de cursor op de servertijd
+ *  van dat moment. Die twee samen zijn een lek: kwamen er precies
+ *  tweeduizend rijen terug -- vrijwel zeker afgekapt -- dan werd de rest
+ *  nooit meer opgehaald, want de cursor stond er al voorbij. Een half schema,
+ *  en niets dat het zei.
+ *
+ *  Het addertje zit in de gelijke tijdstempels: een bulkinvoer geeft
+ *  honderden rijen precies dezelfde updated_at. Een cursor die alleen op de
+ *  tijd staat slaat bij zo'n groep de rest over, of haalt ze eeuwig opnieuw
+ *  op. Daarom telt hij verder op (updated_at, id).
+ * ==================================================================== */
+
+console.log('\n102. Ophalen tot er niets meer is')
+
+{
+  const { volgendeCursor, naFilter } = await import('../src/lib/api/supabaseApi')
+
+  const rij = (id: string, updated_at: number) => ({ id, updated_at })
+
+  /* --- een halve pagina betekent: we zijn er --- */
+
+  check('een pagina die niet vol is, is de laatste',
+    volgendeCursor([rij('a', 1), rij('b', 2)], 10) === null)
+
+  check('en een lege pagina ook',
+    volgendeCursor([], 10) === null)
+
+  /* --- een volle pagina betekent: er is meer --- */
+
+  const c = volgendeCursor([rij('a', 1), rij('b', 5)], 2)
+  check('een volle pagina geeft een vervolg',
+    c?.tijd === 5 && c?.id === 'b', JSON.stringify(c))
+
+  /*
+   * En het vervolg telt verder op allebei. Dit is de regel waar het om
+   * draait: alles wat later is, plus wat op hetzelfde tijdstip staat maar een
+   * hoger id heeft. Zonder dat tweede deel valt een bulkinvoer -- honderden
+   * rijen met dezelfde tijdstempel -- tussen wal en schip.
+   */
+  const f = naFilter({ tijd: 5, id: 'b' })
+  check('het vervolgfilter neemt alles wat later is',
+    f.includes('updated_at.gt.5'), f)
+  check('en wat op hetzelfde moment staat met een hoger id',
+    f.includes('and(updated_at.eq.5,id.gt."b")'), f)
+
+  /*
+   * Een rij zonder id is geen reden om door te tellen -- dan is de volgende
+   * ronde raden, en raden in een lus is een lus die niet afloopt. Elke tabel
+   * in dit schema heeft een id; dit is de klep voor als dat ooit niet zo is.
+   */
+  check('zonder id wordt er niet verder geteld',
+    volgendeCursor([{ updated_at: 5 }], 1) === null)
+  check('en zonder tijdstempel ook niet',
+    volgendeCursor([{ id: 'a' }], 1) === null)
+
+  /* --- en het ophalen gebruikt het ook echt --- */
+
+  const { readFileSync } = await import('node:fs')
+  const adapter = readFileSync('src/lib/api/supabaseApi.ts', 'utf8')
+
+  check('het ophalen sorteert op allebei',
+    /\.order\('updated_at'[\s\S]{0,80}\.order\('id'/.test(adapter),
+    'zonder vaste volgorde is een vervolg niet te bepalen')
+
+  /*
+   * En de oude grens is weg. Hem alleen verhogen zou de klip verzetten in
+   * plaats van weghalen. Zonder commentaar gemeten: de uitleg hierboven
+   * noemt die grens juist, en anders meet deze controle mijn eigen tekst.
+   */
+  check('er staat geen ophaalgrens meer zonder vervolg',
+    !zonderCommentaar(adapter).includes('.limit(2000)'),
+    'de oude grens van tweeduizend staat er nog')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

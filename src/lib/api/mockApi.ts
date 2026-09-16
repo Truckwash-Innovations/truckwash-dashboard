@@ -51,6 +51,7 @@ class MockServerDB extends Dexie {
   locationPhotos!: Table<LocationPhoto, string>
   truckyVragen!: Table<any, string>
   grootboek!: Table<any, string>
+  exactGrootboek!: Table<any, string>
   kostenTags!: Table<any, string>
   inkoopAdressen!: Table<any, string>
   voorraadAlarmen!: Table<any, string>
@@ -121,6 +122,7 @@ class MockServerDB extends Dexie {
       locationPhotos: 'id, locationId, updatedAt',
       truckyVragen: 'id, updatedAt',
       grootboek: 'id, updatedAt',
+      exactGrootboek: 'id, division, code, updatedAt',
       kostenTags: 'id, updatedAt',
       inkoopAdressen: 'id, updatedAt',
       voorraadAlarmen: 'id, updatedAt',
@@ -194,6 +196,10 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   locationPhotos: () => server.locationPhotos,
   truckyVragen: () => server.truckyVragen,
   grootboek: () => server.grootboek,
+  /* Het schema van Exact bestaat in testmodus niet: die tabel wordt alleen
+     gevuld door de koppeling zelf. Hij staat er wel, want anders zou de
+     synchronisatie op een ontbrekende tabel stuklopen -- en hij blijft leeg. */
+  exactGrootboek: () => server.exactGrootboek,
   kostenTags: () => server.kostenTags,
   inkoopAdressen: () => server.inkoopAdressen,
   voorraadAlarmen: () => server.voorraadAlarmen,

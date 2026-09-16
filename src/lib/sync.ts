@@ -607,6 +607,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   locations: () => db.locations,
   truckyVragen: () => db.truckyVragen,
   grootboek: () => db.grootboek,
+  exactGrootboek: () => db.exactGrootboek,
   kostenTags: () => db.kostenTags,
   inkoopAdressen: () => db.inkoopAdressen,
   voorraadAlarmen: () => db.voorraadAlarmen,

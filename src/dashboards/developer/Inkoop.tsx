@@ -32,9 +32,9 @@ import { relative } from '../../lib/format'
 import {
   TESTFACTUREN, stuurTestfactuur, type Testfactuur,
 } from '../../lib/testfacturen'
-import type { Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
+import type { ExactGrootboek, Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
 import { Badge, Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
-import { rekeningenVoor } from '../../lib/boeking'
+import { rekeningenVan } from '../../lib/boeking'
 import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
 import { toast } from '../../store/useToasts'
 
@@ -508,23 +508,29 @@ function Rekeningen() {
   const [open, setOpen] = useState<Grootboek | 'nieuw' | null>(null)
 
   /* ------------------------------------------------------------ *
-   *  Per bv, en standaard alleen wat écht iets doet
+   *  Een trefwoord hoort bij een rekening, niet bij een bv
    *
    *  Casper: "Die trefwoorden, of laat ze per bv zien, of niet, liever per
    *  bv... Zodat het geen eindeloze lijst wordt daar."
    *
-   *  Er stonden honderden rekeningen onder elkaar -- het hele schema uit
-   *  Exact, van alle bv's door elkaar -- en bij vrijwel elke regel stond
-   *  "geen, deze wordt nooit geraden". Een lijst waarin negenennegentig
-   *  procent niets doet, is een lijst waarin je het ene dat wel iets doet
-   *  niet meer vindt.
+   *  Wat hier gisteren op is gebouwd -- een keuze per bv -- filterde op een
+   *  veld dat lokaal niet kón kloppen. In IndexedDB staat grootboek op CODE,
+   *  dus van twintig bv's blijft er één rij per code over: de bv die als
+   *  laatste binnenkwam. Het filter deed dus iets, maar niet wat er stond.
    *
-   *  Dus twee dingen, en ze zijn allebei nodig. Per bv, want rekening 4040
-   *  bestaat in de ene administratie en niet in de andere. En standaard
-   *  alleen de rekeningen mét een trefwoord, want dat is waar deze kaart over
-   *  gaat -- de rest staat er alleen om er een te kunnen toevoegen, en
-   *  daarvoor is de knop en het zoeken.
+   *  Sinds 0104 is dat ook niet meer nodig. Een trefwoord geldt voor alle
+   *  bv's: factuur_indelen() zoekt het op code op, en kijkt in het schema van
+   *  Exact of die rekening in DEZE administratie bestaat. Eén keer "shell"
+   *  intikken werkt dus overal -- daarvoor was het twintig keer, of negentien
+   *  bv's waar niets zichzelf indeelde.
+   *
+   *  De lijst is daarmee vanzelf kort: hij toont wat er is ingevuld. De
+   *  bv-keuze blijft, maar voor de andere vraag -- wélke rekeningen er te
+   *  kiezen zijn als je er een trefwoord aan wilt hangen.
    * ------------------------------------------------------------ */
+
+  const schema = useLiveQuery(
+    () => db.exactGrootboek.toArray(), [], [] as ExactGrootboek[])
 
   const [bvs, setBvs] = useState<ExactAdministratie[]>([])
   const [bv, setBv] = useState('')
@@ -546,12 +552,12 @@ function Rekeningen() {
     return () => { weg = true }
   }, [])
 
-  /* Dezelfde regel als bij het boeken (lib/boeking.ts): heeft deze bv een
-     eigen schema, dan is een rekening zonder bv daar geen aanvulling maar
-     ruis. Twee regels voor dezelfde vraag is er één te veel. */
+  /* Alle rekeningen die deze bv kent, met onze trefwoorden eraan. Dezelfde
+     functie als het boekscherm gebruikt -- twee regels voor dezelfde vraag is
+     er één te veel. */
   const vanBv = useMemo(
-    () => (bv ? rekeningenVoor(rijen, bv) : rijen),
-    [rijen, bv])
+    () => rekeningenVan(schema, rijen, bv || undefined),
+    [schema, rijen, bv])
 
   const metTrefwoord = useMemo(
     () => vanBv.filter((r) => (r.trefwoorden?.length ?? 0) > 0),

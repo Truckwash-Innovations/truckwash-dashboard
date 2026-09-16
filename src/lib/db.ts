@@ -13,7 +13,7 @@ import type {
 AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   CourseProgress, EmailLog, Expense, Fault, InventoryItem, Location, LogEvent,
   AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, Postbus, PostbusLid, WerkMail, WerkMailMap,
-  TruckyContact, TruckyVraag, Grootboek, KostenTag, InkoopAdres,
+  TruckyContact, TruckyVraag, Grootboek, ExactGrootboek, KostenTag, InkoopAdres,
   VoorraadAlarm, Bestelling, Bestelregel,
   Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
@@ -58,6 +58,7 @@ class TruckwashDB extends Dexie {
   locationPhotos!: Table<LocationPhoto, string>
   truckyVragen!: Table<TruckyVraag, string>
   grootboek!: Table<Grootboek, string>
+  exactGrootboek!: Table<ExactGrootboek, string>
   kostenTags!: Table<KostenTag, string>
   inkoopAdressen!: Table<InkoopAdres, string>
   voorraadAlarmen!: Table<VoorraadAlarm, string>
@@ -311,6 +312,20 @@ class TruckwashDB extends Dexie {
        andere: wat ligt er bij mij. */
     this.version(25).stores({
       inkoopAdressen: 'id, adres, administratie, goedkeurder, actief, updatedAt',
+    })
+
+    /* Het rekeningschema van Exact zelf (0104).
+
+       Hier stond het niet, en daarom bewaarden we er een eigen kopie van in
+       grootboek -- alleen om offline een naam bij een code te kunnen tonen en
+       een keuzelijst te kunnen vullen. Twee lijsten voor één vraag, en de
+       kopie liep achter zodra iemand in Exact iets hernoemde.
+
+       Op division te vinden, want dat is de vraag die het scherm stelt:
+       welke rekeningen kent DEZE bv. En op code, voor de andere: hoe heet
+       4031 ook alweer. */
+    this.version(26).stores({
+      exactGrootboek: 'id, division, code, updatedAt',
     })
   }
 }
