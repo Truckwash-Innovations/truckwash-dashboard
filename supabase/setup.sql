@@ -24104,6 +24104,61 @@ insert into public.kolom_van_de_server (tabel, kolom, waarom) values
    'laatst zag, en zou een handmatige keuze terugdraaien')
 on conflict (tabel, kolom) do update set waarom = excluded.waarom;
 
+-- ---------------------------------------------------------------------------
+--  11. En wat er nu al ligt
+--
+--  De routering pakt een factuur op het moment dat hij gelezen wordt. Wat er
+--  vandaag al in de rij staat is toen niet geroute-erd -- dat ligt dus bij
+--  niemand, en blijft daar liggen tot iemand het met de hand doet.
+--
+--  Dat zou betekenen dat je de instelling zet en er een week lang niets van
+--  merkt. Vandaar deze: alles wat nog open staat opnieuw indelen.
+--
+--  Wat hij NIET aanraakt: een keuze van een mens ('handmatig') en alles wat
+--  al getekend of afgekeurd is. Dat zijn dezelfde twee uitzonderingen als in
+--  factuur_route_zetten() -- ze staan daar, zodat er één plek is waar die
+--  regel leeft.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.facturen_routeren()
+returns table (bekeken integer, verplaatst integer, bij_niemand integer)
+language plpgsql security definer set search_path = public as $$
+declare
+  e   record;
+  r   record;
+  n   integer := 0;
+  v   integer := 0;
+  z   integer := 0;
+begin
+  if not (public.is_management() or public.heeft_recht('admin.desk')) then
+    raise exception 'Alleen de administratie kan de facturen opnieuw indelen.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  for e in
+    select id, goedkeurder from public.expenses
+     where status in ('open', 'eerste_akkoord')
+       and coalesce(route_bron, '') <> 'handmatig'
+     order by expense_date
+  loop
+    n := n + 1;
+    select * into r from public.factuur_route_zetten(e.id);
+    if r.wie is null then z := z + 1;
+    elsif r.wie is distinct from e.goedkeurder then v := v + 1;
+    end if;
+  end loop;
+
+  bekeken := n; verplaatst := v; bij_niemand := z;
+  return next;
+end $$;
+
+revoke execute on function public.facturen_routeren() from public, anon;
+grant  execute on function public.facturen_routeren() to authenticated, service_role;
+
+comment on function public.facturen_routeren() is
+  'Deelt alles wat nog open staat opnieuw in volgens de routes (0106). Laat '
+  'een keuze van een mens en al getekende facturen met rust.';
+
 -- --- ingeschreven door scripts/migratie-stand.cjs ---
 do $stand$ begin
   if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then

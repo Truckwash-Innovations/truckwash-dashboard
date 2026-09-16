@@ -166,3 +166,29 @@ export function magBeoordelen(u: User): boolean {
     || rollen.includes('administratie')
     || (u.grants ?? []).includes('expenses.approve')
 }
+
+/**
+ * Alles wat nog open staat opnieuw indelen.
+ *
+ * De routering pakt een factuur op het moment dat hij gelezen wordt. Wat er
+ * vandaag al in de rij staat is toen niet geroute-erd; zonder deze knop zou
+ * je de instelling zetten en er een week lang niets van merken.
+ *
+ * Laat een keuze van een mens en al getekende facturen met rust -- dezelfde
+ * twee uitzonderingen als bij het routeren zelf.
+ */
+export async function facturenRouteren(): Promise<{
+  bekeken: number
+  verplaatst: number
+  bijNiemand: number
+}> {
+  const { data, error } = await supabase().rpc('facturen_routeren')
+  if (error) throw new Error(error.message)
+
+  const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
+  return {
+    bekeken: Number(r?.bekeken) || 0,
+    verplaatst: Number(r?.verplaatst) || 0,
+    bijNiemand: Number(r?.bij_niemand) || 0,
+  }
+}

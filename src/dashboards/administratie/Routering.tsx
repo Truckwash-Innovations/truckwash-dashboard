@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Brain, RefreshCw, Trash2, TriangleAlert, UserCheck } from 'lucide-react'
+import { Brain, Play, RefreshCw, Trash2, TriangleAlert, UserCheck } from 'lucide-react'
 
 import { Badge, Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
 import { db } from '../../lib/db'
 import { relative } from '../../lib/format'
 import {
-  bewaarBvRoute, bvRoutes, leverancierRoutes, magBeoordelen, vergeetRoute,
+  bewaarBvRoute, bvRoutes, facturenRouteren, leverancierRoutes, magBeoordelen,
+  vergeetRoute,
   type BvRoute, type LeverancierRoute,
 } from '../../lib/routering'
 import type { User } from '../../lib/types'
@@ -76,6 +77,33 @@ export default function Routering() {
     }
   }
 
+  /*
+   * En wat er nu al ligt.
+   *
+   * De routering pakt een factuur op het moment dat hij gelezen wordt. Wat er
+   * vandaag in de rij staat is toen niet geroute-erd -- zonder deze knop zet
+   * je hierboven een naam en merk je er een week lang niets van.
+   */
+  const [deelt, setDeelt] = useState(false)
+
+  async function deelOpnieuw() {
+    setDeelt(true)
+    try {
+      const uit = await facturenRouteren()
+      toast.ok(
+        uit.verplaatst === 0
+          ? `${uit.bekeken} facturen nagelopen; er lag er al geen een verkeerd.`
+          : `${uit.verplaatst} van de ${uit.bekeken} facturen liggen nu bij iemand anders.`
+          + (uit.bijNiemand > 0 ? ` ${uit.bijNiemand} nog steeds bij niemand.` : ''),
+      )
+      haal()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Opnieuw indelen lukte niet.')
+    } finally {
+      setDeelt(false)
+    }
+  }
+
   const zonderEerste = rijen.filter((r) => !r.eerste)
 
   return (
@@ -84,9 +112,16 @@ export default function Routering() {
       hint="Per onderneming: waar een onbekende factuur heen gaat, en of bekende leveranciers er direct heen mogen"
       className="mb"
       action={
-        <button className="btn ghost sm" onClick={haal} disabled={bezig}>
-          <RefreshCw size={14} /> Opnieuw
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          {mag && (
+            <button className="btn sm" onClick={deelOpnieuw} disabled={deelt}>
+              <Play size={13} /> {deelt ? 'Bezig…' : 'Nu opnieuw indelen'}
+            </button>
+          )}
+          <button className="btn ghost sm" onClick={haal} disabled={bezig}>
+            <RefreshCw size={14} /> Opnieuw
+          </button>
+        </div>
       }
     >
       {fout ? (
