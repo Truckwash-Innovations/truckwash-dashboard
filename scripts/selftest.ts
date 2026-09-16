@@ -336,8 +336,33 @@ const row = toRow('washJobs', job)
 
 check('camelCase wordt snake_case',
   row.company_id === 'co_jansen' && row.scheduled_at === job.scheduledAt)
-check('undefined-velden gaan niet mee',
-  !('completed_at' in row) && !('notes' in row))
+/*
+ * Een veld dat is leeggemaakt gaat als null mee.
+ *
+ * Hier stond de omgekeerde verwachting -- "undefined-velden gaan niet mee" --
+ * en die legde een echte fout vast. Een upsert zet alleen de kolommen die je
+ * meestuurt, dus een veld overslaan betekende dat het op de server bleef
+ * staan. Een wasopdracht terugzetten naar de wachtrij wiste startedAt lokaal
+ * en liet hem op de server staan; een factuur heropenen haalde de goedkeuring
+ * er lokaal af en niet op de server. Zonder foutmelding: het lukte gewoon
+ * niet.
+ *
+ * Wat telt is nu of de SLEUTEL er staat. Zie de uitleg boven toRow().
+ */
+check('een veld dat expres is leeggemaakt gaat als null mee',
+  row.completed_at === null && row.notes === null,
+  JSON.stringify({ completed_at: row.completed_at, notes: row.notes }))
+
+/*
+ * En een sleutel die er helemaal niet is, gaat niet mee. Dat is het gevaar
+ * waar de oude regel tegen bedoeld was, en dat blijft: een half record mag
+ * de rest niet wissen.
+ */
+const half = toRow('washJobs', { id: 'job_1', status: 'bezig' })
+check('maar een sleutel die ontbreekt blijft weg',
+  !('company_id' in half) && !('scheduled_at' in half) && !('notes' in half),
+  JSON.stringify(half))
+
 check('updated_at laat de server zelf zetten', !('updated_at' in row))
 check('heen en terug levert hetzelfde op',
   eq(
@@ -360,6 +385,41 @@ check('en weer terug', (fromRow('expenses', expRow) as Record<string, unknown>).
 
 check('null uit Postgres wordt weggelaten',
   !('notes' in fromRow('washJobs', { id: 'j', notes: null, price_excl: 5 })))
+
+/*
+ * En de reis erheen overleeft het ook.
+ *
+ * Het hele onderscheid hangt aan één aanname: dat een sleutel met undefined
+ * erin de wachtrij overleeft. De wachtrij staat in IndexedDB, en daar gaat
+ * een record doorheen als gestructureerde kopie. Zou die de sleutel
+ * weglaten, dan komt "dit veld is leeggemaakt" aan als "ik heb er geen
+ * mening over" -- en dan is toRow() hierboven een correcte functie die nooit
+ * wordt aangeroepen met wat hij moet afhandelen.
+ *
+ * Dat is precies het soort aanname dat je test in plaats van gelooft.
+ */
+{
+  const { db: proefDb } = await import('../src/lib/db')
+  const { enqueue } = await import('../src/lib/sync')
+
+  await proefDb.outbox.clear()
+  await enqueue('washJobs', 'put', 'job_leeg', {
+    id: 'job_leeg', status: 'wachtrij', startedAt: undefined,
+  })
+
+  const [wachtend] = await proefDb.outbox.toArray()
+  const lading = (wachtend?.payload ?? {}) as Record<string, unknown>
+
+  check('een leeggemaakt veld overleeft de wachtrij',
+    'startedAt' in lading && lading.startedAt === undefined,
+    JSON.stringify(Object.keys(lading)))
+
+  check('en komt er als null uit',
+    toRow('washJobs', lading).started_at === null,
+    JSON.stringify(toRow('washJobs', lading)))
+
+  await proefDb.outbox.clear()
+}
 
 /* ==================================================================== */
 

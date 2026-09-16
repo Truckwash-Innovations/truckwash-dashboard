@@ -92,7 +92,14 @@ export function supabase(): SupabaseClient {
  *  Tabellen
  * ------------------------------------------------------------------ */
 
-const TABLES: Record<EntityName, string> = {
+/*
+ * Welke tabel bij welke entiteit hoort.
+ *
+ * Geëxporteerd omdat de zelftest hem nodig heeft: die legt de kolommen die
+ * NOT NULL zijn naast de velden die een scherm expres leegmaakt. Zonder die
+ * koppeling zou die controle moeten raden welke tabel erbij hoort.
+ */
+export const TABLES: Record<EntityName, string> = {
   locations: 'locations',
   users: 'profiles',
   companies: 'companies',
@@ -191,14 +198,56 @@ const LOKAAL: Partial<Record<EntityName, string[]>> = {
 const toSnake = (s: string) => s.replace(/[A-Z]/g, (c) => '_' + c.toLowerCase())
 const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
 
+/**
+ * Een record klaarmaken voor de server.
+ *
+ * Het verschil tussen "ik weet het niet" en "het moet leeg"
+ * ---------------------------------------------------------
+ *
+ * Hier stond `if (v === undefined) continue`. Dat was er ooit gekomen tegen
+ * het echte gevaar -- een half record dat de rest overschrijft -- maar het
+ * ging te ver: een veld leegmaken werd dáármee onmogelijk. Een upsert zet
+ * alleen de kolommen die je meestuurt, dus een veld dat werd overgeslagen
+ * bleef op de server gewoon staan.
+ *
+ * Wat dat in de praktijk betekende:
+ *
+ *   een wasopdracht terug in de wachtrij zetten (repo.ts, setStatus) wiste
+ *   startedAt en completedAt lokaal, maar op de server bleef hij begonnen
+ *   en afgerond
+ *
+ *   een factuur heropenen (expenses.reopen) haalde de goedkeuring eraf,
+ *   maar approved_by, approved_at en de afkeurreden bleven staan
+ *
+ *   een geboortedatum of einddatum uit een dossier weghalen zag er gedaan
+ *   uit, en kwam bij de volgende synchronisatie terug
+ *
+ * Geen van die drie gaf een foutmelding. Het lukte gewoon niet.
+ *
+ * Wat er nu telt is of de SLEUTEL er staat, niet of er een waarde in zit:
+ *
+ *   sleutel ontbreekt       ik heb hier geen mening over  ->  niet meesturen
+ *   sleutel met undefined   dit heb ik leeggemaakt        ->  null sturen
+ *   sleutel met null        idem                          ->  null sturen
+ *
+ * Dat is precies wat JavaScript al bedoelt met die twee waarden, en het
+ * overleeft de reis door de wachtrij: IndexedDB bewaart een sleutel met
+ * undefined erin. Een record dat uit de server komt heeft die sleutels niet
+ * -- fromRow() laat null weg -- dus alleen wat een scherm zelf leegmaakt
+ * komt hier als "leeg" binnen.
+ *
+ * Wat dit NIET oplost: twee apparaten die hetzelfde record bewerken. De
+ * laatste wint, zoals altijd. Voor de kolommen waar dat echt niet mag --
+ * betaald_at, exact_id -- staan er triggers op de server die de app
+ * tegenhouden (0100).
+ */
 export function toRow(entity: EntityName, obj: Record<string, unknown>) {
   const over = OVERRIDES[entity] ?? {}
   const lokaal = LOKAAL[entity] ?? []
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined) continue
     if (lokaal.includes(k)) continue
-    out[over[k] ?? toSnake(k)] = v
+    out[over[k] ?? toSnake(k)] = v === undefined ? null : v
   }
   // updated_at wordt serverzijdig gezet
   delete out.updated_at

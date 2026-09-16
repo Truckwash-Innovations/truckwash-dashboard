@@ -8939,5 +8939,148 @@ console.log('\n70. De server zegt welke versie hij draait')
   await sv.close()
 }
 
+console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
+
+{
+  /*
+   * Sinds deze versie stuurt toRow() een veld dat een scherm expres heeft
+   * leeggemaakt als null naar de server, in plaats van het over te slaan.
+   * Dat is de bedoeling -- anders is een veld leegmaken onmogelijk -- maar
+   * het heeft een schaduwkant: null in een kolom die NOT NULL is, betekent
+   * dat PostgREST de hele rij weigert. De wachtrij probeert het dan acht keer
+   * en gooit het record daarna weg.
+   *
+   * Dus leggen we de twee lijsten naast elkaar: welke kolommen verplicht zijn
+   * zonder standaardwaarde, en welke velden de app ergens op undefined zet.
+   * Overlap is geen smaakkwestie maar een record dat straks verdwijnt.
+   *
+   * Dit is met opzet grof: de kolomnaam telt, niet de tabel erbij. Een naam
+   * die in de ene tabel verplicht is en in de andere niet, wordt hier
+   * gemeld. Liever een keer te veel gekeken dan een record dat na acht
+   * pogingen stilletjes uit de wachtrij valt.
+   */
+  const vn = await fresh()
+  await vn.exec(sqlFile('supabase/setup.sql'))
+
+  /* ---- 1. welke tabellen synchroniseert de app? ---- */
+
+  const adapter = sqlFile('src/lib/api/supabaseApi.ts')
+  const blok = adapter.slice(
+    adapter.indexOf('export const TABLES'),
+    adapter.indexOf('/** Kolommen waarvan de naam niet simpelweg'))
+  const tabellen = [...blok.matchAll(/:\s*'([a-z0-9_]+)',/g)].map((m) => m[1])
+
+  check('de tabellenlijst van de app is te lezen',
+    tabellen.length > 30, String(tabellen.length))
+
+  /* ---- 2. welke kolommen zijn verplicht zonder standaardwaarde? ---- */
+
+  const verplicht = (await vn.query(`
+    select distinct column_name
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = any($1)
+       and is_nullable = 'NO'
+       and column_default is null
+       and is_generated = 'NEVER'
+  `, [tabellen])).rows.map((r) => r.column_name)
+
+  check('er zijn verplichte kolommen zonder standaardwaarde',
+    verplicht.length > 0, String(verplicht.length))
+
+  /* ---- 3. welke velden maakt de app expres leeg, en in welke tabel? ---- */
+
+  /*
+   * De tabel erbij zoeken, want zonder tabel is dit onbruikbaar.
+   *
+   * Een eerdere versie keek alleen naar de kolomNAAM en meldde twaalf
+   * botsingen, waarvan er elf geen botsing waren: started_at is verplicht in
+   * time_entries en leeg toegestaan in wash_jobs, en het was dat tweede geval
+   * dat de app leegmaakt. Een controle die elf keer vals alarm geeft, wordt
+   * de twaalfde keer niet meer gelezen.
+   *
+   * Dus zoeken we bij elk leeggemaakt veld de dichtstbijzijnde entiteit die
+   * ervóór wordt genoemd: db.washJobs, put('expenses', ...), enqueue(...).
+   * Dat is precies hoe een lezer het ook zou doen. Vindt hij er geen, dan
+   * zegt deze controle niets over dat veld -- liever niets dan een gok.
+   */
+  const bestanden = []
+  const loop = (map) => {
+    for (const d of readdirSync(join(root, map), { withFileTypes: true })) {
+      if (d.isDirectory()) loop(`${map}/${d.name}`)
+      else if (/\.tsx?$/.test(d.name)) bestanden.push(`${map}/${d.name}`)
+    }
+  }
+  loop('src')
+
+  const naarSnake = (k) => k.replace(/[A-Z]/g, (c) => '_' + c.toLowerCase())
+
+  /* Sommige velden heten in de database anders; dat staat in OVERRIDES. */
+  const anders = { start: 'started_at', end: 'ended_at', date: 'expense_date', function: 'job_title' }
+
+  /* entiteit -> tabel, uit dezelfde lijst die de app gebruikt */
+  const perEntiteit = Object.fromEntries(
+    [...blok.matchAll(/([a-zA-Z][a-zA-Z0-9]*):\s*'([a-z0-9_]+)',/g)].map((m) => [m[1], m[2]]))
+
+  const LEEG = /(?:^|[\s{(])([a-zA-Z][a-zA-Z0-9]*):[^,;{}\n]*\bundefined\s*[,}]|\.([a-zA-Z][a-zA-Z0-9]*)\s*=\s*undefined/g
+  const ENTITEIT = /(?:db\.([a-zA-Z][a-zA-Z0-9]*)\b|put\('([a-zA-Z][a-zA-Z0-9]*)'|enqueue\('([a-zA-Z][a-zA-Z0-9]*)')/g
+
+  const gevonden = []
+  for (const bestand of bestanden) {
+    /* De mock praat nooit met Postgres; wat daar gebeurt telt hier niet. */
+    if (bestand.includes('mockApi')) continue
+    const tekst = sqlFile(bestand)
+
+    /* waar in dit bestand welke entiteit voor het laatst genoemd werd */
+    const noemt = [...tekst.matchAll(ENTITEIT)]
+      .map((m) => ({ op: m.index, entiteit: m[1] ?? m[2] ?? m[3] }))
+      .filter((x) => perEntiteit[x.entiteit])
+
+    for (const m of tekst.matchAll(LEEG)) {
+      const veld = m[1] ?? m[2]
+      const kolom = anders[veld] ?? naarSnake(veld)
+
+      let dichtstbij = null
+      for (const n of noemt) {
+        if (n.op > m.index) break
+        dichtstbij = n.entiteit
+      }
+      if (!dichtstbij) continue
+
+      gevonden.push({ tabel: perEntiteit[dichtstbij], kolom, bestand, veld })
+    }
+  }
+
+  check('de app maakt ergens velden leeg', gevonden.length > 5, String(gevonden.length))
+
+  /* ---- 4. en geen daarvan is een verplichte kolom ---- */
+
+  /*
+   * Zou dat wel zo zijn, dan weigert PostgREST de hele rij. De wijziging
+   * wordt dan niet weggegooid -- sinds 1.26.2 blijft hij met de reden in de
+   * wachtrij staan -- maar hij komt ook nooit aan, en dat merkt alleen wie
+   * later ontdekt dat het er niet is.
+   */
+  const verplichtSet = new Set(
+    (await vn.query(`
+      select table_name || '.' || column_name as sleutel
+        from information_schema.columns
+       where table_schema = 'public'
+         and table_name = any($1)
+         and is_nullable = 'NO'
+         and column_default is null
+         and is_generated = 'NEVER'
+    `, [tabellen])).rows.map((r) => r.sleutel))
+
+  const botsing = gevonden
+    .filter((g) => verplichtSet.has(`${g.tabel}.${g.kolom}`))
+    .map((g) => `${g.tabel}.${g.kolom} in ${g.bestand}`)
+
+  check('geen enkel leeggemaakt veld is een verplichte kolom',
+    botsing.length === 0, [...new Set(botsing)].join('; '))
+
+  await vn.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
