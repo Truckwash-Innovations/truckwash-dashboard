@@ -12456,6 +12456,34 @@ console.log('\n100. Het virtuele kantoor')
       && inkoopScherm.includes('Trefwoorden voor het indelen'),
     'de kaart heet nog Grootboekrekeningen')
 
+  /*
+   * Casper, met een schermafdruk van honderden regels waarbij er bijna geen
+   * een een trefwoord had: "Die trefwoorden, of laat ze per bv zien, of niet,
+   * liever per bv... Zodat het geen eindeloze lijst wordt daar."
+   *
+   * Twee dingen, en ze zijn allebei nodig. Per bv, want rekening 4040 bestaat
+   * in de ene administratie en niet in de andere. En standaard alleen wat
+   * een trefwoord HEEFT, want een lijst waarin negenennegentig procent niets
+   * doet, is een lijst waarin je het ene dat wel iets doet niet meer vindt.
+   */
+  check('de trefwoorden zijn per onderneming te bekijken',
+    inkoopScherm.includes('rekeningenVoor'),
+    'alle bv-en staan nog door elkaar')
+
+  /* Dezelfde regel als bij het boeken, en niet een tweede versie ervan. */
+  check('en met dezelfde regel als bij het boeken',
+    inkoopScherm.includes("from '../../lib/boeking'"),
+    'er staat een tweede regel voor welke rekening bij welke bv hoort')
+
+  check('en standaard alleen de rekeningen die iets doen',
+    /const metTrefwoord/.test(inkoopScherm),
+    'de hele lijst staat nog open')
+
+  /* Maar niet stil: wie een rekening niet ziet, moet weten dat hij bestaat. */
+  check('met erbij hoeveel er verborgen zijn, en een knop om ze te tonen',
+    inkoopScherm.includes('Toon ze toch'),
+    'de verborgen rekeningen verdwijnen zonder dat iemand het weet')
+
   /* --- het btw-nummer komt uit Exact, de andere twee niet --- */
 
   const exactFn2 = readFileSync('supabase/functions/exact/index.ts', 'utf8')

@@ -33,7 +33,9 @@ import {
   TESTFACTUREN, stuurTestfactuur, type Testfactuur,
 } from '../../lib/testfacturen'
 import type { Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
-import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
+import { Badge, Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
+import { rekeningenVoor } from '../../lib/boeking'
+import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
 import { toast } from '../../store/useToasts'
 
 /*
@@ -505,8 +507,67 @@ function Rekeningen() {
   const rijen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
   const [open, setOpen] = useState<Grootboek | 'nieuw' | null>(null)
 
-  const gesorteerd = useMemo(
-    () => [...rijen].sort((a, b) => a.code.localeCompare(b.code)), [rijen])
+  /* ------------------------------------------------------------ *
+   *  Per bv, en standaard alleen wat écht iets doet
+   *
+   *  Casper: "Die trefwoorden, of laat ze per bv zien, of niet, liever per
+   *  bv... Zodat het geen eindeloze lijst wordt daar."
+   *
+   *  Er stonden honderden rekeningen onder elkaar -- het hele schema uit
+   *  Exact, van alle bv's door elkaar -- en bij vrijwel elke regel stond
+   *  "geen, deze wordt nooit geraden". Een lijst waarin negenennegentig
+   *  procent niets doet, is een lijst waarin je het ene dat wel iets doet
+   *  niet meer vindt.
+   *
+   *  Dus twee dingen, en ze zijn allebei nodig. Per bv, want rekening 4040
+   *  bestaat in de ene administratie en niet in de andere. En standaard
+   *  alleen de rekeningen mét een trefwoord, want dat is waar deze kaart over
+   *  gaat -- de rest staat er alleen om er een te kunnen toevoegen, en
+   *  daarvoor is de knop en het zoeken.
+   * ------------------------------------------------------------ */
+
+  const [bvs, setBvs] = useState<ExactAdministratie[]>([])
+  const [bv, setBv] = useState('')
+  const [alles, setAlles] = useState(false)
+  const [zoek, setZoek] = useState('')
+
+  useEffect(() => {
+    let weg = false
+    exactFacturenStand()
+      .then((stand) => {
+        if (weg) return
+        const actief = stand.administraties.filter((a) => a.actief)
+        setBvs(actief)
+        /* De hoofdadministratie voorop; daar kijkt men het vaakst. */
+        const hoofd = actief.find((a) => a.hoofd) ?? actief[0]
+        if (hoofd) setBv((b) => b || hoofd.code)
+      })
+      .catch(() => { /* geen koppeling: dan gewoon alles zonder bv-keuze */ })
+    return () => { weg = true }
+  }, [])
+
+  /* Dezelfde regel als bij het boeken (lib/boeking.ts): heeft deze bv een
+     eigen schema, dan is een rekening zonder bv daar geen aanvulling maar
+     ruis. Twee regels voor dezelfde vraag is er één te veel. */
+  const vanBv = useMemo(
+    () => (bv ? rekeningenVoor(rijen, bv) : rijen),
+    [rijen, bv])
+
+  const metTrefwoord = useMemo(
+    () => vanBv.filter((r) => (r.trefwoorden?.length ?? 0) > 0),
+    [vanBv])
+
+  const gesorteerd = useMemo(() => {
+    const woorden = zoek.toLowerCase().split(/\s+/).filter(Boolean)
+    const basis = (alles || woorden.length > 0) ? vanBv : metTrefwoord
+    const gefilterd = woorden.length === 0 ? basis : basis.filter((r) => {
+      const hooi = `${r.code} ${r.naam} ${(r.trefwoorden ?? []).join(' ')}`.toLowerCase()
+      return woorden.every((w) => hooi.includes(w))
+    })
+    return [...gefilterd].sort((a, b) => a.code.localeCompare(b.code))
+  }, [vanBv, metTrefwoord, alles, zoek])
+
+  const verborgen = vanBv.length - metTrefwoord.length
 
   return (
     <Card
@@ -519,9 +580,39 @@ function Rekeningen() {
         </button>
       }
     >
+      <div className="row mb" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {bvs.length > 0 && (
+          <div style={{ minWidth: 240 }}>
+            <Kiezer
+              waarde={bv}
+              leeg="— alle ondernemingen —"
+              zoekHint="Naam of nummer"
+              opties={bvs.map((a) => ({ waarde: a.code, label: a.naam, sub: a.code }))}
+              onKies={setBv}
+            />
+          </div>
+        )}
+        <input
+          className="input"
+          style={{ flex: 1, minWidth: 200 }}
+          value={zoek}
+          placeholder="Zoek op code, naam of trefwoord"
+          onChange={(e) => setZoek(e.currentTarget.value)}
+        />
+        {zoek && (
+          <button className="btn ghost sm" onClick={() => setZoek('')}>
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {gesorteerd.length === 0 ? (
         <Empty
-          text="Nog geen rekeningen. Draai supabase/bijwerken.sql; die zet er twaalf klaar."
+          text={zoek
+            ? `Geen rekening met "${zoek}"${bv ? ' in deze onderneming' : ''}.`
+            : vanBv.length === 0
+              ? 'Deze onderneming heeft nog geen rekeningen. Haal ze op bij Exact.'
+              : 'Nog geen enkele rekening met een trefwoord. Zonder trefwoorden deelt hij niets vanzelf in.'}
           icon={<Wallet size={22} />}
         />
       ) : (
@@ -560,6 +651,31 @@ function Rekeningen() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/*
+        * Wat er verborgen is, en hoe je erbij komt. Stil weglaten zou
+        * betekenen dat iemand een rekening niet kan vinden en denkt dat hij
+        * niet bestaat.
+        */}
+      {!alles && !zoek && verborgen > 0 && (
+        <p className="help" style={{ marginTop: 10 }}>
+          {verborgen} rekening{verborgen === 1 ? '' : 'en'} zonder trefwoord
+          {bv ? ' in deze onderneming' : ''} staan hier niet — die doen bij het
+          indelen niets.{' '}
+          <button className="btn ghost sm" onClick={() => setAlles(true)}>
+            Toon ze toch
+          </button>
+        </p>
+      )}
+
+      {alles && !zoek && (
+        <p className="help" style={{ marginTop: 10 }}>
+          Alle {vanBv.length} rekeningen{bv ? ' van deze onderneming' : ''}.{' '}
+          <button className="btn ghost sm" onClick={() => setAlles(false)}>
+            Alleen die met trefwoorden
+          </button>
+        </p>
       )}
 
       <RekeningModal
