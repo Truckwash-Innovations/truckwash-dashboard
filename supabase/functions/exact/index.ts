@@ -785,14 +785,71 @@ async function syncAdministraties(): Promise<Response> {
   const nu = Date.now()
   const bekend = new Set(rijen.map((r) => r.code))
 
+  /*
+   * En het btw-nummer erbij, uit Exact zelf.
+   *
+   * Casper: "evenals dat ik die eigen nummers heb, maar kan je dat niet uit
+   * exact halen? gezien een kvk per bv anders is, zelfde als eigen iban en
+   * btw nummer."
+   *
+   * Terecht -- twintig bv's met elk een eigen nummer met de hand overtikken
+   * vraagt om een typefout, en een verkeerd btw-nummer betekent dat
+   * administratie_zoeken() de verkeerde bv herkent op een factuur.
+   *
+   * Maar het kan maar voor EEN van de drie, en dat is nagekeken in de
+   * documentatie van Exact in plaats van aangenomen:
+   *
+   *   btw-nummer   hrm/Divisions.VATNumber -- bestaat, en wordt hier gehaald
+   *   KvK          staat op geen enkele division-resource
+   *   eigen IBAN   er is geen resource met de EIGEN bankrekeningen; alleen
+   *                crm/BankAccounts, en dat zijn die van relaties
+   *
+   * Die twee blijven dus handwerk. Dat hoort in het scherm te staan, anders
+   * blijft iemand zoeken naar een knop die er niet is.
+   *
+   * Alleen invullen waar het leeg staat. Wat een mens heeft ingetikt wint --
+   * die weet iets wat Exact misschien niet weet, en een gecorrigeerd nummer
+   * overschrijven is precies de fout die je niet terugvindt.
+   */
+  const btwPerBv = new Map<string, string>()
+  try {
+    const hrm = await exactLijst<{ Code?: number | string; VATNumber?: string | null }>(
+      lijn, 'hrm/Divisions', { $select: 'Code,VATNumber' }, huidig ?? lijn.division)
+    for (const d of hrm) {
+      const code = String(d.Code ?? '').trim()
+      const btw = String(d.VATNumber ?? '').trim()
+      if (code && btw) btwPerBv.set(code, btw)
+    }
+  } catch (e) {
+    /* Geen reden om het ophalen van de administraties te laten mislukken:
+       zonder btw-nummer werkt alles nog, het herkennen is alleen zwakker. */
+    console.warn('[exact] btw-nummers ophalen mislukte: ' + String(e))
+  }
+
+  let btwGevuld = 0
+
   for (const r of rijen) {
     /* Alleen naam en tijdstempel: actief en hoofd zijn keuzes die hier zijn
        gemaakt en die een ophaalronde niet hoort terug te draaien. */
+    const velden: Record<string, unknown> = { code: r.code, naam: r.naam, updated_at: nu }
+
+    const btw = btwPerBv.get(r.code)
+    if (btw) {
+      const { data: staat } = await admin.from('exact_administratie')
+        .select('btw_nummer').eq('code', r.code).maybeSingle()
+      if (!String(staat?.btw_nummer ?? '').trim()) {
+        velden.btw_nummer = btw
+        btwGevuld++
+      }
+    }
+
     await admin.from('exact_administratie').upsert(
-      { code: r.code, naam: r.naam, updated_at: nu },
+      velden,
       { onConflict: 'code', ignoreDuplicates: false },
     ).select()
   }
+
+  if (btwGevuld > 0) console.log(`[exact] ${btwGevuld} btw-nummers uit Exact overgenomen`)
 
   /*
    * Het nummer van de koppeling rechtzetten als het er niet bij hoort.

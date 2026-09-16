@@ -12425,6 +12425,57 @@ console.log('\n100. Het virtuele kantoor')
     !kaart.kantoor.includes('customer') && !kaart.kantoor.includes('employer'),
     'een klantdashboard kent de pagina kantoor')
 
+  /* --- en wat er dubbel stond, staat nu op een plek --- */
+
+  /*
+   * Casper: "Bij ontwikkelaar heb ik bij inkoop nog steeds de adressen en
+   * grootboekrekeningen, gezien die bij administratie opkomen, kan dat daar
+   * niet weg?"
+   *
+   * De BEREKENDE adreslijst wel: sinds 0095 is een adres een rij met een
+   * onderneming en een persoon eraan, en die lijst wist daar niets van.
+   * De instellingen eromheen blijven -- domein, voorvoegsel, wie er leest --
+   * want die staan nergens anders.
+   */
+  const inkoopScherm = readFileSync('src/dashboards/developer/Inkoop.tsx', 'utf8')
+  check('de berekende adreslijst staat niet meer bij de ontwikkelaar',
+    !inkoopScherm.includes('function AdresRegel'),
+    'er staan nog twee lijsten met inkoopadressen')
+
+  check('maar het domein en de lezer staan er nog wel',
+    inkoopScherm.includes('factuur_lezer') || inkoopScherm.includes('SLEUTELS'),
+    'de instellingen zijn meegesneuveld met de lijst')
+
+  /*
+   * En de rekeningenkaart heet niet meer alsof het een tweede rekeningschema
+   * is. Hij blijft bestaan, want de TREFWOORDEN staan nergens anders en
+   * zonder die tabel deelt factuur_indelen() niets meer in.
+   */
+  check('en de trefwoordenkaart doet zich niet voor als het grootboek',
+    !inkoopScherm.includes('title="Grootboekrekeningen"')
+      && inkoopScherm.includes('Trefwoorden voor het indelen'),
+    'de kaart heet nog Grootboekrekeningen')
+
+  /* --- het btw-nummer komt uit Exact, de andere twee niet --- */
+
+  const exactFn2 = readFileSync('supabase/functions/exact/index.ts', 'utf8')
+  check('het btw-nummer wordt uit Exact overgenomen',
+    exactFn2.includes("'hrm/Divisions'") && exactFn2.includes('VATNumber'),
+    'de btw-nummers moeten nog met de hand')
+
+  /* Alleen waar het leeg staat: wat een mens heeft nagekeken wint van wat
+     Exact toevallig bewaart. */
+  check('maar alleen waar het nog leeg staat',
+    /if \(!String\(staat\?\.btw_nummer \?\? ''\)\.trim\(\)\)/.test(exactFn2),
+    'een ingetikt btw-nummer wordt overschreven')
+
+  /* En dat KvK en IBAN niet uit Exact komen, staat op het scherm. Anders
+     blijft iemand zoeken naar een knop die niet bestaat. */
+  const exactScherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  check('en er staat bij welke nummers Exact NIET weet',
+    exactScherm.includes('blijven handwerk'),
+    'niemand kan zien waarom KvK en IBAN met de hand moeten')
+
   /* De opmaak leunt op de bestaande tokens; een eigen kleur zou in de lichte
      stand een vlek worden die niet meer weg te krijgen is. */
   const css = readFileSync('src/styles/kantoor.css', 'utf8')

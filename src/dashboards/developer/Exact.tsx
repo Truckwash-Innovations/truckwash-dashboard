@@ -912,6 +912,24 @@ export function Administraties({ verbonden }: { verbonden: boolean }) {
             Aalsmeer B.V.” schelen één woord. Exact geeft deze nummers niet mee bij het
             ophalen, dus ze moeten hier met de hand in.
           </p>
+          {/*
+            * Wat Exact wel en niet weet.
+            *
+            * Casper vroeg of deze nummers niet uit Exact konden komen. Voor
+            * een van de drie kan dat, en dat gebeurt nu vanzelf bij het
+            * ophalen van de administraties. De andere twee staan daar
+            * nergens -- nagekeken en niet aangenomen -- en dan hoort dat hier
+            * te staan. Anders blijft iemand zoeken naar een knop die niet
+            * bestaat.
+            */}
+          <p className="help" style={{ marginTop: 0 }}>
+            Het <strong>btw-nummer</strong> komt uit Exact zelf en wordt
+            ingevuld zodra je de administraties ophaalt — alleen waar het nog
+            leeg is, want wat jij intikt wint. Het <strong>KvK-nummer</strong>
+            en het <strong>eigen rekeningnummer</strong> staan in Exact nergens
+            op de administratie; die twee blijven handwerk.
+          </p>
+
           {actief.length === 0
             ? (
               <p className="help">Zet hierboven eerst een bv aan.</p>

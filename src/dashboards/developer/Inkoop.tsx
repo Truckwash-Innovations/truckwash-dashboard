@@ -190,10 +190,8 @@ function Adressen() {
    * aankomt.
    */
   const actief = vestigingen.filter((l) => l.active !== false)
-  const metSlug = useMemo(
-    () => actief.filter((l) => l.websiteSlug)
-      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
-    [vestigingen]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* Alleen nog wie er GEEN heeft: dat is het enige dat hier nog iets te
+     melden valt. De adressen zelf staan bij de administratie. */
   const zonderSlug = actief.filter((l) => !l.websiteSlug)
 
   return (
@@ -393,45 +391,25 @@ function Adressen() {
         </button>
       </div>
 
-      {/* ---- wat dit oplevert ---- */}
-
-      <h4 style={{ marginTop: 24, marginBottom: 4 }}>De adressen</h4>
-      <p className="help" style={{ marginBottom: 10 }}>
-        Zet deze bij Resend als doorstuuradres naar de webhook. Post op een adres
-        dat hier niet bij staat komt gewoon binnen, maar dan zonder vestiging.
-      </p>
-
-      {!domein || foutDomein ? (
-        <Empty
-          text="Vul hierboven een domein in; dan verschijnen de adressen hier."
-          icon={<TriangleAlert size={22} />}
-        />
-      ) : (
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Vestiging</th>
-                <th>Adres</th>
-                <th style={{ width: 44 }} />
-              </tr>
-            </thead>
-            <tbody>
-              <AdresRegel
-                naam="Algemeen (geen vestiging)"
-                adres={inkoopAdres(domein, voorvoegsel)}
-              />
-              {metSlug.map((l) => (
-                <AdresRegel
-                  key={l.id}
-                  naam={l.name}
-                  adres={inkoopAdres(domein, voorvoegsel, l.websiteSlug)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* ------------------------------------------------------------ *
+        *  De adressen stonden hier, en staan nu bij de administratie
+        *
+        *  Casper: "Bij ontwikkelaar heb ik bij inkoop nog steeds de adressen
+        *  en grootboekrekeningen, gezien die bij administratie opkomen, kan
+        *  dat daar niet weg?"
+        *
+        *  Terecht. Wat hier stond was de BEREKENDE lijst:
+        *  inkoop.<website-slug>@<domein>, per vestiging. Sinds 0095 is een
+        *  adres een rij in inkoop_adres met een onderneming en een persoon
+        *  eraan, en sinds 0097 maken die zichzelf aan. De lijst hier was
+        *  daarmee een tweede antwoord op dezelfde vraag -- en het verkeerde,
+        *  want hij wist niets van hernoemde adressen of van bv's zonder
+        *  vestiging.
+        *
+        *  Wat hierboven staat blijft wel: het domein, het voorvoegsel, wie er
+        *  leest en wanneer er vanzelf getekend mag worden. Dat zijn
+        *  instellingen en geen lijst, en ze staan nergens anders.
+        * ------------------------------------------------------------ */}
 
       {zonderSlug.length > 0 && (
         <p className="help" style={{ marginTop: 12 }}>
@@ -439,9 +417,11 @@ function Adressen() {
           {zonderSlug.length === 1
             ? 'Eén vestiging heeft'
             : `${zonderSlug.length} vestigingen hebben`}{' '}
-          nog geen website-adres en dus geen eigen inkoopadres:{' '}
+          nog geen website-adres, waardoor het adres op de plaatsnaam niet
+          gemaakt kan worden:{' '}
           {zonderSlug.map((l) => l.name).join(', ')}. Dat stel je in bij
-          Vestigingen, tabblad Website.
+          Vestigingen, tabblad Website. De adressen zelf staan bij
+          Administratie, onder <strong>Waar facturen binnenkomen</strong>.
         </p>
       )}
     </Card>
@@ -500,36 +480,27 @@ function LezerStatus({ lokaalGekozen }: { lokaalGekozen: boolean }) {
   )
 }
 
-function AdresRegel({ naam, adres }: { naam: string; adres: string }) {
-  const [gekopieerd, setGekopieerd] = useState(false)
-
-  async function kopieer() {
-    try {
-      await navigator.clipboard.writeText(adres)
-      setGekopieerd(true)
-      setTimeout(() => setGekopieerd(false), 1500)
-    } catch {
-      toast.error('Kopiëren lukte niet; selecteer het adres met de hand.')
-    }
-  }
-
-  return (
-    <tr>
-      <td>{naam}</td>
-      <td><code>{adres}</code></td>
-      <td>
-        <button className="btn ghost sm" onClick={kopieer} title="Adres kopiëren">
-          {gekopieerd ? <Check size={15} /> : <Copy size={15} />}
-        </button>
-      </td>
-    </tr>
-  )
-}
 
 /* ================================================================== *
  *  2. Het grootboek
  * ================================================================== */
 
+/*
+ * De trefwoorden, niet het grootboek
+ *
+ * Casper vroeg of de grootboekrekeningen hier ook weg konden, omdat ze bij de
+ * administratie al uit Exact komen. Half: de REKENINGEN komen daar inderdaad
+ * vandaan -- per bv, uit exact_grootboek, en dat is de enige waarheid over
+ * welke rekening bestaat.
+ *
+ * Wat hier staat is iets anders, en het is het enige exemplaar: de
+ * TREFWOORDEN. Die bepalen waar een factuur zichzelf op indeelt -- "shell"
+ * naar brandstof, "gamma" naar onderhoud. Zonder deze tabel raadt
+ * factuur_indelen() niets meer en komt elke factuur leeg binnen.
+ *
+ * Dus blijft hij, maar niet meer onder een naam die doet alsof dit een tweede
+ * rekeningschema is. Dat was precies de verwarring.
+ */
 function Rekeningen() {
   const rijen = useLiveQuery(() => db.grootboek.toArray(), [], [] as Grootboek[])
   const [open, setOpen] = useState<Grootboek | 'nieuw' | null>(null)
@@ -539,8 +510,8 @@ function Rekeningen() {
 
   return (
     <Card
-      title="Grootboekrekeningen"
-      hint="Waar een factuur op geboekt wordt, en waaraan hij te herkennen is"
+      title="Trefwoorden voor het indelen"
+      hint="Waaraan een factuur herkend wordt; de rekeningen zelf komen uit Exact"
       className="mb"
       action={
         <button className="btn sm" onClick={() => setOpen('nieuw')}>
