@@ -21631,17 +21631,58 @@ declare
   lijf  text;
   fout  text;
 begin
-  if to_regproc('cron.schedule') is null then
-    return query select 'alle'::text, ''::text, false,
-      'pg_cron staat niet aan op deze database.'::text;
-    return;
-  end if;
-  if to_regproc('net.http_post') is null then
-    return query select 'alle'::text, ''::text, false,
-      'pg_net staat niet aan; zonder die uitbreiding kan een cron geen '
-      'functie wekken.'::text;
-    return;
-  end if;
+  /*
+   * Bestaat de uitbreiding, en zo nee: kán hij?
+   *
+   * Hier stond `to_regproc('cron.schedule') is null`, en dat was fout op een
+   * manier die precies het verkeerde antwoord gaf. to_regproc geeft null
+   * terug als een naam MEERDERE varianten heeft, en cron.schedule bestaat in
+   * twee vormen (met en zonder jobnaam). Op een database waar pg_cron
+   * gewoon aanstond meldde deze functie dus doodleuk dat hij er niet was --
+   * en dan ga je zoeken naar een abonnement dat je al hebt.
+   *
+   * Nu rechtstreeks in de catalogus, waar meerdere varianten juist normaal
+   * zijn.
+   *
+   * En de melding onderscheidt de drie gevallen, want ze vragen om iets
+   * anders: niet te installeren (grens van het platform, niets aan te doen),
+   * wel beschikbaar maar uit (één regel SQL), of aan maar stuk (zeldzaam, en
+   * dan wil je het echt weten).
+   */
+  for w in
+    select * from (values
+      ('pg_cron', 'cron', 'schedule'),
+      ('pg_net',  'net',  'http_post')
+    ) as t(uitbreiding, schemanaam, functie)
+  loop
+    if not exists (
+      select 1 from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = w.schemanaam and p.proname = w.functie)
+    then
+      return query select 'alle'::text, ''::text, false, (
+        case
+          when not exists (
+            select 1 from pg_available_extensions a where a.name = w.uitbreiding)
+          then format(
+            '%s is op deze database niet te installeren -- hij staat niet in '
+            'pg_available_extensions. Dat is een grens van het platform of het '
+            'abonnement; de wekkers blijven dan bij GitHub.', w.uitbreiding)
+          when exists (
+            select 1 from pg_available_extensions a
+             where a.name = w.uitbreiding and a.installed_version is null)
+          then format(
+            '%s is wél beschikbaar maar staat nog niet aan. Zet hem aan bij '
+            'Database, Extensions -- of draai: create extension %s;',
+            w.uitbreiding, w.uitbreiding)
+          else format(
+            '%s staat aan, maar %s.%s bestaat niet. Dat hoort niet te kunnen; '
+            'kijk naar de installatie van die uitbreiding.',
+            w.uitbreiding, w.schemanaam, w.functie)
+        end)::text;
+      return;
+    end if;
+  end loop;
 
   select nullif(trim(i.waarde), '') into basis
     from public.instellingen i where i.sleutel = 'functies_url';

@@ -12101,6 +12101,33 @@ console.log('\n98. De wekkers gaan naast wat ze wekken')
   check('en er staat bij waarom de planning weg is',
     taken.includes('0101') && voorraad.includes('0101'),
     'wie dit later leest ziet niet waarom de planning ontbreekt')
+
+  /*
+   * En het bestaan van cron.schedule wordt niet met to_regproc gecontroleerd.
+   *
+   * Dat stond er, en het gaf precies het verkeerde antwoord: to_regproc geeft
+   * null terug als een naam MEERDERE varianten heeft, en cron.schedule
+   * bestaat in twee vormen. Op Caspers database, waar pg_cron gewoon aanstond
+   * (1.6.4), meldde de functie doodleuk dat hij er niet was -- waarna je gaat
+   * zoeken naar een abonnement dat je al hebt.
+   *
+   * Op een TABEL mag to_regclass wel: die kent geen varianten.
+   */
+  check('het bestaan van een functie wordt in de catalogus opgezocht',
+    /*
+     * Positief geformuleerd, en dat is geen slordigheid maar nodig: de
+     * uitleg hierboven NOEMT to_regproc('cron.schedule'), want dat was de
+     * fout. Een controle die op de afwezigheid van die tekst let, struikelt
+     * dus over het commentaar dat vertelt waarom hij bestaat. Dezelfde val
+     * als bij groep 89 en 95.
+     */
+    m101.includes('from pg_proc p') && m101.includes('join pg_namespace n'),
+    'to_regproc op een naam met meerdere varianten geeft altijd null')
+
+  /* En de melding zegt welk van de drie gevallen het is. */
+  check('en een ontbrekende uitbreiding zegt of hij wél kan',
+    m101.includes('pg_available_extensions'),
+    '"staat niet aan" is niet te onderscheiden van "kan niet"')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
