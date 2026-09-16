@@ -9730,5 +9730,167 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
   await rt.close()
 }
 
+console.log('\n75. Een werkadres op het verkeerde domein')
+
+{
+  /*
+   * Casper: "Ik heb hem hier op een ander domein dan bedoeld is... Kan je dit
+   * fixen? gezien ik nu niks kan versturen of krijgen."
+   *
+   * Het domein is een instelling; een uitgedeeld adres is tekst in het
+   * dossier. Die twee liepen uit elkaar en niets zei het. En een adres op een
+   * domein dat Resend niet kent is een adres waar niets heen gaat -- zonder
+   * foutmelding, want het weigeren gebeurt aan de andere kant.
+   */
+  const wa = await fresh()
+  await wa.exec(sqlFile('supabase/setup.sql'))
+  await asServer(wa)
+
+  const BAAS = '75000000-0000-0000-0000-000000000001'
+  const JAN  = '75000000-0000-0000-0000-000000000002'
+  const PIET = '75000000-0000-0000-0000-000000000003'
+
+  await wa.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}', 'baas75@truckwash1group.nl', '{"name":"Baas"}'::jsonb),
+      ('${JAN}',  'jan75@gmail.com',           '{"name":"Jan"}'::jsonb),
+      ('${PIET}', 'piet75@gmail.com',          '{"name":"Piet"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employee'], active = true
+     where auth_id in ('${JAN}', '${PIET}');
+
+    update public.instellingen set waarde = 'truckwash1group.nl'
+     where sleutel = 'werk_domein';
+
+    update public.profiles
+       set werk_email = 'jan@truckwash-workspace.com', werk_mail_aan = true
+     where auth_id = '${JAN}';
+    update public.profiles
+       set werk_email = 'piet@truckwash-workspace.com', werk_mail_aan = false
+     where auth_id = '${PIET}';
+  `)
+
+  const baas = (await wa.query(
+    "select id from public.profiles where email = 'baas75@truckwash1group.nl'")).rows[0].id
+
+  /* --- de stand zegt dat het scheef staat --- */
+
+  await asUser(wa, BAAS)
+  const stand = (await wa.query('select * from public.werkadressen_stand()')).rows
+
+  check('de stand ziet het domein waarop de adressen staan',
+    stand.some((r) => r.domein === 'truckwash-workspace.com' && r.hoeveel === 2),
+    JSON.stringify(stand))
+  check('en zegt dat het niet het ingestelde domein is',
+    stand.find((r) => r.domein === 'truckwash-workspace.com')?.is_ingesteld === false,
+    JSON.stringify(stand))
+  check('met hoeveel er een open postvak hebben',
+    stand.find((r) => r.domein === 'truckwash-workspace.com')?.open_postvak === 1,
+    JSON.stringify(stand))
+
+  /* --- de proefronde verandert niets --- */
+
+  const proef = (await wa.query(
+    "select * from public.werkadressen_verhuizen('truckwash1group.nl', null, false)")).rows
+
+  check('de proefronde noemt beide adressen', proef.length === 2, JSON.stringify(proef))
+  check('en laat zien waar ze heen gaan',
+    proef.every((r) => r.nieuw.endsWith('@truckwash1group.nl')), JSON.stringify(proef))
+
+  const nogSteeds = (await wa.query(
+    "select count(*)::int as n from public.profiles where werk_email like '%truckwash-workspace.com'")).rows[0]
+  check('en verandert nog niets', nogSteeds.n === 2, String(nogSteeds.n))
+
+  /* --- een botsing met een inlogadres wordt gezien --- */
+
+  /*
+   * Dit is de valkuil bij dit bedrijf: de privéadressen staan óók op
+   * truckwash1group.nl. Zou het werkadres hetzelfde worden, dan komt de
+   * uitnodiging om dat postvak te openen in dat postvak terecht -- en daar
+   * kun je pas bij als je hem hebt gelezen. Het werkadres staat NAAST het
+   * privéadres en vervangt het niet (0081).
+   */
+  await asServer(wa)
+  await wa.exec(`
+    update public.profiles set werk_email = 'baas75@truckwash-workspace.com'
+     where id = '${baas}'
+  `)
+  await asUser(wa, BAAS)
+
+  const metBotsing = (await wa.query(
+    "select * from public.werkadressen_verhuizen('truckwash1group.nl', null, false)")).rows
+  const bots = metBotsing.find((r) => r.oud === 'baas75@truckwash-workspace.com')
+  check('een adres dat het inlogadres zou worden, gaat niet mee',
+    bots?.gelukt === false && String(bots?.waarom).includes('ingelogd'),
+    JSON.stringify(bots))
+
+  await asServer(wa)
+  await wa.exec(`update public.profiles set werk_email = null where id = '${baas}'`)
+  await asUser(wa, BAAS)
+
+  /* --- en dan de verhuizing zelf --- */
+
+  const echt = (await wa.query(
+    "select * from public.werkadressen_verhuizen('truckwash1group.nl', null, true)")).rows
+  check('de verhuizing meldt wat er is gebeurd',
+    echt.length === 2 && echt.every((r) => r.gelukt), JSON.stringify(echt))
+
+  await asServer(wa)
+  const na = (await wa.query(`
+    select werk_email from public.profiles
+     where werk_email is not null order by werk_email`)).rows.map((r) => r.werk_email)
+  check('de adressen staan op het nieuwe domein',
+    na.join(',') === 'jan@truckwash1group.nl,piet@truckwash1group.nl', JSON.stringify(na))
+
+  /* Het stuk vóór de @ blijft. Dat is het adres dat op briefpapier staat en
+     in andermans adresboek; dat veranderen zou een tweede verhuizing zijn. */
+  check('en het stuk vóór de @ is niet veranderd',
+    na.every((a) => ['jan', 'piet'].includes(a.split('@')[0])), JSON.stringify(na))
+
+  await asUser(wa, BAAS)
+  const daarna = (await wa.query('select * from public.werkadressen_stand()')).rows
+  check('en de stand is daarna schoon',
+    daarna.every((r) => r.is_ingesteld === true), JSON.stringify(daarna))
+
+  /* --- een botsing met een al uitgedeeld adres --- */
+
+  await asServer(wa)
+  await wa.exec(`
+    update public.profiles set werk_email = 'jan@oudedomein.nl'
+     where auth_id = '${PIET}'
+  `)
+  await asUser(wa, BAAS)
+
+  const dubbel = (await wa.query(
+    "select * from public.werkadressen_verhuizen('truckwash1group.nl', null, false)")).rows[0]
+  check('een adres dat al van iemand anders is, gaat niet mee',
+    dubbel?.gelukt === false && String(dubbel?.waarom).includes('al van iemand anders'),
+    JSON.stringify(dubbel))
+
+  /* --- en alleen het management mag dit --- */
+
+  await asUser(wa, JAN)
+  let mocht = true
+  try {
+    await wa.query("select * from public.werkadressen_verhuizen('ergens.nl', null, false)")
+  } catch { mocht = false }
+  check('een gewone medewerker kan geen adressen verhuizen', !mocht)
+
+  /* --- en een domein dat geen domein is, wordt geweigerd --- */
+
+  await asUser(wa, BAAS)
+  let gekkeInvoer = true
+  try {
+    await wa.query("select * from public.werkadressen_verhuizen('jan@truckwash1group.nl', null, false)")
+  } catch { gekkeInvoer = false }
+  check('een mailadres in plaats van een domein wordt geweigerd', !gekkeInvoer)
+
+  await asServer(wa)
+  await wa.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

@@ -222,3 +222,78 @@ export async function haalLidWeg(lid: PostbusLid): Promise<void> {
 export function meldadresVan(gebruiker: Pick<User, 'email'>): string {
   return gebruiker.email
 }
+
+/* ------------------------------------------------------------------ *
+ *  Op welk domein staan de uitgedeelde adressen?
+ *
+ *  Casper: "Ik heb hem hier op een ander domein dan bedoeld is... Kan je dit
+ *  fixen? gezien ik nu niks kan versturen of krijgen."
+ *
+ *  Het domein is een instelling, maar een uitgedeeld adres is tekst in
+ *  profiles.werk_email. Verander je de instelling, dan gebeurt er met de
+ *  bestaande adressen niets -- en niets zei dat. Het scherm beloofde
+ *  "voornaam@nieuwdomein.nl" terwijl er mensen op het oude rondliepen, en
+ *  een adres op een domein dat Resend niet kent is een adres waar niets heen
+ *  gaat en niets vandaan komt.
+ * ------------------------------------------------------------------ */
+
+/** Eén domein waarop werkadressen staan. */
+export interface WerkDomeinStand {
+  domein: string
+  hoeveel: number
+  /** Is dit het domein dat is ingesteld? */
+  isIngesteld: boolean
+  /** Hoeveel daarvan een open postvak hebben. */
+  openPostvak: number
+}
+
+/** Welke domeinen er in gebruik zijn. */
+export async function werkadressenStand(): Promise<WerkDomeinStand[]> {
+  const { data, error } = await supabase().rpc('werkadressen_stand')
+  if (error) throw new Error(error.message)
+
+  return (Array.isArray(data) ? data : []).map((r: Record<string, unknown>) => ({
+    domein: String(r.domein ?? ''),
+    hoeveel: Number(r.hoeveel) || 0,
+    isIngesteld: r.is_ingesteld === true,
+    openPostvak: Number(r.open_postvak) || 0,
+  }))
+}
+
+/** Wat een verhuizing met één adres doet. */
+export interface Verhuizing {
+  wie: string
+  naam: string
+  oud: string
+  nieuw: string
+  gelukt: boolean
+  waarom: string
+}
+
+/**
+ * De adressen meenemen naar een ander domein.
+ *
+ * Met `echtDoen = false` een proefronde die niets verandert. Dat is geen
+ * franje: een botsing -- het nieuwe adres bestaat al, of het is het adres
+ * waarmee iemand inlogt -- wil je zien vóórdat je het doet.
+ */
+export async function werkadressenVerhuizen(
+  naar: string,
+  opties: { van?: string; echtDoen?: boolean } = {},
+): Promise<Verhuizing[]> {
+  const { data, error } = await supabase().rpc('werkadressen_verhuizen', {
+    naar_in: naar,
+    van_in: opties.van ?? null,
+    echt_doen: opties.echtDoen === true,
+  })
+  if (error) throw new Error(error.message)
+
+  return (Array.isArray(data) ? data : []).map((r: Record<string, unknown>) => ({
+    wie: String(r.wie ?? ''),
+    naam: String(r.naam ?? ''),
+    oud: String(r.oud ?? ''),
+    nieuw: String(r.nieuw ?? ''),
+    gelukt: r.gelukt === true,
+    waarom: String(r.waarom ?? ''),
+  }))
+}

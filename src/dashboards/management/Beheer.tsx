@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bell, Database, Download, HardDrive, KeyRound, RefreshCw, ServerCog,
@@ -21,6 +21,10 @@ import { Badge, Card, Empty, Modal, Stat } from '../../components/ui'
 import { notifyPermissionState, requestNotifyPermission } from '../../lib/notify'
 import { toast } from '../../store/useToasts'
 import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
+import {
+  werkadressenStand, werkadressenVerhuizen,
+  type Verhuizing, type WerkDomeinStand,
+} from '../../lib/werkmail'
 import { useAuth } from '../../store/useAuth'
 
 /* ------------------------------------------------------------------ *
@@ -366,6 +370,29 @@ function Werkadressen() {
   const [geladen, setGeladen] = useState(false)
   const [bezig, setBezig] = useState(false)
 
+  /* ---------------------------------------------------------------- *
+   *  Waar de uitgedeelde adressen staan
+   *
+   *  Casper: "Ik heb hem hier op een ander domein dan bedoeld is... gezien ik
+   *  nu niks kan versturen of krijgen."
+   *
+   *  Het domein is een instelling, maar een uitgedeeld adres is tekst in het
+   *  dossier. Verander je de instelling, dan gebeurt er met de bestaande
+   *  adressen niets -- en niets zei dat. Dit scherm beloofde vrolijk
+   *  "voornaam@nieuwdomein.nl" terwijl er mensen op het oude rondliepen.
+   *
+   *  Een adres op een domein dat Resend niet kent is een adres waar niets
+   *  heen gaat en niets vandaan komt. Dat hoort hier te staan, niet pas als
+   *  iemand ontdekt dat zijn post nergens aankomt.
+   * ---------------------------------------------------------------- */
+  const [stand, setStand] = useState<WerkDomeinStand[]>([])
+  const [proef, setProef] = useState<Verhuizing[] | null>(null)
+  const [verhuist, setVerhuist] = useState(false)
+
+  const haalStand = useCallback(() => {
+    werkadressenStand().then(setStand).catch(() => setStand([]))
+  }, [])
+
   useEffect(() => {
     let levend = true
     void leesInstelling(SLEUTELS.werkDomein).then((waarde) => {
@@ -373,8 +400,9 @@ function Werkadressen() {
       setDomein(waarde ?? '')
       setGeladen(true)
     })
+    haalStand()
     return () => { levend = false }
-  }, [])
+  }, [haalStand])
 
   /*
    * Een domein en geen mailadres. Wie hier "jan@truckwash1group.nl" intikt
@@ -396,6 +424,7 @@ function Werkadressen() {
       toast.ok(kaal
         ? `Werkadressen worden voornaam@${kaal}`
         : 'Uitgezet. Er kunnen geen werkadressen meer bij.')
+      haalStand()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Opslaan mislukte.')
     } finally {
@@ -438,8 +467,141 @@ function Werkadressen() {
         wijzen. Staat dat niet klaar, dan kun je hier wel een adres uitdelen
         maar komt er niets aan en gaat er niets weg.
       </p>
+
+      {/* ---- waar de adressen nu staan ---- */}
+
+      {stand.length > 0 && (
+        <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          <div className="setting-label">Uitgedeeld</div>
+
+          <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
+            {stand.map((d) => (
+              <div key={d.domein} className="row" style={{ justifyContent: 'space-between' }}>
+                <span>
+                  <span className="mono">@{d.domein}</span>{' '}
+                  {d.isIngesteld
+                    ? <Badge tone="ok">ingesteld</Badge>
+                    : <Badge tone="warn">ander domein</Badge>}
+                </span>
+                <span className="mono">
+                  {d.hoeveel}
+                  {d.openPostvak !== d.hoeveel && ` (${d.openPostvak} open)`}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {stand.some((d) => !d.isIngesteld) && (
+            <>
+              <p className="help" style={{ marginTop: 10 }}>
+                <TriangleAlert size={13} style={{ verticalAlign: -2 }} />{' '}
+                Er staan adressen op een ander domein dan is ingesteld. Kent
+                Resend dat domein niet, dan komt er op die adressen niets aan
+                en gaat er niets weg — zonder foutmelding, want het versturen
+                gebeurt aan de andere kant.
+              </p>
+
+              <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                <button
+                  className="btn sm"
+                  disabled={!!fout || !kaal || verhuist}
+                  onClick={() => void kijkVerhuizing()}
+                >
+                  Wat gebeurt er als ik ze meeneem naar @{kaal || 'domein.nl'}?
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ---- de proefronde, en pas daarna de knop ---- */}
+
+      {proef && (
+        <Modal
+          open
+          title={`Werkadressen meenemen naar @${kaal}`}
+          onClose={() => setProef(null)}
+          width={640}
+        >
+          {proef.length === 0 ? (
+            <Empty text="Er staat niets op een ander domein. Er valt niets te verhuizen." />
+          ) : (
+            <>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr><th>Wie</th><th>Van</th><th>Naar</th></tr>
+                  </thead>
+                  <tbody>
+                    {proef.map((v) => (
+                      <tr key={v.wie}>
+                        <td>{v.naam}</td>
+                        <td className="mono afgekapt">{v.oud}</td>
+                        <td className="afgekapt">
+                          {v.gelukt
+                            ? <span className="mono">{v.nieuw}</span>
+                            : <span style={{ color: 'var(--danger)' }}>{v.waarom}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="help" style={{ marginTop: 10 }}>
+                Wat hier rood staat gaat niet mee; de rest wel. Een adres dat
+                eenmaal is uitgedeeld staat op briefpapier en in andermans
+                adresboek — post die naar het oude adres gaat komt na de
+                verhuizing nergens meer aan.
+              </p>
+
+              <div className="row" style={{ gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button className="btn ghost" onClick={() => setProef(null)}>
+                  Laat maar
+                </button>
+                <button
+                  className="btn primary"
+                  disabled={verhuist || !proef.some((v) => v.gelukt)}
+                  onClick={() => void doeVerhuizing()}
+                >
+                  {proef.filter((v) => v.gelukt).length} adressen meenemen
+                </button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
     </Card>
   )
+
+  async function kijkVerhuizing() {
+    setVerhuist(true)
+    try {
+      setProef(await werkadressenVerhuizen(kaal, { echtDoen: false }))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nakijken lukte niet.')
+    } finally {
+      setVerhuist(false)
+    }
+  }
+
+  async function doeVerhuizing() {
+    setVerhuist(true)
+    try {
+      const uit = await werkadressenVerhuizen(kaal, { echtDoen: true })
+      const goed = uit.filter((v) => v.gelukt).length
+      const mis = uit.length - goed
+      toast.ok(`${goed} werkadressen staan nu op @${kaal}.`
+        + (mis > 0 ? ` ${mis} niet; zie de reden erbij.` : ''))
+      setProef(null)
+      haalStand()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Verhuizen lukte niet.')
+    } finally {
+      setVerhuist(false)
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ *
