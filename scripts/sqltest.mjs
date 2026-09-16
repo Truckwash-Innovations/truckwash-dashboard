@@ -9662,6 +9662,59 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
     tekenenLukte, 'de goedkeuring liep stuk op het geheugen')
 
   /* ---------------------------------------------------------------- *
+   *  En een oude rij uit de app draait niets terug
+   *
+   *  De app schrijft een kostenpost terug als HELE rij. Zat daar een oude
+   *  route_bron in -- 'eerste', terwijl het management hem intussen met de
+   *  hand ergens anders had gelegd -- dan zou die oude waarde de 'handmatig'
+   *  overschrijven, en pakt de eerstvolgende ronde de factuur alsnog af van
+   *  degene bij wie hij was neergelegd.
+   * ---------------------------------------------------------------- */
+
+  await rt.exec(`
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron, goedkeurder, route_bron)
+    values ('exp_74e', 1, 'overig', 'Shell Nederland', 'Diesel', 60, 21,
+            'open', 'mail', '740', 'handmatig', '${mies}', 'handmatig')
+    on conflict (id) do nothing;
+  `)
+
+  await asUser(rt, AAP)
+  await rt.exec("update public.expenses set route_bron = 'eerste' where id = 'exp_74e'")
+    .catch(() => { /* de rem mag ook een fout geven */ })
+  await asServer(rt)
+
+  const oud = (await rt.query(
+    "select route_bron from public.expenses where id = 'exp_74e'")).rows[0]
+  check('een oude route_bron uit de app draait de keuze niet terug',
+    oud.route_bron === 'handmatig', String(oud.route_bron))
+
+  /*
+   * Maar de goedkeurder zelf mag een mens wél veranderen -- dat is de
+   * override waar de vraag over ging -- en dan komt er vanzelf 'handmatig'
+   * op te staan.
+   */
+  await rt.exec(`
+    update public.expenses set goedkeurder = '${aap}', route_bron = 'eerste'
+     where id = 'exp_74e'
+  `)
+  check('de server mag hem wel terugzetten',
+    (await rt.query("select route_bron from public.expenses where id = 'exp_74e'"))
+      .rows[0].route_bron === 'eerste')
+
+  await asUser(rt, AAP)
+  await rt.exec(`update public.expenses set goedkeurder = '${mies}' where id = 'exp_74e'`)
+    .catch(() => {})
+  await asServer(rt)
+
+  const omgezet = (await rt.query(
+    "select goedkeurder, route_bron from public.expenses where id = 'exp_74e'")).rows[0]
+  check('wie hem met de hand omzet, zet hem op handmatig',
+    omgezet.goedkeurder === mies && omgezet.route_bron === 'handmatig',
+    JSON.stringify(omgezet))
+
+  /* ---------------------------------------------------------------- *
    *  Het overzicht voor het scherm
    * ---------------------------------------------------------------- */
 

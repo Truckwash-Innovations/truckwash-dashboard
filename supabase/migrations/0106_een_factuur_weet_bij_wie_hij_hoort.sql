@@ -515,3 +515,28 @@ grant  execute on function public.facturen_op_handtekening(text) to authenticate
 comment on function public.facturen_op_handtekening(text) is
   'Wat er op de tweede handtekening wacht, met bij wie het ligt, waarom het '
   'daar ligt en hoeveel dagen het er staat (0096, uitgebreid in 0106).';
+
+-- ---------------------------------------------------------------------------
+--  10. En route_bron is van de server
+--
+--  De app schrijft een kostenpost terug als HELE rij. Staat daar een oude
+--  route_bron in -- bijvoorbeeld 'eerste', terwijl het management hem
+--  intussen met de hand ergens anders heeft gelegd -- dan zou die oude waarde
+--  de 'handmatig' overschrijven. En dan pakt de eerstvolgende ronde de
+--  factuur alsnog af van degene bij wie hij was neergelegd.
+--
+--  Dit is precies waar de lijst uit 0105 voor is: een kolom beschermen is
+--  sindsdien een regel in een tabel, geen nieuwe trigger.
+--
+--  De goedkeurder zelf blijft WEL van de app: die mag een mens veranderen,
+--  en dat is de override waar de vraag over ging. De volgorde van de
+--  triggers maakt dat rond -- expenses_blijft_van_de_server zet route_bron
+--  terug, en daarna ziet expenses_route_handmatig dat de goedkeurder is
+--  gewijzigd en zet er 'handmatig' op.
+-- ---------------------------------------------------------------------------
+
+insert into public.kolom_van_de_server (tabel, kolom, waarom) values
+  ('expenses', 'route_bron',
+   'waarom een factuur ligt waar hij ligt; de app kent alleen wat hij het '
+   'laatst zag, en zou een handmatige keuze terugdraaien')
+on conflict (tabel, kolom) do update set waarom = excluded.waarom;
