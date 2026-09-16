@@ -12233,5 +12233,212 @@ console.log('\n99. De documentatie wijst naar iets dat bestaat')
     'wie bij README.md begint vindt de rest niet')
 }
 
+/* ==================================================================== *
+ *  100. Het virtuele kantoor
+ *
+ *  Casper: "Ik wil een virtual office, je kan inloggen, en dan heb je dan een
+ *  extra tabje. Dan heb je bijvoorbeeld de receptie, waar je kan praten met
+ *  trucky (of een melding kan maken), kantoren voor bijvoorbeeld
+ *  administratie ect ect. Maar je moet ook een bieb hebben voor die
+ *  documentatie. Zorg dat enkel medewerkers, managment ect ect erin kunnen,
+ *  geen klanten of uitgenodigde klanten."
+ *
+ *  Twee dingen moeten hier hard zijn, en de rest is smaak.
+ *
+ *  Wie erin mag. Een klant hoort dit niet te zien -- ook niet leeg, want de
+ *  namen van de deuren verraden al hoe de organisatie in elkaar zit.
+ *
+ *  En dat het kantoor GEEN tweede rechtensysteem wordt. Een deur gaat open op
+ *  hetzelfde recht dat het menu gebruikt. Zou het kantoor eigen rechten
+ *  krijgen, dan zijn er twee plekken waar je ze fout kunt zetten, en de
+ *  tweede vergeet iedereen.
+ * ==================================================================== */
+
+console.log('\n100. Het virtuele kantoor')
+
+{
+  const kantoor = await import('../src/lib/kantoor')
+  const { magKantoor, ruimtesVoor, RUIMTES, KANTOOR_UITGESLOTEN } = kantoor
+
+  /* --- 1. wie erin mag --- */
+
+  check('een klant komt het kantoor niet in',
+    !magKantoor('employer') && !magKantoor('customer'),
+    'een klant kan het virtuele kantoor openen')
+
+  check('en een medewerker wel',
+    ['employee', 'supervisor', 'technician', 'administratie', 'management', 'developer']
+      .every((r) => magKantoor(r as never)),
+    'niet elke interne rol komt binnen')
+
+  /* Zonder rol ook niet -- dat is de stand vóór het kiezen. */
+  check('en zonder rol niet', !magKantoor(null) && !magKantoor(undefined))
+
+  /*
+   * En een klant krijgt niet "het kantoor maar leeg". Dat lijkt hetzelfde en
+   * is het niet: een lege lobby met de tekst "je hebt hier geen rechten" zegt
+   * nog steeds dát er een kantoor is.
+   */
+  check('een klant krijgt geen enkele deur, ook niet met alle rechten',
+    ruimtesVoor('employer' as never, () => true).length === 0,
+    'een klant ziet deuren')
+
+  /* --- 2. geen tweede rechtensysteem --- */
+
+  /*
+   * Elke deur die een recht eist, gebruikt een recht dat echt bestaat. Een
+   * typefout in een rechtnaam zou betekenen dat de deur er voor niemand is,
+   * of juist voor iedereen -- en dat merk je pas als iemand klaagt.
+   */
+  const { PERMISSIONS } = await import('../src/lib/types')
+  const bestaat = new Set(PERMISSIONS.map((p: { key: string }) => p.key))
+  const onbekend = RUIMTES
+    .flatMap((r: { rechten?: string[] }) => r.rechten ?? [])
+    .filter((p: string) => !bestaat.has(p))
+  check('elke deur gebruikt een recht dat bestaat',
+    onbekend.length === 0, onbekend.join(', '))
+
+  /*
+   * En elke deur komt op een bestaand scherm uit, of is een van de twee
+   * ruimtes die in het kantoor zelf zitten. Een deur naar een pagina die
+   * niemand kent is een muur met een klink.
+   */
+  const { DASHBOARDS_MET } = await import('../src/lib/schermen')
+  const nergens = RUIMTES
+    .map((r: { heen: string }) => r.heen)
+    .filter((h: string) => h !== 'receptie' && h !== 'bibliotheek')
+    .filter((h: string) => !(h in DASHBOARDS_MET))
+  check('en elke deur komt op een bestaand scherm uit',
+    nergens.length === 0, nergens.join(', '))
+
+  /*
+   * Zonder rechten alleen de twee ruimtes die van het kantoor zelf zijn. Een
+   * nieuwe medewerker zonder enig recht hoort niet voor een dichte deur te
+   * staan -- vragen en opzoeken mag altijd.
+   */
+  const kaal = ruimtesVoor('employee' as never, () => false)
+  check('zonder rechten blijven de receptie en de bibliotheek over',
+    kaal.length === 2 && kaal.every((r: { heen: string }) =>
+      r.heen === 'receptie' || r.heen === 'bibliotheek'),
+    kaal.map((r: { key: string }) => r.key).join(', '))
+
+  /*
+   * En een deur verschijnt niet als het dashboard van die rol de pagina niet
+   * kent. De app heeft geen router: een pagina bestaat pas als het dashboard
+   * haar rendert.
+   */
+  const bijEmployee = ruimtesVoor('employee' as never, () => true)
+  check('en een deur naar een scherm dat dit dashboard niet kent, is er niet',
+    !bijEmployee.some((r: { heen: string }) => r.heen === 'boekhouding'),
+    'een werknemer krijgt een deur naar de boekhouding')
+
+  check('de uitgesloten rollen staan op één plek',
+    KANTOOR_UITGESLOTEN.length === 2,
+    'de lijst met uitgesloten rollen klopt niet')
+
+  /* --- 3. de bibliotheek leest echte documentatie --- */
+
+  const { leesMarkdown, leesStukjes, koppenVan, kopId } = await import('../src/lib/markdown')
+
+  const proef = leesMarkdown([
+    '# Titel',
+    '',
+    'Een alinea met **vet** en `code`.',
+    '',
+    '## Een kop',
+    '',
+    '- een punt',
+    '- nog een',
+    '',
+    '| a | b |',
+    '|---|---|',
+    '| 1 | 2 |',
+    '',
+    '```sql',
+    'select 1;',
+    '```',
+    '',
+    '> een citaat',
+  ].join('\n'))
+
+  const soorten = proef.map((b: { soort: string }) => b.soort)
+  check('de markdown-lezer kent kop, alinea, lijst, tabel, code en citaat',
+    ['kop', 'alinea', 'kop', 'lijst', 'tabel', 'code', 'citaat']
+      .every((s2) => soorten.includes(s2)),
+    soorten.join(', '))
+
+  /* Een tabel met één rij hoort één rij te hebben, niet twee (de rand telt
+     niet mee) of nul. */
+  const tabel = proef.find((b: { soort: string }) => b.soort === 'tabel') as
+    { rijen: unknown[]; koppen: unknown[] }
+  check('en een tabel houdt zijn koppen en zijn rijen uit elkaar',
+    tabel && tabel.koppen.length === 2 && tabel.rijen.length === 1,
+    JSON.stringify({ k: tabel?.koppen.length, r: tabel?.rijen.length }))
+
+  /*
+   * Backticks winnen van sterretjes. In `**niet vet**` hoor je precies dat te
+   * zien -- dat is waar backticks voor zijn, en een lezer die daar vet van
+   * maakt is onbruikbaar voor documentatie over code.
+   */
+  const gemengd = leesStukjes('`**niet vet**` maar **wel vet**')
+  check('code wint van vet',
+    gemengd[0].soort === 'code' && gemengd[0].tekst === '**niet vet**'
+      && gemengd.some((x: { soort: string }) => x.soort === 'vet'),
+    JSON.stringify(gemengd))
+
+  /* Een streep is geen lijst, ook al begint hij met streepjes. */
+  const streep = leesMarkdown('tekst\n\n---\n\nmeer tekst')
+  check('--- is een streep en geen opsomming',
+    streep.some((b: { soort: string }) => b.soort === 'streep')
+      && !streep.some((b: { soort: string }) => b.soort === 'lijst'),
+    streep.map((b: { soort: string }) => b.soort).join(', '))
+
+  /* Een anker moet twee keer hetzelfde opleveren, anders werkt de
+     inhoudsopgave één keer. */
+  check('een kop krijgt een stabiel anker',
+    kopId('Als er iets vastzit') === kopId('Als er iets vastzit')
+      && kopId('Als er iets vastzit') === 'als-er-iets-vastzit',
+    kopId('Als er iets vastzit'))
+
+  /*
+   * En de lezer moet de ECHTE documentatie aankunnen -- dat is waar hij voor
+   * is. Elk document uit docs/ erdoorheen, en er moet iets uitkomen.
+   */
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const stuk: string[] = []
+  for (const naam of readdirSync('docs').filter((f) => f.endsWith('.md'))) {
+    const blokken = leesMarkdown(readFileSync(`docs/${naam}`, 'utf8'))
+    if (blokken.length < 3) stuk.push(`${naam}: ${blokken.length} blokken`)
+    if (koppenVan(blokken).length === 0) stuk.push(`${naam}: geen koppen`)
+  }
+  check('en elk echt document komt er leesbaar uit',
+    stuk.length === 0, stuk.join(' | '))
+
+  /* --- 4. en het is een scherm zoals de andere --- */
+
+  const { DASHBOARDS_MET: kaart } = await import('../src/lib/schermen')
+  check('het kantoor staat in de schermenkaart',
+    Array.isArray(kaart.kantoor) && kaart.kantoor.length > 0,
+    'kantoor ontbreekt in DASHBOARDS_MET')
+
+  check('en niet voor klanten',
+    !kaart.kantoor.includes('customer') && !kaart.kantoor.includes('employer'),
+    'een klantdashboard kent de pagina kantoor')
+
+  /* De opmaak leunt op de bestaande tokens; een eigen kleur zou in de lichte
+     stand een vlek worden die niet meer weg te krijgen is. */
+  const css = readFileSync('src/styles/kantoor.css', 'utf8')
+  /*
+   * Eerst het commentaar eruit. De uitleg NOEMT die kleuren -- dat is juist
+   * het punt dat ze al bestaan -- en een controle die daarover struikelt
+   * meet het commentaar in plaats van de opmaak. Vierde keer dat deze val
+   * toeslaat; zie ook groep 89, 95 en 98.
+   */
+  const zonderUitleg = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const eigenKleuren = (zonderUitleg.match(/#[0-9a-f]{3,8}\b/gi) ?? [])
+  check('en de opmaak verzint geen eigen kleuren',
+    eigenKleuren.length === 0, eigenKleuren.join(', '))
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

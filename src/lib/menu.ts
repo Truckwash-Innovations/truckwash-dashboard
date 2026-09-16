@@ -59,6 +59,9 @@ export const CATEGORIEEN: Categorie[] = [
        een wasser bijna de enige. */
     paginas: [
       'start',
+      /* Het kantoor staat vlak achter Start, want het is een tweede ingang
+         tot precies hetzelfde -- geen apart onderwerp. */
+      'kantoor',
       'vandaag',
       'verwerken',
       'werk',

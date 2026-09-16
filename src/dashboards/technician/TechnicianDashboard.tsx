@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  AlertTriangle, CalendarClock, CalendarDays, ClipboardList, Gauge,
-  GraduationCap, LayoutGrid, MessageSquare, QrCode, Wrench,
+  AlertTriangle, CalendarClock, CalendarDays, ClipboardList, DoorOpen, Gauge, GraduationCap, LayoutGrid, MessageSquare, QrCode, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { db } from '../../lib/db'
 import type { Asset, Fault, MaintenancePlan, WorkOrder } from '../../lib/types'
 import { dateFull, duration, money } from '../../lib/format'
@@ -27,6 +27,7 @@ import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
   start: { title: 'Technische dienst', subtitle: 'Waar wil je heen?' },
   overzicht: { title: 'Technische dienst', subtitle: 'Wat er nu speelt' },
   storingen: { title: 'Storingen', subtitle: 'Meldingen beoordelen en afhandelen' },
@@ -65,6 +66,9 @@ export default function TechnicianDashboard() {
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     { key: 'overzicht', label: 'Overzicht', icon: Gauge },
     ...(perms.can('faults.view')
       ? [{ key: 'storingen', label: 'Storingen', icon: AlertTriangle, badge: openStoringen.length || undefined }]
@@ -246,6 +250,7 @@ export default function TechnicianDashboard() {
         title="Scan een installatie"
       />
       <StoringMelden open={melden} onClose={() => setMelden(false)} />
+      {page === 'kantoor' && <Kantoor rol="technician" onGa={setPage} />}
     </Shell>
   )
 }

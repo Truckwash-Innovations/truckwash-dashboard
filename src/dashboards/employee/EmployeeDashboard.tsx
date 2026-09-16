@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarCheck, CalendarDays, CalendarRange, FolderLock, GraduationCap,
-  LayoutGrid, MessageSquare, Package, Receipt, Timer, Wallet,
-  Mail,
+  CalendarCheck, CalendarDays, CalendarRange, DoorOpen, FolderLock, GraduationCap, LayoutGrid, Mail, MessageSquare, Package, Receipt, Timer, Wallet,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { db } from '../../lib/db'
 import { dateFull, duration } from '../../lib/format'
 import { startOfDay } from '../../lib/analytics'
@@ -33,6 +32,7 @@ import type {
 const DAY = 86_400_000
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
   start: { title: 'Start', subtitle: 'Waar wil je heen?' },
   vandaag: { title: 'Vandaag', subtitle: 'Wasopdrachten en wachtrij' },
   rooster: { title: 'Mijn rooster', subtitle: 'Wanneer je bent ingeroosterd' },
@@ -116,6 +116,9 @@ export default function EmployeeDashboard() {
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     { key: 'vandaag', label: 'Vandaag', icon: CalendarCheck, badge: openCount || undefined },
     { key: 'rooster', label: 'Rooster', icon: CalendarDays },
     { key: 'uren', label: 'Mijn uren', icon: Timer },
@@ -256,6 +259,7 @@ export default function EmployeeDashboard() {
       {page === 'agenda' && <Agenda />}
       {page === 'overleg' && <Overleg />}
       {page === 'mijnpost' && <MijnPostvak />}
+      {page === 'kantoor' && <Kantoor rol="employee" onGa={setPage} />}
     </Shell>
   )
 }

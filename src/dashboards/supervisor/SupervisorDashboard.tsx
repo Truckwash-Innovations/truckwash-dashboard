@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarDays, CheckCircle2, ClipboardList, Clock, GraduationCap, LayoutGrid,
-  MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users, ListTodo, BriefcaseBusiness, FolderOpen,
-  Mail,
+  BriefcaseBusiness, CalendarDays, CheckCircle2, ClipboardList, Clock, DoorOpen, FolderOpen, GraduationCap, LayoutGrid, ListTodo, Mail, MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import { SERVICES, SHIFT_KINDS, type Shift, type TimeEntry, type User, type WashJob } from '../../lib/types'
 import { dateFull, duration, initials, money, time } from '../../lib/format'
@@ -34,6 +33,7 @@ import Documenten from '../../components/Documenten'
 const DAY = 86_400_000
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
   start: { title: 'Start', subtitle: 'Waar wil je heen?' },
   team: { title: 'Mijn team', subtitle: 'Wie staat er vandaag en hoe loopt het' },
   rooster: { title: 'Rooster', subtitle: 'Plannen en publiceren' },
@@ -81,6 +81,9 @@ export default function SupervisorDashboard() {
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
     { key: 'werk', label: 'Werk', icon: ListTodo },
     { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
@@ -233,6 +236,7 @@ export default function SupervisorDashboard() {
       {page === 'agenda' && <Agenda />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} team={team} />
+      {page === 'kantoor' && <Kantoor rol="supervisor" onGa={setPage} />}
     </Shell>
   )
 }

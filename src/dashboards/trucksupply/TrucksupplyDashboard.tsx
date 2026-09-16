@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import {
-  BellRing, Building2, LayoutGrid, Loader2, MessageSquare, Package, PackageCheck, PackagePlus,
-  Send, Settings, TriangleAlert, Truck, Warehouse,
+  BellRing, Building2, DoorOpen, LayoutGrid, Loader2, MessageSquare, Package, PackageCheck, PackagePlus, Send, Settings, TriangleAlert, Truck, Warehouse,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { Start, type Tegel } from '../../components/Tegels'
 import { Modal } from '../../components/ui'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -71,6 +71,9 @@ export default function TrucksupplyDashboard() {
   const magKijken = perms.can('supply.view')
   const items_: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     ...(magKijken ? [{ key: 'voorraad', label: 'Voorraad', icon: Warehouse, badge: ongezien || undefined }] : []),
     ...(perms.can('supply.orders')
       ? [{ key: 'bestellingen', label: 'Bestellingen', icon: Truck, badge: openBestellingen || undefined }]
@@ -190,6 +193,7 @@ export default function TrucksupplyDashboard() {
       {page === 'vestigingen' && magKijken && <Contact />}
       {page === 'instellingen' && perms.can('supply.settings') && <Instellingen />}
       {page === 'overleg' && <Overleg />}
+      {page === 'kantoor' && <Kantoor rol="trucksupply" onGa={setPage} />}
     </Shell>
   )
 }

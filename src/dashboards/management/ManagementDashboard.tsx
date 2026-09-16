@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  CalendarRange, GraduationCap, Inbox, LayoutDashboard, LayoutGrid,
-  Briefcase, Building2, CalendarDays, Mail, MessageSquare, Monitor, Package, Receipt,
-  Bot, Send, Settings, Users, Wrench, ListTodo, BriefcaseBusiness, FolderOpen,
+  Bot, Briefcase, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, DoorOpen, FolderOpen, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, ListTodo, Mail, MessageSquare, Monitor, Package, Receipt, Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import { money } from '../../lib/format'
 import Overzicht from './Overzicht'
@@ -61,6 +60,7 @@ const PERIODS = [
 ]
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
   start: { title: 'Start', subtitle: 'Waar wil je heen?' },
   overzicht: { title: 'Managementoverzicht', subtitle: 'Omzet, volume en marge' },
   financieel: { title: 'Financieel', subtitle: 'Kosten valideren en resultaat' },
@@ -164,6 +164,9 @@ export default function ManagementDashboard() {
 
   const items: NavItem[] = [
     { key: 'start', label: 'Start', icon: LayoutGrid },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
     { key: 'werk', label: 'Werk', icon: ListTodo },
     { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
@@ -481,6 +484,7 @@ export default function ManagementDashboard() {
       {page === 'beheer' && <Beheer />}
 
       <BerichtVersturen open={messaging} onClose={() => setMessaging(false)} />
+      {page === 'kantoor' && <Kantoor rol="management" onGa={setPage} />}
     </Shell>
   )
 }

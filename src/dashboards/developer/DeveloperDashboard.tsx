@@ -1,12 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, Bug, Check, Code2, Copy, Inbox, ListChecks, Lock, Mail,
-  MessageSquare, Radio, ScrollText, Search, Send, Server, Trash2,
-  Cpu, Link2, TriangleAlert, Wallet, Wand2,
-  ShieldAlert, ListTodo, BriefcaseBusiness, FolderOpen,
+  ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import {
   tickets as ticketRepo, ticketMessages as messageRepo, logs as logRepo,
@@ -40,6 +38,7 @@ import Werving from '../../components/Werving'
 import Documenten from '../../components/Documenten'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
+  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
   tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
   logboek: { title: 'Logboek', subtitle: 'Fouten en waarschuwingen uit de app' },
   beveiliging: { title: 'Beveiliging', subtitle: 'Wat er is weggehaald, en welke apparaten opvallen' },
@@ -79,6 +78,9 @@ export default function DeveloperDashboard() {
 
   const items: NavItem[] = [
     { key: 'tickets', label: 'Meldingen', icon: Inbox, badge: open.length || undefined },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     ...(perms.canAny('dev.plan', 'dev.approve')
       ? [{ key: 'plannen', label: 'Plannen', icon: ListChecks,
            badge: teBeslissen || undefined }]
@@ -145,6 +147,7 @@ export default function DeveloperDashboard() {
       {page === 'documenten' && <Documenten />}
       {page === 'postbus' && <Postbus />}
       {page === 'overleg' && <Overleg />}
+      {page === 'kantoor' && <Kantoor rol="developer" onGa={setPage} />}
     </Shell>
   )
 }

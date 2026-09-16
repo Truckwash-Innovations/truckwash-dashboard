@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange, ClipboardList, Cpu, FolderLock,
+  AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange, ClipboardList, Cpu, DoorOpen, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
   BriefcaseBusiness, FolderOpen, ListTodo, Sparkles, Timer, Truck, Users, Wallet, Wrench,
@@ -33,6 +33,14 @@ import { ROLE_ORDER, type Permission, type Role } from './types'
  */
 export const DASHBOARDS_MET: Record<string, Role[]> = {
   start:        ['employee', 'supervisor', 'technician', 'customer', 'employer', 'administratie', 'management', 'trucksupply'],
+  /*
+   * Het virtuele kantoor: iedereen die binnen werkt, niemand die klant is.
+   * Welke deuren je daar ziet hangt van je rechten af (lib/kantoor.ts); dát
+   * je er mag komen, hangt van je rol af. Klanten en uitgenodigde klanten
+   * staan er met opzet niet bij -- de deuren verraden al hoe de organisatie
+   * in elkaar zit.
+   */
+  kantoor:      ['employee', 'supervisor', 'technician', 'administratie', 'management', 'developer', 'trucksupply'],
   overleg:      ['employee', 'supervisor', 'technician', 'employer', 'administratie', 'management', 'developer', 'trucksupply'],
   agenda:       ['employee', 'supervisor', 'technician', 'management'],
   opleiding:    ['employee', 'supervisor', 'technician', 'management'],
@@ -212,6 +220,7 @@ export interface Scherm {
 
 export const SCHERMEN: Scherm[] = [
   { page: 'start',      label: 'Start',        hint: 'Het tegeloverzicht van je dashboard', icon: LayoutGrid, ook: ['home', 'begin', 'tegels'] },
+  { page: 'kantoor',    label: 'Het kantoor',  hint: 'De lobby: receptie, kantoren en de bibliotheek', icon: DoorOpen, ook: ['lobby', 'kantoor', 'receptie', 'bibliotheek', 'bieb', 'documentatie', 'handleiding'] },
   { page: 'vandaag',    label: 'Vandaag',      hint: 'Wasopdrachten en wachtrij',       icon: Truck,           recht: 'jobs.view', ook: ['wachtrij', 'wasbeurten'] },
   { page: 'planning',   label: 'Planning',     hint: 'Alle wasopdrachten',              icon: CalendarRange,   recht: 'planning.view' },
   { page: 'rooster',    label: 'Rooster',      hint: 'Wanneer je bent ingeroosterd',    icon: CalendarDays,    recht: 'roster.viewOwn', ook: ['diensten', 'werktijden'] },

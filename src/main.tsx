@@ -8,6 +8,9 @@ import './styles/theme.css'
 import './styles/systeem.css'
 import './styles/animations.css'
 import './styles/auth.css'
+/* Het virtuele kantoor. Na systeem.css: hij leunt op dezelfde tokens en
+   op .card, .btn en .table-wrap. */
+import './styles/kantoor.css'
 
 /*
  * Het thema zetten voordat React iets tekent. Anders zie je bij een lichte

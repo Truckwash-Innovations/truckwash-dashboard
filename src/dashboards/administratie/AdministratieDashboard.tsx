@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Bot, Building2, ClipboardCheck, Clock, Inbox, LayoutDashboard, MessageSquare, Receipt,
-  ScrollText, Settings, ShoppingCart, Store, Truck, UserPlus, Users, Wallet,
-  Mail,
+  Bot, Building2, ClipboardCheck, Clock, DoorOpen, Inbox, LayoutDashboard, Mail, MessageSquare, Receipt, ScrollText, Settings, ShoppingCart, Store, Truck, UserPlus, Users, Wallet,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
+import Kantoor from '../kantoor/Kantoor'
 import { Start, type Tegel } from '../../components/Tegels'
 import { db } from '../../lib/db'
 import type {
@@ -184,6 +183,9 @@ export default function AdministratieDashboard() {
 
   const items: NavItem[] = [
     { key: 'start', label: 'Dashboard', icon: LayoutDashboard, badge: totaal || undefined },
+    /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
+       Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
     ...(perms.can('expenses.approve')
       ? [{ key: 'verwerken', label: 'Te verwerken', icon: ClipboardCheck,
            badge: wacht.verwerken || undefined }]
@@ -422,6 +424,7 @@ export default function AdministratieDashboard() {
       {page === 'aanmeldingen' && <Aanmeldingen />}
       {page === 'overleg' && <Overleg />}
       {page === 'mijnpost' && <MijnPostvak />}
+      {page === 'kantoor' && <Kantoor rol="administratie" onGa={setPage} />}
     </Shell>
   )
 }

@@ -1,0 +1,382 @@
+/* ==================================================================
+   Het virtuele kantoor
+   ==================================================================
+
+   Casper: "Luxe, professioneel en minimalistisch. Donkere en lichte modus.
+   Blauwe/anthraciet huisstijl. Snelle, intuïtieve navigatie. Responsive."
+
+   Geen eigen kleuren
+   ------------------
+
+   Alles hieronder gebruikt de tokens die er al zijn: --surface, --line,
+   --ui, --accent, --text. Dat is geen luiheid maar de enige manier waarop
+   licht en donker allebei blijven kloppen -- de lichte stand herdefinieert
+   die tokens, en wie hier een eigen #1a2740 neerzet maakt een vlek die in
+   het licht niet meer weg te krijgen is.
+
+   Het blauw-antraciet dat gevraagd werd is er dus al: --bg is #070c16,
+   --surface #111a2b, en --ui een koel blauw. Wat hier gebeurt is dat
+   gebruiken alsof het een ruimte is, met licht en diepte.
+
+   Waar "luxe" in zit
+   ------------------
+
+   Niet in glitter. In ruimte (grote marges), in rust (weinig randen, zachte
+   overgangen) en in licht dat ergens vandaan komt: één schuine gloed
+   linksboven, zoals een raam. Dat is het verschil tussen een kaart en een
+   plek.
+   ================================================================== */
+
+/* ------------------------------------------------------------------ *
+ *  Het onthaal
+ * ------------------------------------------------------------------ */
+
+.lobby-onthaal {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 14px);
+  background:
+    radial-gradient(120% 140% at 8% -20%, var(--tint-ui) 0%, transparent 55%),
+    linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  padding: clamp(var(--s4), 4vw, 40px);
+  margin-bottom: var(--s5);
+}
+
+.lobby-onthaal-tekst { position: relative; z-index: 1; max-width: 62ch; }
+
+.lobby-onthaal h2 {
+  margin: 0 0 var(--s2);
+  font-size: clamp(20px, 3.2vw, 28px);
+  letter-spacing: -0.01em;
+}
+
+.lobby-onthaal p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+/* Het "raam". Puur sfeer, dus weg voor wie beweging of ruis niet wil. */
+.lobby-onthaal-licht {
+  position: absolute;
+  inset: -40% 55% 40% -10%;
+  background: linear-gradient(115deg, var(--tint-ui) 0%, transparent 60%);
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ *
+ *  De vleugels
+ * ------------------------------------------------------------------ */
+
+.lobby-vleugel { margin-bottom: var(--s5); }
+
+.lobby-vleugel-kop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.lobby-vleugel-kop h3 {
+  margin: 0;
+  font-size: var(--fs-klein, 14px);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-2);
+}
+
+.lobby-vleugel-kop p { margin: 0; }
+
+/* ------------------------------------------------------------------ *
+ *  De deuren
+ *
+ *  auto-fill en niet auto-fit: bij één deur hoort die niet over de hele
+ *  breedte uit te rekken. Een lobby met één kamer is een lobby met één
+ *  kamer.
+ * ------------------------------------------------------------------ */
+
+.lobby-deuren {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s3);
+}
+
+.lobby-deur {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  text-align: left;
+  padding: var(--s4);
+  padding-left: calc(var(--s4) + 6px);
+  border: 1px solid var(--line);
+  border-radius: var(--r, 12px);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+/* De kier: een streepje licht langs de zijkant, als een deur die op een
+   spleet staat. Dat is het enige "ruimtelijke" in het hele scherm. */
+.lobby-deur-kier {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--ui) 0%, var(--accent) 100%);
+  opacity: .5;
+  transition: opacity .16s ease, width .16s ease;
+}
+
+.lobby-deur:hover,
+.lobby-deur:focus-visible {
+  border-color: var(--line-ui);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover, 0 8px 24px rgba(0, 0, 0, .18));
+}
+
+.lobby-deur:hover .lobby-deur-kier,
+.lobby-deur:focus-visible .lobby-deur-kier { opacity: 1; width: 5px; }
+
+.lobby-deur-ikoon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: var(--tint-ui);
+  color: var(--text-ui);
+}
+
+.lobby-deur-tekst { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lobby-deur-tekst strong { font-size: var(--fs-body, 15px); }
+
+/* ------------------------------------------------------------------ *
+ *  Terug, receptie
+ * ------------------------------------------------------------------ */
+
+.kantoor-terug { margin-bottom: var(--s3); }
+
+.receptie {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .receptie { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------------ *
+ *  De bibliotheek
+ * ------------------------------------------------------------------ */
+
+.bieb-zoek {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r, 12px);
+  background: var(--surface);
+  margin-bottom: var(--s4);
+  color: var(--text-3);
+}
+
+.bieb-zoek .input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: var(--s2) 0;
+  color: var(--text);
+}
+
+.bieb-zoek .input:focus { outline: none; }
+
+/* De kast. Elk document een boek met een rug. */
+.bieb-kast {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s3);
+}
+
+.bieb-boek {
+  display: flex;
+  gap: var(--s3);
+  align-items: stretch;
+  text-align: left;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r, 12px);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color .16s ease, transform .16s ease;
+}
+
+.bieb-boek:hover, .bieb-boek:focus-visible {
+  border-color: var(--line-ui);
+  transform: translateY(-2px);
+}
+
+.bieb-rug {
+  flex: 0 0 8px;
+  background: linear-gradient(180deg, var(--ui) 0%, var(--accent) 100%);
+  opacity: .75;
+}
+
+.bieb-boek-tekst {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s4);
+  min-width: 0;
+}
+
+/* --- een document lezen --- */
+
+.bieb-balk {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  justify-content: space-between;
+  margin-bottom: var(--s4);
+}
+
+.bieb-lezen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: var(--s5);
+  align-items: start;
+}
+
+/* De inhoudsopgave rechts en blijft staan; op smal gaat hij eruit. Een
+   inhoudsopgave die meescrollt met de tekst is geen inhoudsopgave. */
+.bieb-inhoud {
+  position: sticky;
+  top: var(--s4);
+  order: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--s3);
+  border-left: 1px solid var(--line-soft);
+}
+
+.bieb-inhoud-kop {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-meta, 12px);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-3);
+}
+
+.bieb-inhoud a {
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: var(--fs-klein, 14px);
+  padding: 3px 0;
+  border-radius: 4px;
+}
+
+.bieb-inhoud a:hover { color: var(--text); }
+.bieb-inhoud a.diep { padding-left: var(--s3); font-size: var(--fs-meta, 12px); }
+
+/* De tekst zelf. Een leesbreedte, niet de hele pagina. */
+.bieb-tekst {
+  order: 1;
+  max-width: 78ch;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.bieb-tekst .bieb-kop {
+  color: var(--text);
+  margin: var(--s5) 0 var(--s3);
+  scroll-margin-top: var(--s5);
+  letter-spacing: -0.01em;
+}
+
+.bieb-tekst .bieb-kop:first-child { margin-top: 0; }
+.bieb-tekst p { margin: 0 0 var(--s3); }
+.bieb-tekst ul, .bieb-tekst ol { margin: 0 0 var(--s3); padding-left: 1.3em; }
+.bieb-tekst li { margin-bottom: 4px; }
+.bieb-tekst strong { color: var(--text); }
+
+.bieb-code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: .92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.bieb-blok {
+  margin: 0 0 var(--s3);
+  padding: var(--s3);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm, 8px);
+  background: var(--bg-2);
+  overflow-x: auto;
+  font-size: var(--fs-klein, 14px);
+  line-height: 1.55;
+}
+
+.bieb-citaat {
+  margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s4);
+  border-left: 3px solid var(--line-ui);
+  background: var(--tint-ui-weak);
+  border-radius: 0 var(--r-sm, 8px) var(--r-sm, 8px) 0;
+}
+
+.bieb-streep { border: 0; border-top: 1px solid var(--line-soft); margin: var(--s5) 0; }
+
+/* Een verwijzing naar een ander document ziet eruit als een link maar is een
+   knop -- hij navigeert binnen de bibliotheek in plaats van de app te
+   verlaten. */
+.bieb-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-ui);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bieb-link:hover { color: var(--ui); }
+
+/* ------------------------------------------------------------------ *
+ *  Smal
+ * ------------------------------------------------------------------ */
+
+@media (max-width: 860px) {
+  .bieb-lezen { grid-template-columns: 1fr; }
+  .bieb-inhoud { display: none; }
+  .lobby-onthaal-licht { display: none; }
+}
+
+@media (max-width: 520px) {
+  .lobby-deuren, .bieb-kast { grid-template-columns: 1fr; }
+  .lobby-deur { padding: var(--s3); padding-left: calc(var(--s3) + 6px); }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wie liever geen beweging heeft
+ * ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-deur, .bieb-boek, .lobby-deur-kier { transition: none; }
+  .lobby-deur:hover, .bieb-boek:hover { transform: none; }
+}
