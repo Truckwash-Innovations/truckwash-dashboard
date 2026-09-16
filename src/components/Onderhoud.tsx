@@ -3,18 +3,18 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarClock, CalendarPlus, CheckCircle2, ListChecks, Plus, TriangleAlert,
 } from 'lucide-react'
-import { db } from '../../lib/db'
-import { maintenance as planRepo, dueStateOf } from '../../lib/techniek'
+import { db } from '../lib/db'
+import { maintenance as planRepo, dueStateOf } from '../lib/techniek'
 import {
   ASSET_CATEGORIES, MAINTENANCE_DAYS,
   type Asset, type Location, type MaintenanceInterval, type MaintenancePlan,
-} from '../../lib/types'
-import { dateShort, duration, relative } from '../../lib/format'
-import { Badge, Bar, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { useLocationFilter, visibleLocations } from '../../lib/locations'
-import { toast } from '../../store/useToasts'
+} from '../lib/types'
+import { dateShort, duration, relative } from '../lib/format'
+import { Badge, Bar, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { useLocationFilter, visibleLocations } from '../lib/locations'
+import { toast } from '../store/useToasts'
 
 const DAY = 86_400_000
 

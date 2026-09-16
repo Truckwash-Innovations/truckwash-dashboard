@@ -4,14 +4,14 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check, Loader2, Mail, MessageSquare, Phone, Plus, Send, Trash2, X,
 } from 'lucide-react'
-import { db } from '../../lib/db'
-import { trucky } from '../../lib/trucky'
-import { relative } from '../../lib/format'
-import type { Instelling, TruckyContact, TruckyVraag } from '../../lib/types'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { toast } from '../../store/useToasts'
+import { db } from '../lib/db'
+import { trucky } from '../lib/trucky'
+import { relative } from '../lib/format'
+import type { Instelling, TruckyContact, TruckyVraag } from '../lib/types'
+import { Badge, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { toast } from '../store/useToasts'
 
 /* ------------------------------------------------------------------ *
  *  Trucky

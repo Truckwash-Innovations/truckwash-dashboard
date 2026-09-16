@@ -3,13 +3,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bot, Briefcase, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, DoorOpen, FolderOpen, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, ListTodo, Mail, MessageSquare, Monitor, Package, Receipt, Send, Settings, Users, Wrench,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import { money } from '../../lib/format'
 import Overzicht from './Overzicht'
 import Financieel from './Financieel'
-import Personeel from './Personeel'
+import Personeel from '../../components/Personeel'
 /*
  * De koppeling van het personeel met Exact.
  *
@@ -22,18 +23,18 @@ import Personeel from './Personeel'
  *
  * Onder een andere naam, want er staat hier al een Personeel.
  */
-import { Personeel as ExactPersoneel } from '../developer/Exact'
+import { Personeel as ExactPersoneel } from '../../components/Exact'
 import { exactStatus } from '../../lib/trucksupply'
 import Voorraad from './Voorraad'
 import Planning from './Planning'
 import Beheer from './Beheer'
 import Techniek from './Techniek'
-import Aanmeldingen from './Aanmeldingen'
+import Aanmeldingen from '../../components/Aanmeldingen'
 import Werkgevers from './Werkgevers'
 import Klanten from './Klanten'
 import Kassas from './Kassas'
 import Vestigingen from './Vestigingen'
-import TruckyScherm from '../administratie/Trucky'
+import TruckyScherm from '../../components/Trucky'
 import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import BerichtVersturen from '../../components/BerichtVersturen'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -59,28 +60,6 @@ const PERIODS = [
   { days: 90, label: '90 dagen' },
 ]
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
-  start: { title: 'Start', subtitle: 'Waar wil je heen?' },
-  overzicht: { title: 'Managementoverzicht', subtitle: 'Omzet, volume en marge' },
-  financieel: { title: 'Financieel', subtitle: 'Kosten valideren en resultaat' },
-  personeel: { title: 'Personeel', subtitle: 'Prestaties, uren en rechten' },
-  aanmeldingen: { title: 'Aanmeldingen', subtitle: 'Wie zich via de app heeft aangemeld' },
-  voorraad: { title: 'Voorraad', subtitle: 'Materiaal, verbruik en bestellingen' },
-  planning: { title: 'Planning', subtitle: 'Alle wasopdrachten' },
-  techniek: { title: 'Techniek', subtitle: 'Storingen, onderhoud en werkbonnen' },
-  opleiding: { title: 'Opleiding', subtitle: 'Voortgang van iedereen' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
-  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
-  postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt op het dashboard' },
-  agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
-  werkgevers: { title: 'Klanten', subtitle: 'Bedrijven waarvan de chauffeurs hier wassen' },
-  klanten: { title: 'Facturatieklanten', subtitle: 'De bedrijven waar een factuur heen gaat' },
-  kassas: { title: "Kassa's", subtitle: 'Apparaten, koppelcodes en de kluis' },
-  vestigingen: { title: 'Vestigingen', subtitle: "Adressen, foto's en openingstijden" },
-  trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
-  beheer: { title: 'Beheer', subtitle: 'Instellingen, rechten en gegevens' },
-}
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
@@ -162,36 +141,51 @@ export default function ManagementDashboard() {
   }, [bonnen, aanmeldingen, storingen, voorraad, mensen, jobsVandaag, post, werkgevers,
       viaWebsite])
 
-  const items: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
+  /* ------------------------------------------------------------ *
+   *  Eén lijst: het menu, de kop en wat van buitenaf te openen is
+   *
+   *  Werk, werving en documenten stonden wel in het menu en niet in de
+   *  koppen; boven die drie schermen stond dus "Start / Waar wil je heen?".
+   *  Zie components/paginas.ts.
+   * ------------------------------------------------------------ */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid, sub: 'Waar wil je heen?' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
-    { key: 'werk', label: 'Werk', icon: ListTodo },
-    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
-    { key: 'documenten', label: 'Documenten', icon: FolderOpen },
-    { key: 'overzicht', label: 'Overzicht', icon: LayoutDashboard },
-    { key: 'financieel', label: 'Financieel', icon: Receipt, badge: cijfers.openKosten || undefined },
-    { key: 'planning', label: 'Planning', icon: CalendarRange },
-    { key: 'personeel', label: 'Personeel', icon: Users },
-    ...(perms.can('signups.view')
-      ? [{ key: 'aanmeldingen', label: 'Aanmeldingen', icon: Inbox, badge: cijfers.nieuweAanmeldingen || undefined }]
-      : []),
-    { key: 'voorraad', label: 'Voorraad', icon: Package },
-    { key: 'techniek', label: 'Techniek', icon: Wrench, badge: cijfers.kritiek || undefined },
-    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'werk', label: 'Werk', icon: ListTodo,
+      sub: 'Je taken, het bord en de projecten' },
+    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness,
+      sub: 'Sollicitaties en vacatures' },
+    { key: 'documenten', label: 'Documenten', icon: FolderOpen,
+      sub: 'Mappen, het postvak en wat bij jou ligt' },
+    { key: 'overzicht', label: 'Overzicht', icon: LayoutDashboard,
+      titel: 'Managementoverzicht', sub: 'Omzet, volume en marge' },
+    { key: 'financieel', label: 'Financieel', icon: Receipt, badge: cijfers.openKosten,
+      sub: 'Kosten valideren en resultaat' },
+    { key: 'planning', label: 'Planning', icon: CalendarRange, sub: 'Alle wasopdrachten' },
+    { key: 'personeel', label: 'Personeel', icon: Users,
+      sub: 'Prestaties, uren en rechten' },
+    { key: 'aanmeldingen', label: 'Aanmeldingen', icon: Inbox, recht: 'signups.view',
+      badge: cijfers.nieuweAanmeldingen, sub: 'Wie zich via de app heeft aangemeld' },
+    { key: 'voorraad', label: 'Voorraad', icon: Package,
+      sub: 'Materiaal, verbruik en bestellingen' },
+    { key: 'techniek', label: 'Techniek', icon: Wrench, badge: cijfers.kritiek,
+      sub: 'Storingen, onderhoud en werkbonnen' },
+    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap,
+      sub: 'Voortgang van iedereen' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken' },
     /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
        een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
        zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
-    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
-    ...(perms.can('employer.view')
-      ? [{ key: 'werkgevers', label: 'Klanten', icon: Briefcase,
-           badge: cijfers.nieuweWerkgevers || undefined }]
-      : []),
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail,
+      sub: 'Je eigen mailadres op het bedrijfsdomein' },
+    { key: 'werkgevers', label: 'Klanten', icon: Briefcase, recht: 'employer.view',
+      badge: cijfers.nieuweWerkgevers,
+      sub: 'Bedrijven waarvan de chauffeurs hier wassen' },
     /*
      * Twee schermen die allebei over klanten gaan, en dat is geen fout.
      * 'werkgevers' zijn de transportbedrijven waarvan de chauffeurs komen
@@ -199,28 +193,25 @@ export default function ManagementDashboard() {
      * gaat. Die twee bestaan naast elkaar en het menu hoort dat te zeggen in
      * plaats van te doen alsof het er een is.
      */
-    ...(perms.can('customers.view')
-      ? [{ key: 'klanten', label: 'Facturatieklanten', icon: Building2 }]
-      : []),
-    ...(perms.can('locations.view')
-      ? [{ key: 'vestigingen', label: 'Vestigingen', icon: Building2 }]
-      : []),
-    ...(perms.can('pos.manage')
-      ? [{ key: 'kassas', label: "Kassa's", icon: Monitor }]
-      : []),
-    { key: 'trucky', label: 'Trucky', icon: Bot, badge: cijfers.viaWebsite || undefined },
-    ...(perms.can('agenda.view')
-      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
-      : []),
-    ...(perms.can('mail.read')
-      ? [{ key: 'postbus', label: 'Postbus', icon: Mail, badge: cijfers.nieuwePost || undefined }]
-      : []),
-    { key: 'beheer', label: 'Beheer', icon: Settings },
+    { key: 'klanten', label: 'Facturatieklanten', icon: Building2, recht: 'customers.view',
+      sub: 'De bedrijven waar een factuur heen gaat' },
+    { key: 'vestigingen', label: 'Vestigingen', icon: Building2, recht: 'locations.view',
+      sub: "Adressen, foto's en openingstijden" },
+    { key: 'kassas', label: "Kassa's", icon: Monitor, recht: 'pos.manage',
+      sub: 'Apparaten, koppelcodes en de kluis' },
+    { key: 'trucky', label: 'Trucky', icon: Bot, badge: cijfers.viaWebsite,
+      sub: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
+    { key: 'agenda', label: 'Agenda', icon: CalendarDays, recht: 'agenda.view',
+      sub: 'Afspraken, verjaardagen en wat er aankomt' },
+    { key: 'postbus', label: 'Postbus', icon: Mail, recht: 'mail.read',
+      badge: cijfers.nieuwePost, sub: 'Post die binnenkomt op het dashboard' },
+    { key: 'beheer', label: 'Beheer', icon: Settings,
+      sub: 'Instellingen, rechten en gegevens' },
   ]
 
+  const items = menuVan(paginas, (r) => perms.can(r))
+
   /*
-   * Wie de zoekbalk aanwijst, moet ook opengaan.
-   *
    * De zoekbalk geeft het id van de aangeklikte persoon netjes mee, maar dat
    * werd hier weggegooid: er werd alleen een scherm gekozen. Voor iemand die
    * in de personeelstabel staat viel dat niet op -- die zocht je daar gewoon
@@ -232,9 +223,15 @@ export default function ManagementDashboard() {
   const [openPersoon, setOpenPersoon] = useState<string | null>(null)
   const [openKlant, setOpenKlant] = useState<string | null>(null)
 
+  /*
+   * Namen waar iemand anders heen wil, die hier iets anders heten. Geen
+   * pagina's van dit dashboard maar wegwijzers: de zoekbalk en de mail kennen
+   * "storingen", en dat is hier het techniekscherm.
+   */
+  const OMWEGEN = ['materiaal', 'storingen', 'werkbonnen', 'installaties', 'onderhoud']
+
   useNavTarget(
-    [...items.map((i) => i.key),
-     'klanten', 'materiaal', 'storingen', 'werkbonnen', 'installaties', 'onderhoud'],
+    [...sleutelsVan(paginas, (r) => perms.can(r)), ...OMWEGEN],
     (p, id) => {
       /*
        * 'klanten' ging hier naar 'personeel'. Wie in de zoekbalk een klant
@@ -251,7 +248,7 @@ export default function ManagementDashboard() {
     },
   )
 
-  const meta = TITLES[page] ?? TITLES.start
+  const meta = kopVan(paginas, page, 'start')
   const showPeriod = !ZONDER_PERIODE.includes(page)
 
   const tegels: Tegel[] = [

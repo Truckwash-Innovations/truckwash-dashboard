@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarCheck, CalendarDays, CalendarRange, DoorOpen, FolderLock, GraduationCap, LayoutGrid, Mail, MessageSquare, Package, Receipt, Timer, Wallet,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { db } from '../../lib/db'
 import { dateFull, duration } from '../../lib/format'
 import { startOfDay } from '../../lib/analytics'
@@ -31,20 +32,6 @@ import type {
 
 const DAY = 86_400_000
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
-  start: { title: 'Start', subtitle: 'Waar wil je heen?' },
-  vandaag: { title: 'Vandaag', subtitle: 'Wasopdrachten en wachtrij' },
-  rooster: { title: 'Mijn rooster', subtitle: 'Wanneer je bent ingeroosterd' },
-  uren: { title: 'Mijn uren', subtitle: 'Tijdregistratie' },
-  materiaal: { title: 'Materiaal', subtitle: 'Voorraad en verbruik' },
-  kosten: { title: 'Mijn zaken', subtitle: 'Loonstroken, uren, kilometers en bonnen' },
-  opleiding: { title: 'Opleiding', subtitle: 'Cursussen en certificaten' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken met collega’s' },
-  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
-  dossier: { title: 'Mijn dossier', subtitle: 'Je gegevens, contracten en documenten' },
-  agenda: { title: 'Agenda', subtitle: 'Wat er aankomt op je vestiging' },
-}
 
 export default function EmployeeDashboard() {
   const me = useAuth((s) => s.user)!
@@ -114,33 +101,42 @@ export default function EmployeeDashboard() {
     return { diensten, gewerkt, loopt, laag, openBonnen, afgekeurd, teDoen, teLaat, teTekenen }
   }, [shifts, entries, voorraad, bonnen, voortgang, mijnDocs, me])
 
-  const items: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
+  /* Eén lijst voor het menu, de kop en wat van buitenaf te openen is; zie
+     components/paginas.ts. */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid, sub: 'Waar wil je heen?' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
-    { key: 'vandaag', label: 'Vandaag', icon: CalendarCheck, badge: openCount || undefined },
-    { key: 'rooster', label: 'Rooster', icon: CalendarDays },
-    { key: 'uren', label: 'Mijn uren', icon: Timer },
-    { key: 'materiaal', label: 'Materiaal', icon: Package },
-    { key: 'kosten', label: 'Mijn zaken', icon: Wallet },
-    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap },
-    { key: 'dossier', label: 'Mijn dossier', icon: FolderLock, badge: cijfers.teTekenen || undefined },
-    ...(perms.can('agenda.view')
-      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarRange }]
-      : []),
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
+    { key: 'vandaag', label: 'Vandaag', icon: CalendarCheck, badge: openCount,
+      sub: 'Wasopdrachten en wachtrij' },
+    { key: 'rooster', label: 'Rooster', icon: CalendarDays,
+      titel: 'Mijn rooster', sub: 'Wanneer je bent ingeroosterd' },
+    { key: 'uren', label: 'Mijn uren', icon: Timer, sub: 'Tijdregistratie' },
+    { key: 'materiaal', label: 'Materiaal', icon: Package, sub: 'Voorraad en verbruik' },
+    { key: 'kosten', label: 'Mijn zaken', icon: Wallet,
+      sub: 'Loonstroken, uren, kilometers en bonnen' },
+    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap,
+      sub: 'Cursussen en certificaten' },
+    { key: 'dossier', label: 'Mijn dossier', icon: FolderLock, badge: cijfers.teTekenen,
+      sub: 'Je gegevens, contracten en documenten' },
+    { key: 'agenda', label: 'Agenda', icon: CalendarRange, recht: 'agenda.view',
+      sub: 'Wat er aankomt op je vestiging' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken met collega’s' },
     /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
        een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
        zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
-    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail,
+      sub: 'Je eigen mailadres op het bedrijfsdomein' },
   ]
 
-  useNavTarget(items.map((i) => i.key), (p) => setPage(p))
+  const items = menuVan(paginas, (r) => perms.can(r))
 
-  const meta = TITLES[page] ?? TITLES.start
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
+
+  const meta = kopVan(paginas, page, 'start')
 
   const tegels: Tegel[] = [
     {

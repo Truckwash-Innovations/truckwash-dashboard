@@ -41,9 +41,9 @@ import {
   Save, Search, Send, Trash2, TriangleAlert, Unlink, Users, X,
 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../../lib/db'
-import { bewaarBestand } from '../../lib/download'
-import { enqueue } from '../../lib/sync'
+import { db } from '../lib/db'
+import { bewaarBestand } from '../lib/download'
+import { enqueue } from '../lib/sync'
 /* Location moet hier bij naam staan: zonder deze import pakt TypeScript de
    Location van de browser, en dan klopt er niets van de foutmeldingen. */
 /*
@@ -56,8 +56,8 @@ import { enqueue } from '../../lib/sync'
  * De component houdt zijn naam; het type wijkt, want dat is een databaserij
  * en die naam staat alleen in dit bestand.
  */
-import type { Grootboek as GrootboekRij, Location } from '../../lib/types'
-import { SLEUTELS, leesInstelling, zetInstelling } from '../../lib/instellingen'
+import type { Grootboek as GrootboekRij, Location } from '../lib/types'
+import { SLEUTELS, leesInstelling, zetInstelling } from '../lib/instellingen'
 import {
   FunctieFout,
   exactGrootboekStand, exactInstellen, exactKoppelMedewerker, exactLos,
@@ -74,20 +74,20 @@ import {
   type BetaalStand, type FacturenStand, type RelatiesStand, type VerkoopStand,
   type ExactPersoon, type ExactRekening, type ExactStatus, type GrootboekStand,
   type PersoneelRegel, type PersoneelStand, type VerkoopFactuurRegel,
-} from '../../lib/trucksupply'
-import { dateShort, dateTime, money, relative } from '../../lib/format'
+} from '../lib/trucksupply'
+import { dateShort, dateTime, money, relative } from '../lib/format'
 import {
   Badge, Card, Empty, Field, Filterbalk, Filterchips, Knop, LeegStaat,
   Modal, Paginakop, Stand, Tabel, Zoekveld,
-} from '../../components/ui'
+} from '../components/ui'
 /* Als type en niet als waarde -- zie de kanttekening bij GrootboekRij
    hierboven; 1.74.0 viel om op precies dit soort botsing. */
-import type { Kolom } from '../../components/ui'
-import Stroombalk from '../../components/Stroombalk'
+import type { Kolom } from '../components/ui'
+import Stroombalk from '../components/Stroombalk'
 import {
   buitenStaand, verkoopKlem, verkoopstapVan, verkoopstroom, verkoopTeLaat,
-} from '../../lib/verkoopstroom'
-import { toast } from '../../store/useToasts'
+} from '../lib/verkoopstroom'
+import { toast } from '../store/useToasts'
 
 /** Leeg = de standaard van de server. Alleen om het typen te besparen. */
 const ADRESSEN = [

@@ -3,14 +3,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Check, ClipboardList, Package, Play, Plus, Printer, Search, Trash2,
 } from 'lucide-react'
-import { db, alleMensen } from '../../lib/db'
-import { workOrders as orderRepo } from '../../lib/techniek'
-import type { InventoryItem, User, WorkOrder, WorkOrderStatus } from '../../lib/types'
-import { dateTime, duration, money } from '../../lib/format'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { toast } from '../../store/useToasts'
+import { db, alleMensen } from '../lib/db'
+import { workOrders as orderRepo } from '../lib/techniek'
+import type { InventoryItem, User, WorkOrder, WorkOrderStatus } from '../lib/types'
+import { dateTime, duration, money } from '../lib/format'
+import { Badge, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { toast } from '../store/useToasts'
 
 const STATUS_TONE: Record<WorkOrderStatus, 'default' | 'ok' | 'warn' | 'danger' | 'info' | 'brand'> = {
   open: 'warn',

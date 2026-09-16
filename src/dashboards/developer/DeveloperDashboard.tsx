@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, RefreshCw, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import {
   tickets as ticketRepo, ticketMessages as messageRepo, logs as logRepo,
@@ -33,29 +34,14 @@ import Beveiliging from './Beveiliging'
 import Meekijken from './Meekijken'
 import Postbus from '../../components/Postbus'
 import Plannen from './Plannen'
-import Inkoop from './Inkoop'
+import Inkoop from '../../components/Inkoop'
 import EigenAI from './EigenAI'
-import Exact from './Exact'
+import Exact from '../../components/Exact'
 import { gesprekUit, planVan, plannen as plannenRepo } from '../../lib/devplan'
 import Werk from '../../components/Werk'
 import Werving from '../../components/Werving'
 import Documenten from '../../components/Documenten'
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
-  tickets: { title: 'Meldingen', subtitle: 'Wat gebruikers tegenkomen' },
-  logboek: { title: 'Logboek', subtitle: 'Fouten en waarschuwingen uit de app' },
-  beveiliging: { title: 'Beveiliging', subtitle: 'Wat er is weggehaald, en welke apparaten opvallen' },
-  systeem: { title: 'Systeem', subtitle: 'Versies, verbinding en opslag' },
-  post: { title: 'Post', subtitle: 'Wat de app via Resend heeft verstuurd' },
-  meekijken: { title: 'Meekijken', subtitle: 'Alles wat er nu gebeurt, op volgorde' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
-  postbus: { title: 'Postbus', subtitle: 'Post die binnenkomt, en zelf mailen' },
-  plannen: { title: 'Plannen', subtitle: 'Wat er uit een melding komt, en wat ervan gebouwd wordt' },
-  inkoop: { title: 'Inkoop', subtitle: 'Waar facturen binnenkomen, en hoe ze zichzelf indelen' },
-  eigenai: { title: 'Eigen AI', subtitle: 'Waar het denkwerk gebeurt: bij Claude of op de eigen machine' },
-  exact: { title: 'Exact', subtitle: 'De sleutels van de Exact-app, en de koppeling zelf' },
-}
 
 export default function DeveloperDashboard() {
   const [page, setPage] = useState('tickets')
@@ -80,52 +66,60 @@ export default function DeveloperDashboard() {
     || (a.lastSeenAt ? Date.now() - a.lastSeenAt > 3 * 86_400_000 : false)).length
   const ongelezen = useOverlegTeller()
 
-  const items: NavItem[] = [
-    { key: 'tickets', label: 'Meldingen', icon: Inbox, badge: open.length || undefined },
+  /* ------------------------------------------------------------ *
+   *  Eén lijst: het menu, de kop en wat van buitenaf te openen is
+   *
+   *  Hier stonden er drie -- items, TITLES en de lijst in useNavTarget -- en
+   *  die moesten het met elkaar eens zijn. Twee keer waren ze dat niet:
+   *  werk, werving en documenten ontbraken in de derde (de knop in de
+   *  takenmail deed niets), en met het kantoor ging het opnieuw mis.
+   *
+   *  Zie components/paginas.ts voor waarom de teksten hier blijven staan en
+   *  niet uit lib/schermen.ts komen.
+   * ------------------------------------------------------------ */
+  const paginas: Pagina[] = [
+    { key: 'tickets', label: 'Meldingen', icon: Inbox, badge: open.length,
+      sub: 'Wat gebruikers tegenkomen' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
-    ...(perms.canAny('dev.plan', 'dev.approve')
-      ? [{ key: 'plannen', label: 'Plannen', icon: ListChecks,
-           badge: teBeslissen || undefined }]
-      : []),
-    ...(perms.can('dev.logs')
-      ? [{ key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length || undefined }]
-      : []),
-    ...(perms.can('dev.logs')
-      ? [{ key: 'beveiliging', label: 'Beveiliging', icon: ShieldAlert,
-           badge: vlaggen || undefined }]
-      : []),
-    ...(perms.can('dev.logs')
-      ? [{ key: 'meekijken', label: 'Meekijken', icon: Radio }]
-      : []),
-    { key: 'werk', label: 'Werk', icon: ListTodo },
-    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
-    { key: 'documenten', label: 'Documenten', icon: FolderOpen },
-    { key: 'systeem', label: 'Systeem', icon: Server },
-    { key: 'inkoop', label: 'Inkoop', icon: Wallet },
-    { key: 'eigenai', label: 'Eigen AI', icon: Cpu },
-    { key: 'exact', label: 'Exact', icon: Link2 },
-    { key: 'post', label: 'Post', icon: Mail },
-    ...(perms.can('mail.read')
-      ? [{ key: 'postbus', label: 'Postbus', icon: Inbox }]
-      : []),
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
+    { key: 'plannen', label: 'Plannen', icon: ListChecks, badge: teBeslissen,
+      als: perms.canAny('dev.plan', 'dev.approve'),
+      sub: 'Wat er uit een melding komt, en wat ervan gebouwd wordt' },
+    { key: 'logboek', label: 'Logboek', icon: ScrollText, badge: fouten.length,
+      recht: 'dev.logs', sub: 'Fouten en waarschuwingen uit de app' },
+    { key: 'beveiliging', label: 'Beveiliging', icon: ShieldAlert, badge: vlaggen,
+      recht: 'dev.logs', sub: 'Wat er is weggehaald, en welke apparaten opvallen' },
+    { key: 'meekijken', label: 'Meekijken', icon: Radio,
+      recht: 'dev.logs', sub: 'Alles wat er nu gebeurt, op volgorde' },
+    { key: 'werk', label: 'Werk', icon: ListTodo,
+      sub: 'Je taken, het bord en de projecten' },
+    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness,
+      sub: 'Sollicitaties en vacatures' },
+    { key: 'documenten', label: 'Documenten', icon: FolderOpen,
+      sub: 'Mappen, het postvak en wat bij jou ligt' },
+    { key: 'systeem', label: 'Systeem', icon: Server,
+      sub: 'Versies, verbinding en opslag' },
+    { key: 'inkoop', label: 'Inkoop', icon: Wallet,
+      sub: 'Waar facturen binnenkomen, en hoe ze zichzelf indelen' },
+    { key: 'eigenai', label: 'Eigen AI', icon: Cpu,
+      sub: 'Waar het denkwerk gebeurt: bij Claude of op de eigen machine' },
+    { key: 'exact', label: 'Exact', icon: Link2,
+      sub: 'De sleutels van de Exact-app, en de koppeling zelf' },
+    { key: 'post', label: 'Post', icon: Mail,
+      sub: 'Wat de app via Resend heeft verstuurd' },
+    { key: 'postbus', label: 'Postbus', icon: Inbox, recht: 'mail.read',
+      sub: 'Post die binnenkomt, en zelf mailen' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken' },
   ]
 
-  useNavTarget(
-  ['tickets', 'plannen', 'logboek', 'beveiliging', 'meekijken', 'systeem', 'inkoop', 'eigenai',
-  /* Deze drie ontbraken, terwijl dit dashboard ze wel rendert. Gevolg: de
-     knop in de takenmail (?open=werk) deed niets -- en het doel bleef in
-     useNav staan, zodat je er later onaangekondigd op landde zodra je naar
-     een ander dashboard wisselde. */
-   'werk', 'werving', 'documenten',
-   'exact', 'post', 'postbus', 'overleg'],
-  (p) => setPage(p))
+  const items = menuVan(paginas, (r) => perms.can(r))
 
-  const meta = TITLES[page] ?? TITLES.tickets
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
+
+  const meta = kopVan(paginas, page, 'tickets')
 
   return (
     <Shell

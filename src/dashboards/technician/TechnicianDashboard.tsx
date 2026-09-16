@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, CalendarClock, CalendarDays, ClipboardList, DoorOpen, Gauge, GraduationCap, LayoutGrid, MessageSquare, QrCode, Wrench,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { db } from '../../lib/db'
 import type { Asset, Fault, MaintenancePlan, WorkOrder } from '../../lib/types'
 import { dateFull, duration, money } from '../../lib/format'
@@ -17,27 +18,15 @@ import { assets as assetRepo } from '../../lib/techniek'
 import QrScanner from '../../components/QrScanner'
 import StoringMelden from '../../components/StoringMelden'
 import { toast } from '../../store/useToasts'
-import Storingen from './Storingen'
-import Werkbonnen from './Werkbonnen'
-import Installaties from './Installaties'
-import Onderhoud from './Onderhoud'
+import Storingen from '../../components/Storingen'
+import Werkbonnen from '../../components/Werkbonnen'
+import Installaties from '../../components/Installaties'
+import Onderhoud from '../../components/Onderhoud'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
-  start: { title: 'Technische dienst', subtitle: 'Waar wil je heen?' },
-  overzicht: { title: 'Technische dienst', subtitle: 'Wat er nu speelt' },
-  storingen: { title: 'Storingen', subtitle: 'Meldingen beoordelen en afhandelen' },
-  werkbonnen: { title: 'Werkbonnen', subtitle: 'Het werk zelf' },
-  installaties: { title: 'Installaties', subtitle: 'Machinepark en QR-labels' },
-  onderhoud: { title: 'Onderhoud', subtitle: 'Schemas en wat er openstaat' },
-  opleiding: { title: 'Mijn cursussen', subtitle: 'Veiligheid en techniek' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
-  agenda: { title: 'Agenda', subtitle: 'Beurten, keuringen en afspraken' },
-}
 
 export default function TechnicianDashboard() {
   const me = useAuth((s) => s.user)!
@@ -64,30 +53,36 @@ export default function TechnicianDashboard() {
     (o) => o.assignedTo === me.id && o.status !== 'gereed' && o.status !== 'geannuleerd')
   const achterstallig = plans.filter((p) => p.active && p.nextDueAt < Date.now())
 
-  const items: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
+  /* Eén lijst voor het menu, de kop en wat van buitenaf te openen is; zie
+     components/paginas.ts. */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid,
+      titel: 'Technische dienst', sub: 'Waar wil je heen?' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
-    { key: 'overzicht', label: 'Overzicht', icon: Gauge },
-    ...(perms.can('faults.view')
-      ? [{ key: 'storingen', label: 'Storingen', icon: AlertTriangle, badge: openStoringen.length || undefined }]
-      : []),
-    ...(perms.can('workorders.view')
-      ? [{ key: 'werkbonnen', label: 'Werkbonnen', icon: ClipboardList, badge: mijnBonnen.length || undefined }]
-      : []),
-    ...(perms.can('assets.view') ? [{ key: 'installaties', label: 'Installaties', icon: Wrench }] : []),
-    ...(perms.can('maintenance.view')
-      ? [{ key: 'onderhoud', label: 'Onderhoud', icon: CalendarClock, badge: achterstallig.length || undefined }]
-      : []),
-    { key: 'opleiding', label: 'Cursussen', icon: GraduationCap },
-    ...(perms.can('agenda.view')
-      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
-      : []),
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
+    { key: 'overzicht', label: 'Overzicht', icon: Gauge,
+      titel: 'Technische dienst', sub: 'Wat er nu speelt' },
+    { key: 'storingen', label: 'Storingen', icon: AlertTriangle,
+      badge: openStoringen.length, recht: 'faults.view',
+      sub: 'Meldingen beoordelen en afhandelen' },
+    { key: 'werkbonnen', label: 'Werkbonnen', icon: ClipboardList,
+      badge: mijnBonnen.length, recht: 'workorders.view', sub: 'Het werk zelf' },
+    { key: 'installaties', label: 'Installaties', icon: Wrench, recht: 'assets.view',
+      sub: 'Machinepark en QR-labels' },
+    { key: 'onderhoud', label: 'Onderhoud', icon: CalendarClock,
+      badge: achterstallig.length, recht: 'maintenance.view',
+      sub: 'Schemas en wat er openstaat' },
+    { key: 'opleiding', label: 'Cursussen', icon: GraduationCap,
+      titel: 'Mijn cursussen', sub: 'Veiligheid en techniek' },
+    { key: 'agenda', label: 'Agenda', icon: CalendarDays, recht: 'agenda.view',
+      sub: 'Beurten, keuringen en afspraken' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken' },
   ]
+
+  const items = menuVan(paginas, (r) => perms.can(r))
 
   const kritiek = openStoringen.filter((f) => f.severity === 'kritiek' || f.stopsProduction).length
   const stil = assets.filter((a) => a.status === 'storing').length
@@ -167,7 +162,7 @@ export default function TechnicianDashboard() {
     },
   ]
 
-  useNavTarget(items.map((i) => i.key), (p) => setPage(p))
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
 
   async function handleScan(code: string) {
     setScanning(false)
@@ -178,7 +173,7 @@ export default function TechnicianDashboard() {
     toast.ok(`${asset.name} — ${asset.code}`)
   }
 
-  const meta = TITLES[page] ?? TITLES.overzicht
+  const meta = kopVan(paginas, page, 'overzicht')
 
   return (
     <Shell

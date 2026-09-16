@@ -3,17 +3,17 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, ArrowLeft, Check, ClipboardPlus, Search, UserCheck, X,
 } from 'lucide-react'
-import { db, alleMensen } from '../../lib/db'
-import { faults as faultRepo, workOrders as orderRepo } from '../../lib/techniek'
+import { db, alleMensen } from '../lib/db'
+import { faults as faultRepo, workOrders as orderRepo } from '../lib/techniek'
 import {
   type Fault, type FaultStatus, type User, type WorkOrder,
-} from '../../lib/types'
-import { dateTime, duration, relative } from '../../lib/format'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import { SeverityBadge } from '../../components/StoringMelden'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { toast } from '../../store/useToasts'
+} from '../lib/types'
+import { dateTime, duration, relative } from '../lib/format'
+import { Badge, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import { SeverityBadge } from '../components/StoringMelden'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { toast } from '../store/useToasts'
 
 const STATUS_TONE: Record<FaultStatus, 'default' | 'ok' | 'warn' | 'danger' | 'info'> = {
   gemeld: 'warn',

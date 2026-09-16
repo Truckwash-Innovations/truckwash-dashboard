@@ -97,6 +97,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   verkoopfacturen: ['administratie'],
   betalen:       ['administratie'],
   grootboek:     ['administratie'],
+  bvs:          ['administratie'],
   boekhouding:   ['administratie'],
 
   // Alleen bij het management (klanten via useNavTarget, zonder eigen menu-item)
@@ -263,6 +264,10 @@ export const SCHERMEN: Scherm[] = [
   { page: 'verkoopfacturen', label: 'Verkoopfacturen', hint: 'Wat wij versturen', icon: Receipt, rol: 'administratie', recht: 'admin.desk', ook: ['verkoop', 'debiteuren', 'factureren', 'uitgaand'] },
   { page: 'betalen',    label: 'Betalen',      hint: 'Betaalbatches en SEPA-bestanden', icon: Wallet, rol: 'administratie', recht: 'admin.desk', ook: ['sepa', 'batch', 'bank', 'overboeken', 'crediteuren'] },
   { page: 'grootboek',  label: 'Grootboek',    hint: 'Het rekeningschema uit Exact',    icon: ScrollText, rol: 'administratie', recht: 'admin.desk', ook: ['rekeningschema', 'grootboekrekening', 'boeken'] },
+  /* Stond er niet in, en was dus alleen via het menu te bereiken. Wie "bv"
+     of "administratie" typte kreeg niets -- terwijl dit het scherm is waar
+     staat welke bv's er zijn en waarvan betaald wordt. */
+  { page: 'bvs',        label: "De bv's",      hint: 'Welke administraties er zijn, wie waar boekt en waarvan betaald wordt', icon: Building2, rol: 'administratie', recht: 'admin.desk', ook: ['bv', 'administratie', 'administraties', 'onderneming', 'ondernemingen', 'exact', 'iban', 'kvk', 'btw'] },
   { page: 'boekhouding', label: 'Boekhouding instellen', hint: 'Hoe facturen worden gelezen, geboekt en goedgekeurd', icon: Settings, rol: 'administratie', recht: 'admin.desk', ook: ['instellingen', 'vier ogen', 'automatisch', 'dagboek', 'btw'] },
   { page: 'agenda',     label: 'Agenda',       hint: 'Afspraken, verjaardagen en jubilea', icon: CalendarDays, recht: 'agenda.view', ook: ['kalender', 'afspraak', 'verjaardag'] },
   { page: 'klanten',    label: 'Facturatieklanten', hint: 'De bedrijven waar een factuur heen gaat', icon: Building2, recht: 'customers.view', ook: ['klant', 'bedrijf', 'factuuradres', 'debiteur'] },

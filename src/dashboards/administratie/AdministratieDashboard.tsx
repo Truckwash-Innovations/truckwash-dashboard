@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bot, Building2, ClipboardCheck, Clock, DoorOpen, Inbox, LayoutDashboard, Mail, MessageSquare, Receipt, ScrollText, Settings, ShoppingCart, Store, Truck, UserPlus, Users, Wallet,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { Start, type Tegel } from '../../components/Tegels'
 import { db } from '../../lib/db'
 import type {
@@ -12,19 +13,19 @@ import type {
 } from '../../lib/types'
 import Kostenposten from './Kostenposten'
 import TeVerwerken from './TeVerwerken'
-import TruckyScherm from './Trucky'
+import TruckyScherm from '../../components/Trucky'
 import Urenverzoeken from '../../components/Urenverzoeken'
 import { OpenWijzigingen } from '../../components/Wijzigingen'
-import Aanmeldingen from '../management/Aanmeldingen'
+import Aanmeldingen from '../../components/Aanmeldingen'
 import Postbus from '../../components/Postbus'
-import Inkoopinstellingen from '../developer/Inkoop'
+import Inkoopinstellingen from '../../components/Inkoop'
 import Inkoopadressen from './Inkoopadressen'
 import { OpHandtekening } from './OpHandtekening'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import MijnPostvak from '../../components/Postvak'
 import {
   Administraties, Betalen, Facturen, Grootboek, Proefrit, Relaties, Verkoop,
-} from '../developer/Exact'
+} from '../../components/Exact'
 import { NaarExact } from './NaarExact'
 import { exactStatus } from '../../lib/trucksupply'
 import { telStuk, telWerk } from '../../lib/werklijst'
@@ -60,24 +61,6 @@ import { useNavTarget, usePerms } from '../../store/useNav'
  *  mogen in administratie blijven."
  * ------------------------------------------------------------------ */
 
-const TITELS: Record<string, { title: string; subtitle: string }> = {
-  start: { title: 'Te doen', subtitle: 'Alles wat op een beslissing wacht' },
-  verwerken: { title: 'Te verwerken', subtitle: 'Wat er binnenkwam en nog een stap nodig heeft' },
-  kosten: { title: 'Inkoopfacturen', subtitle: 'Bonnen en facturen beoordelen' },
-  postbus: { title: 'Postvak', subtitle: 'Wat er binnenkomt op het inkoopadres' },
-  leveranciers: { title: 'Leveranciers', subtitle: 'Wie er factureert, en hoe dat in Exact heet' },
-  verkoopfacturen: { title: 'Verkoopfacturen', subtitle: 'Wat wij versturen' },
-  betalen: { title: 'Betalen', subtitle: 'Betaalbatches en SEPA-bestanden' },
-  grootboek: { title: 'Grootboek', subtitle: 'Het rekeningschema uit Exact' },
-  bvs: { title: "De bv's", subtitle: 'Welke administraties er zijn, wie waar boekt en waarvan betaald wordt' },
-  boekhouding: { title: 'Boekhouding', subtitle: 'Hoe facturen worden gelezen, geboekt en goedgekeurd' },
-  trucky: { title: 'Trucky', subtitle: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
-  uren: { title: 'Urenwijzigingen', subtitle: 'Correcties op wat er is geklokt' },
-  dossiers: { title: 'Dossierwijzigingen', subtitle: 'Wat medewerkers zelf willen aanpassen' },
-  aanmeldingen: { title: 'Aanmeldingen', subtitle: 'Wie zich via de app heeft gemeld' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
-  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
-}
 
 export default function AdministratieDashboard() {
   const [page, setPage] = useState('start')
@@ -141,87 +124,88 @@ export default function AdministratieDashboard() {
    * ---------------------------------------------------------------- */
   const magBoekhouden = perms.can('admin.desk')
 
-  const inkoop: NavItem[] = [
-    ...(perms.can('expenses.approve')
-      ? [{ key: 'kosten', label: 'Inkoopfacturen', icon: Receipt, badge: wacht.kosten || undefined }]
-      : []),
-    ...(perms.can('mail.read')
-      ? [{ key: 'postbus', label: 'Postvak', icon: Inbox, badge: wacht.post || undefined }]
-      : []),
-    ...(magBoekhouden
-      ? [{ key: 'leveranciers', label: 'Leveranciers', icon: Truck }]
-      : []),
-  ]
-
-  const verkoop: NavItem[] = magBoekhouden
-    ? [{ key: 'verkoopfacturen', label: 'Verkoopfacturen', icon: Store }]
-    : []
-
-  const financieel: NavItem[] = magBoekhouden
-    ? [
-      { key: 'betalen', label: 'Betalen', icon: Wallet },
-      { key: 'grootboek', label: 'Grootboek', icon: ScrollText },
-      { key: 'bvs', label: "De bv's", icon: Building2 },
-    ]
-    : []
-
-  const personeel: NavItem[] = [
-    ...(perms.can('hours.approve')
-      ? [{ key: 'uren', label: 'Urenwijzigingen', icon: Clock, badge: wacht.uren || undefined }]
-      : []),
-    ...(perms.can('staff.view')
-      ? [{ key: 'dossiers', label: 'Dossiers', icon: Users, badge: wacht.dossiers || undefined }]
-      : []),
-    ...(perms.can('signups.view')
-      ? [{ key: 'aanmeldingen', label: 'Aanmeldingen', icon: UserPlus,
-           badge: wacht.aanmeldingen || undefined }]
-      : []),
-  ]
-
-  const groep = (key: string, label: string, icon: NavItem['icon'], kinderen: NavItem[]) =>
-    (kinderen.length > 0 ? [{ key, label, icon, kinderen }] : [])
-
-  const items: NavItem[] = [
-    { key: 'start', label: 'Dashboard', icon: LayoutDashboard, badge: totaal || undefined },
+  /* ---------------------------------------------------------------- *
+   *  Eén lijst: het menu, de kop en wat van buitenaf te openen is
+   *
+   *  Vijf hoofdstukken en drie losse regels, in plaats van de vijftien
+   *  knoppen die het anders waren geworden. Een groep zonder kinderen laat
+   *  menuVan() weg: een kopje "Verkoop" waar niets onder staat omdat je het
+   *  recht mist, is erger dan geen kopje.
+   *
+   *  De koppen stonden hier apart, in TITELS. Zie components/paginas.ts voor
+   *  wat daar mee misging bij de andere dashboards.
+   * ---------------------------------------------------------------- */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Dashboard', icon: LayoutDashboard, badge: totaal,
+      titel: 'Te doen', sub: 'Alles wat op een beslissing wacht' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
-    ...(perms.can('expenses.approve')
-      ? [{ key: 'verwerken', label: 'Te verwerken', icon: ClipboardCheck,
-           badge: wacht.verwerken || undefined }]
-      : []),
-    ...groep('inkoop-groep', 'Inkoop', ShoppingCart, inkoop),
-    ...groep('verkoop-groep', 'Verkoop', Store, verkoop),
-    ...groep('financieel-groep', 'Financieel', Wallet, financieel),
-    ...groep('personeel-groep', 'Personeel', Users, personeel),
-    { key: 'trucky', label: 'Trucky', icon: Bot, badge: wacht.trucky || undefined },
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
+    { key: 'verwerken', label: 'Te verwerken', icon: ClipboardCheck,
+      badge: wacht.verwerken, recht: 'expenses.approve',
+      sub: 'Wat er binnenkwam en nog een stap nodig heeft' },
+
+    { key: 'inkoop-groep', label: 'Inkoop', icon: ShoppingCart, kinderen: [
+      { key: 'kosten', label: 'Inkoopfacturen', icon: Receipt, badge: wacht.kosten,
+        recht: 'expenses.approve', sub: 'Bonnen en facturen beoordelen' },
+      { key: 'postbus', label: 'Postvak', icon: Inbox, badge: wacht.post,
+        recht: 'mail.read', sub: 'Wat er binnenkomt op het inkoopadres' },
+      { key: 'leveranciers', label: 'Leveranciers', icon: Truck, als: magBoekhouden,
+        sub: 'Wie er factureert, en hoe dat in Exact heet' },
+    ] },
+
+    { key: 'verkoop-groep', label: 'Verkoop', icon: Store, kinderen: [
+      { key: 'verkoopfacturen', label: 'Verkoopfacturen', icon: Store,
+        als: magBoekhouden, sub: 'Wat wij versturen' },
+    ] },
+
+    { key: 'financieel-groep', label: 'Financieel', icon: Wallet, kinderen: [
+      { key: 'betalen', label: 'Betalen', icon: Wallet, als: magBoekhouden,
+        sub: 'Betaalbatches en SEPA-bestanden' },
+      { key: 'grootboek', label: 'Grootboek', icon: ScrollText, als: magBoekhouden,
+        sub: 'Het rekeningschema uit Exact' },
+      { key: 'bvs', label: "De bv's", icon: Building2, als: magBoekhouden,
+        sub: 'Welke administraties er zijn, wie waar boekt en waarvan betaald wordt' },
+    ] },
+
+    { key: 'personeel-groep', label: 'Personeel', icon: Users, kinderen: [
+      { key: 'uren', label: 'Urenwijzigingen', icon: Clock, badge: wacht.uren,
+        recht: 'hours.approve', sub: 'Correcties op wat er is geklokt' },
+      { key: 'dossiers', label: 'Dossiers', icon: Users, badge: wacht.dossiers,
+        recht: 'staff.view', titel: 'Dossierwijzigingen',
+        sub: 'Wat medewerkers zelf willen aanpassen' },
+      { key: 'aanmeldingen', label: 'Aanmeldingen', icon: UserPlus,
+        badge: wacht.aanmeldingen, recht: 'signups.view',
+        sub: 'Wie zich via de app heeft gemeld' },
+    ] },
+
+    { key: 'trucky', label: 'Trucky', icon: Bot, badge: wacht.trucky,
+      sub: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken' },
     /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
        een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
        zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
-    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
-    ...(magBoekhouden
-      ? [{ key: 'boekhouding', label: 'Boekhouding', icon: Settings }]
-      : []),
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail,
+      sub: 'Je eigen mailadres op het bedrijfsdomein' },
+    { key: 'boekhouding', label: 'Boekhouding', icon: Settings, als: magBoekhouden,
+      sub: 'Hoe facturen worden gelezen, geboekt en goedgekeurd' },
   ]
 
+  const items = menuVan(paginas, (r) => perms.can(r))
+
   /*
-   * De sleutels waar je heen kunt, inclusief die van het tweede niveau. Een
-   * groepskop is geen pagina en hoort er niet in: daar navigeer je niet
-   * heen, die vouwt alleen open.
-   *
-   * En de bon uit de diepe link onthouden. Dit stond hier als
-   * `useNavTarget(..., setPage)`, en dan viel het id op de grond -- de mail
-   * bracht je naar het juiste scherm maar niet naar de juiste factuur.
+   * De groepskoppen zijn geen schermen; die horen niet bij de doelen. Anders
+   * kan een diepe link naar "inkoop-groep" een leeg scherm opleveren.
    */
-  const paginas = useMemo(
-    () => items.flatMap((i) => (i.kinderen ? i.kinderen.map((k) => k.key) : [i.key])),
+  const doelen = useMemo(
+    () => sleutelsVan(paginas, (r) => perms.can(r)).filter((k) => !k.endsWith('-groep')),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items.map((i) => i.key).join(','), magBoekhouden],
+    [items],
   )
-  useNavTarget(paginas, (p, id) => {
+
+  useNavTarget(doelen, (p, id) => {
     setPage(p)
     setBonId(id ?? null)
   })
@@ -332,7 +316,7 @@ export default function AdministratieDashboard() {
     }] : []),
   ]
 
-  const kop = TITELS[page] ?? TITELS.start
+  const kop = kopVan(paginas, page, 'start')
 
   /** Naar een bon toe, vanuit de werklijst. */
   const openBon = (id: string) => {

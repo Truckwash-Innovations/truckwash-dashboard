@@ -5,19 +5,19 @@ import {
   MessageSquareQuote, Phone, RotateCcw, ShieldCheck, ThumbsDown, UserPlus,
   UserSearch, XCircle,
 } from 'lucide-react'
-import { db, alleMensen } from '../../lib/db'
-import { signups as signupRepo } from '../../lib/signups'
-import { mogelijkDubbel } from '../../lib/personeel'
+import { db, alleMensen } from '../lib/db'
+import { signups as signupRepo } from '../lib/signups'
+import { mogelijkDubbel } from '../lib/personeel'
 import {
   ROLE_LABELS, ROLE_ORDER, SIGNUP_KINDS,
   type Company, type Location, type Role, type Signup, type SignupStatus, type User,
-} from '../../lib/types'
-import { dateTime, initials, relative } from '../../lib/format'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import LocatiesKiezer, { type LocatieKeuze } from '../../components/LocatiesKiezer'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { toast } from '../../store/useToasts'
+} from '../lib/types'
+import { dateTime, initials, relative } from '../lib/format'
+import { Badge, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import LocatiesKiezer, { type LocatieKeuze } from '../components/LocatiesKiezer'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { toast } from '../store/useToasts'
 
 /* ------------------------------------------------------------------ *
  *  Aanmeldingen

@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   BriefcaseBusiness, CalendarDays, CheckCircle2, ClipboardList, Clock, DoorOpen, FolderOpen, GraduationCap, LayoutGrid, ListTodo, Mail, MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { db, alleMensen } from '../../lib/db'
 import { SERVICES, SHIFT_KINDS, type Shift, type TimeEntry, type User, type WashJob } from '../../lib/types'
 import { dateFull, duration, initials, money, time } from '../../lib/format'
@@ -16,7 +17,7 @@ import OpleidingOverzicht from '../../components/OpleidingOverzicht'
 import Opleiding from '../../components/Opleiding'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import MijnPostvak from '../../components/Postvak'
-import Personeel from '../management/Personeel'
+import Personeel from '../../components/Personeel'
 import Agenda from '../../components/Agenda'
 import { Start, type Tegel, type TegelTint } from '../../components/Tegels'
 import { useAuth } from '../../store/useAuth'
@@ -32,20 +33,6 @@ import Documenten from '../../components/Documenten'
 
 const DAY = 86_400_000
 
-const TITLES: Record<string, { title: string; subtitle: string }> = {
-  kantoor: { title: 'Het kantoor', subtitle: 'De lobby: receptie, kantoren en de bibliotheek' },
-  start: { title: 'Start', subtitle: 'Waar wil je heen?' },
-  team: { title: 'Mijn team', subtitle: 'Wie staat er vandaag en hoe loopt het' },
-  rooster: { title: 'Rooster', subtitle: 'Plannen en publiceren' },
-  smart: { title: 'Smartroster', subtitle: 'Voorstel op basis van contract en gewoontes' },
-  uren: { title: 'Uren', subtitle: 'Registraties van het team' },
-  opleiding: { title: 'Opleiding', subtitle: 'Voortgang van je team' },
-  mijn: { title: 'Mijn opleiding', subtitle: 'Cursussen die jij moet doen' },
-  overleg: { title: 'Overleg', subtitle: 'Kanalen en gesprekken' },
-  mijnpost: { title: 'Mijn post', subtitle: 'Je eigen mailadres op het bedrijfsdomein' },
-  personeel: { title: 'Dossiers', subtitle: 'Gegevens inzien en wijzigingen aanvragen' },
-  agenda: { title: 'Agenda', subtitle: 'Afspraken, verjaardagen en wat er aankomt' },
-}
 
 export default function SupervisorDashboard() {
   const me = useAuth((s) => s.user)!
@@ -79,39 +66,56 @@ export default function SupervisorDashboard() {
     }
   }, [team, alleShifts, alleUren])
 
-  const items: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
+  /* ------------------------------------------------------------ *
+   *  Eén lijst: het menu, de kop en wat van buitenaf te openen is
+   *
+   *  Werk, werving en documenten stonden wel in het menu en niet in de
+   *  koppen; boven die drie schermen stond dus "Start / Waar wil je heen?".
+   *  Met één lijst kan dat niet meer.
+   * ------------------------------------------------------------ */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid, sub: 'Waar wil je heen?' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
     /* Direct onder Start: dit is het scherm waar je 's ochtends komt. */
-    { key: 'werk', label: 'Werk', icon: ListTodo },
-    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness },
-    { key: 'documenten', label: 'Documenten', icon: FolderOpen },
-    { key: 'team', label: 'Mijn team', icon: Users },
-    ...(perms.can('roster.viewTeam') ? [{ key: 'rooster', label: 'Rooster', icon: CalendarDays }] : []),
-    ...(perms.can('roster.edit') ? [{ key: 'smart', label: 'Smartroster', icon: Sparkles }] : []),
-    ...(perms.can('hours.viewTeam') ? [{ key: 'uren', label: 'Uren', icon: Timer }] : []),
-    ...(perms.can('learning.assign') ? [{ key: 'opleiding', label: 'Opleiding', icon: GraduationCap }] : []),
-    ...(perms.can('staff.view')
-      ? [{ key: 'personeel', label: 'Dossiers', icon: Users }]
-      : []),
-    ...(perms.can('agenda.view')
-      ? [{ key: 'agenda', label: 'Agenda', icon: CalendarDays }]
-      : []),
-    { key: 'mijn', label: 'Mijn cursussen', icon: ClipboardList },
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'werk', label: 'Werk', icon: ListTodo,
+      sub: 'Je taken, het bord en de projecten' },
+    { key: 'werving', label: 'Werving', icon: BriefcaseBusiness,
+      sub: 'Sollicitaties en vacatures' },
+    { key: 'documenten', label: 'Documenten', icon: FolderOpen,
+      sub: 'Mappen, het postvak en wat bij jou ligt' },
+    { key: 'team', label: 'Mijn team', icon: Users,
+      sub: 'Wie staat er vandaag en hoe loopt het' },
+    { key: 'rooster', label: 'Rooster', icon: CalendarDays, recht: 'roster.viewTeam',
+      sub: 'Plannen en publiceren' },
+    { key: 'smart', label: 'Smartroster', icon: Sparkles, recht: 'roster.edit',
+      sub: 'Voorstel op basis van contract en gewoontes' },
+    { key: 'uren', label: 'Uren', icon: Timer, recht: 'hours.viewTeam',
+      sub: 'Registraties van het team' },
+    { key: 'opleiding', label: 'Opleiding', icon: GraduationCap, recht: 'learning.assign',
+      sub: 'Voortgang van je team' },
+    { key: 'personeel', label: 'Dossiers', icon: Users, recht: 'staff.view',
+      sub: 'Gegevens inzien en wijzigingen aanvragen' },
+    { key: 'agenda', label: 'Agenda', icon: CalendarDays, recht: 'agenda.view',
+      sub: 'Afspraken, verjaardagen en wat er aankomt' },
+    { key: 'mijn', label: 'Mijn cursussen', icon: ClipboardList,
+      titel: 'Mijn opleiding', sub: 'Cursussen die jij moet doen' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Kanalen en gesprekken' },
     /* Persoonlijke post. Geen recht ervoor: iedereen die hier binnenkomt is
        een mens, en of hij een postvak heeft bepaalt het scherm zelf -- dat
        zegt netter waarom er niets staat dan een menu-item dat ontbreekt. */
-    { key: 'mijnpost', label: 'Mijn post', icon: Mail },
+    { key: 'mijnpost', label: 'Mijn post', icon: Mail,
+      sub: 'Je eigen mailadres op het bedrijfsdomein' },
   ]
 
-  useNavTarget(items.map((i) => i.key), (p) => setPage(p))
+  const items = menuVan(paginas, (r) => perms.can(r))
 
-  const meta = TITLES[page] ?? TITLES.start
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
+
+  const meta = kopVan(paginas, page, 'start')
 
   const tegels: Tegel[] = [
     {

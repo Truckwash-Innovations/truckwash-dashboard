@@ -22,21 +22,21 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Check, Copy, Loader2, Mail, Plus, Save, Send, Tag, TriangleAlert, Wallet, X,
 } from 'lucide-react'
-import { db } from '../../lib/db'
-import { enqueue } from '../../lib/sync'
+import { db } from '../lib/db'
+import { enqueue } from '../lib/sync'
 import {
   SLEUTELS, domeinProbleem, inkoopAdres, leesInstellingen, voorvoegselProbleem,
   zetInstelling,
-} from '../../lib/instellingen'
-import { relative } from '../../lib/format'
+} from '../lib/instellingen'
+import { relative } from '../lib/format'
 import {
   TESTFACTUREN, stuurTestfactuur, type Testfactuur,
-} from '../../lib/testfacturen'
-import type { ExactGrootboek, Grootboek, Instelling, KostenTag, Location } from '../../lib/types'
-import { Badge, Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
-import { rekeningenVan } from '../../lib/boeking'
-import { exactFacturenStand, type ExactAdministratie } from '../../lib/trucksupply'
-import { toast } from '../../store/useToasts'
+} from '../lib/testfacturen'
+import type { ExactGrootboek, Grootboek, Instelling, KostenTag, Location } from '../lib/types'
+import { Badge, Card, Empty, Field, Kiezer, Modal } from '../components/ui'
+import { rekeningenVan } from '../lib/boeking'
+import { exactFacturenStand, type ExactAdministratie } from '../lib/trucksupply'
+import { toast } from '../store/useToasts'
 
 /*
  * De drie standen van de factuurlezer (instelling factuur_lezer, 0049). De

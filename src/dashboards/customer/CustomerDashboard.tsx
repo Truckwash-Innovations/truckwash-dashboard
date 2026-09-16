@@ -3,7 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   CalendarPlus, FileText, History, LayoutDashboard, LayoutGrid, Truck,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
 import Overzicht from './Overzicht'
 import Plannen from './Plannen'
 import Historie from './Historie'
@@ -16,21 +17,18 @@ import { money } from '../../lib/format'
 import { useNavTarget } from '../../store/useNav'
 import type { WashJob } from '../../lib/types'
 
-const TITLES: Record<string, string> = {
-  start: 'Start',
-  overzicht: 'Overzicht',
-  plannen: 'Wasbeurt inplannen',
-  historie: 'Historie',
-  facturen: 'Facturen',
-}
-
-const ITEMS: NavItem[] = [
+/* Eén lijst voor het menu, de kop en wat van buitenaf te openen is; zie
+   components/paginas.ts. De ondertitel staat hier niet: bij de klant is dat
+   de naam van zijn bedrijf, en die hoort niet bij een pagina. */
+const PAGINAS: Pagina[] = [
   { key: 'start', label: 'Start', icon: LayoutGrid },
   { key: 'overzicht', label: 'Overzicht', icon: LayoutDashboard },
-  { key: 'plannen', label: 'Inplannen', icon: CalendarPlus },
+  { key: 'plannen', label: 'Inplannen', icon: CalendarPlus, titel: 'Wasbeurt inplannen' },
   { key: 'historie', label: 'Historie', icon: History },
   { key: 'facturen', label: 'Facturen', icon: FileText },
 ]
+
+const ITEMS = menuVan(PAGINAS, () => true)
 
 export default function CustomerDashboard() {
   const [page, setPage] = useState('start')
@@ -44,7 +42,7 @@ export default function CustomerDashboard() {
     [] as WashJob[],
   )
 
-  useNavTarget(ITEMS.map((i) => i.key), (p) => setPage(p))
+  useNavTarget(sleutelsVan(PAGINAS, () => true), (p) => setPage(p))
 
   const cijfers = useMemo(() => {
     const open = jobs.filter(
@@ -107,7 +105,7 @@ export default function CustomerDashboard() {
       items={company ? ITEMS : []}
       active={page}
       onNavigate={setPage}
-      title={company ? TITLES[page] : 'Welkom'}
+      title={company ? kopVan(PAGINAS, page, 'start').title : 'Welkom'}
       subtitle={company?.name ?? 'Je account is nog niet aan een bedrijf gekoppeld'}
       actions={
         !locked && companies.length > 1 ? (

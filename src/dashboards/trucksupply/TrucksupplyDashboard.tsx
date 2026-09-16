@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import {
   BellRing, Building2, DoorOpen, LayoutGrid, Loader2, MessageSquare, Package, PackageCheck, PackagePlus, Send, Settings, TriangleAlert, Truck, Warehouse,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
-import Kantoor from '../kantoor/Kantoor'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
+import Kantoor from '../../components/kantoor/Kantoor'
 import { Start, type Tegel } from '../../components/Tegels'
 import { Modal } from '../../components/ui'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
@@ -37,15 +38,6 @@ import '../../styles/trucksupply.css'
  *  vestigingen en wat daaruit voortkomt.
  * ------------------------------------------------------------------ */
 
-const TITELS: Record<string, { title: string; subtitle: string }> = {
-  start: { title: 'Start', subtitle: 'Waar is iets op, en wat gaat er vandaag de deur uit' },
-  voorraad: { title: 'Voorraad', subtitle: 'Alle vestigingen, hun standen en de alarmen' },
-  bestellingen: { title: 'Bestellingen', subtitle: 'Van concept tot ontvangen, met pakbon en verzendlabel' },
-  artikelen: { title: 'Artikelen', subtitle: 'Wat Trucksshop levert, tot in de kassa' },
-  vestigingen: { title: 'Vestigingen', subtitle: 'Adres, telefoon, manager en openingstijden' },
-  instellingen: { title: 'Instellingen', subtitle: 'Mailadres, ochtendmail en Exact' },
-  overleg: { title: 'Overleg', subtitle: 'Contact met de vestigingen en het kantoor' },
-}
 
 export default function TrucksupplyDashboard() {
   const perms = usePerms()
@@ -69,26 +61,35 @@ export default function TrucksupplyDashboard() {
   // supply.view is 'voorraad en vestigingen zien' (permissions.ts); zonder dat
   // recht staan die twee er niet, net als bestellingen zonder supply.orders.
   const magKijken = perms.can('supply.view')
-  const items_: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
+  /* Eén lijst voor het menu, de kop en wat van buitenaf te openen is; zie
+     components/paginas.ts. Het kantoor stond wel in het menu en niet in de
+     koppen -- dan staat er boven dat scherm de titel van Start. */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid,
+      sub: 'Waar is iets op, en wat gaat er vandaag de deur uit' },
     /* Het virtuele kantoor: dezelfde schermen, maar dan als plek.
        Welke deuren je daar ziet bepaalt lib/kantoor.ts. */
-    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen },
-    ...(magKijken ? [{ key: 'voorraad', label: 'Voorraad', icon: Warehouse, badge: ongezien || undefined }] : []),
-    ...(perms.can('supply.orders')
-      ? [{ key: 'bestellingen', label: 'Bestellingen', icon: Truck, badge: openBestellingen || undefined }]
-      : []),
-    ...(perms.canAny('supply.articles', 'supply.view')
-      ? [{ key: 'artikelen', label: 'Artikelen', icon: Package }]
-      : []),
-    ...(magKijken ? [{ key: 'vestigingen', label: 'Vestigingen', icon: Building2 }] : []),
-    ...(perms.can('supply.settings') ? [{ key: 'instellingen', label: 'Instellingen', icon: Settings }] : []),
-    ...(perms.can('chat.use')
-      ? [{ key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined }]
-      : []),
+    { key: 'kantoor', label: 'Het kantoor', icon: DoorOpen,
+      sub: 'De lobby: receptie, kantoren en de bibliotheek' },
+    { key: 'voorraad', label: 'Voorraad', icon: Warehouse, badge: ongezien, als: magKijken,
+      sub: 'Alle vestigingen, hun standen en de alarmen' },
+    { key: 'bestellingen', label: 'Bestellingen', icon: Truck, badge: openBestellingen,
+      recht: 'supply.orders',
+      sub: 'Van concept tot ontvangen, met pakbon en verzendlabel' },
+    { key: 'artikelen', label: 'Artikelen', icon: Package,
+      als: perms.canAny('supply.articles', 'supply.view'),
+      sub: 'Wat Trucksshop levert, tot in de kassa' },
+    { key: 'vestigingen', label: 'Vestigingen', icon: Building2, als: magKijken,
+      sub: 'Adres, telefoon, manager en openingstijden' },
+    { key: 'instellingen', label: 'Instellingen', icon: Settings, recht: 'supply.settings',
+      sub: 'Mailadres, ochtendmail en Exact' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      recht: 'chat.use', sub: 'Contact met de vestigingen en het kantoor' },
   ]
 
-  useNavTarget(items_.map((i) => i.key), (p, id) => {
+  const items_ = menuVan(paginas, (r) => perms.can(r))
+
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p, id) => {
     setPage(p)
     if (p === 'bestellingen' && id) setOpenBestelling(id)
   })
@@ -168,7 +169,7 @@ export default function TrucksupplyDashboard() {
     }] : []),
   ]
 
-  const kop = TITELS[page] ?? TITELS.start
+  const kop = kopVan(paginas, page, 'start')
 
   return (
     <Shell

@@ -4976,7 +4976,7 @@ console.log('\n34. De sleutels van Exact')
 
   /* --- het scherm --- */
 
-  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const scherm = readFileSync('src/components/Exact.tsx', 'utf8')
   check('het veld voor het geheim staat leeg bij het openen',
     scherm.includes("setGeheim('')"))
   check('en leeg laten betekent: laat staan',
@@ -4992,32 +4992,136 @@ console.log('\n34. De sleutels van Exact')
  *  alleen als het dashboard de pagina in useNavTarget noemt.
  * ==================================================================== */
 
-console.log('\n35. De ontwikkelschermen zijn te vinden')
+console.log('\n35. Eén lijst per dashboard, en die klopt')
 
 {
-  const { readFileSync } = await import('node:fs')
-  const dash = readFileSync('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
+  const { readFileSync, readdirSync } = await import('node:fs')
   const { SCHERMEN, DASHBOARDS_MET } = await import('../src/lib/schermen')
 
-  /* De sleutels uit TITLES: dat is de lijst die het dashboard zelf kent. */
-  const titels = dash.slice(dash.indexOf('const TITLES'), dash.indexOf('\n}', dash.indexOf('const TITLES')))
-  const paginas = [...titels.matchAll(/^\s{2}([a-z]+):/gm)].map((m) => m[1])
-  check('het dashboard kent meer dan een handvol schermen', paginas.length >= 10, String(paginas.length))
+  /*
+   * Elk dashboard hield drie lijsten bij over dezelfde schermen: het menu,
+   * de koppen en de doelen voor useNavTarget. Ze moesten het met elkaar eens
+   * zijn, en twee keer waren ze dat niet -- werk, werving en documenten
+   * ontbraken bij de doelen (de knop in de takenmail deed niets), en bij de
+   * koppen ontbraken ze óók, zodat er boven die schermen "Start / Waar wil je
+   * heen?" stond.
+   *
+   * De vorige versie van deze controle keek alleen naar Ontwikkeling, en
+   * alleen naar de drie waar het al was misgegaan -- "de hele lijst nalopen
+   * zou het parseren van acht dashboards vragen". Nu is er per dashboard één
+   * lijst, en dan is nalopen juist makkelijk.
+   */
 
-  /* Overleg en postbus staan elders in de zoeklijst; die horen hier niet
-     bij het rijtje "alleen ontwikkeling". */
-  const eigen = paginas.filter((p) => (DASHBOARDS_MET[p] ?? []).join() === 'developer')
+  const rolVan: Record<string, string> = {
+    administratie: 'administratie', customer: 'customer', developer: 'developer',
+    employee: 'employee', employer: 'employer', management: 'management',
+    supervisor: 'supervisor', technician: 'technician', trucksupply: 'trucksupply',
+  }
 
-  const nietVindbaar = eigen.filter((p) => !SCHERMEN.some((s) => s.page === p))
-  check('elk eigen ontwikkelscherm staat in de zoeklijst',
+  /** De paginalijst van een dashboard, met haakjes tellen in plaats van raden. */
+  const lijstVan = (bron: string): string => {
+    const m = /const (?:paginas|PAGINAS): Pagina\[\] = \[/.exec(bron)
+    if (!m) return ''
+    let diep = 0
+    const i = m.index + m[0].length - 1
+    for (let j = i; j < bron.length; j++) {
+      if (bron[j] === '[') diep++
+      else if (bron[j] === ']') {
+        diep--
+        if (diep === 0) return bron.slice(i, j + 1)
+      }
+    }
+    return ''
+  }
+
+  const dashboards = readdirSync('src/dashboards', { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .flatMap((d) => readdirSync(`src/dashboards/${d.name}`)
+      .filter((f) => f.endsWith('Dashboard.tsx'))
+      .map((f) => ({ map: d.name, bestand: `src/dashboards/${d.name}/${f}` })))
+
+  check('er zijn negen dashboards', dashboards.length === 9, String(dashboards.length))
+
+  const zonderLijst: string[] = []
+  const nietInLijst: string[] = []
+  const nietAfgeleid: string[] = []
+  const nietVindbaar: string[] = []
+  const nietOpDeKaart: string[] = []
+
+  for (const { map, bestand } of dashboards) {
+    const bron = readFileSync(bestand, 'utf8')
+    const blok = lijstVan(bron)
+    if (!blok) { zonderLijst.push(map); continue }
+
+    const sleutels = new Set([...blok.matchAll(/key: '([^']+)'/g)].map((m) => m[1]))
+    const rendert = [...new Set([...bron.matchAll(/page === '([^']+)'/g)].map((m) => m[1]))]
+
+    /* 1. alles wat het rendert staat in de lijst */
+    for (const p of rendert) if (!sleutels.has(p)) nietInLijst.push(`${map}: ${p}`)
+
+    /* 2. en de drie worden er echt uit afgeleid */
+    for (const nodig of ['menuVan(', 'kopVan(', 'sleutelsVan(']) {
+      if (!bron.includes(nodig)) nietAfgeleid.push(`${map}: ${nodig}`)
+    }
+
+    /* 3. wat het rendert is ook te vinden via de zoekbalk... */
+    const rol = rolVan[map]
+    for (const p of rendert) {
+      /* mijnpost zit in het postvak van iedereen en heeft geen eigen scherm
+         in SCHERMEN; dat is met opzet zo (zie lib/schermen.ts). */
+      if (p === 'mijnpost') continue
+      if (!SCHERMEN.some((sc) => sc.page === p)) nietVindbaar.push(`${map}: ${p}`)
+      else if (!(DASHBOARDS_MET[p] ?? []).includes(rol as never)) {
+        nietOpDeKaart.push(`${map}: ${p}`)
+      }
+    }
+  }
+
+  check('elk dashboard heeft één paginalijst', zonderLijst.length === 0, zonderLijst.join(', '))
+  check('en rendert geen scherm dat er niet in staat',
+    nietInLijst.length === 0, nietInLijst.join(', '))
+  check('het menu, de kop en de doelen komen alle drie uit die lijst',
+    nietAfgeleid.length === 0, nietAfgeleid.join(', '))
+  check('elk scherm is ook via de zoekbalk te vinden',
     nietVindbaar.length === 0, nietVindbaar.join(', '))
+  check('en de kaart weet in welk dashboard het woont',
+    nietOpDeKaart.length === 0, nietOpDeKaart.join(', '))
 
-  const navRegel = dash.slice(dash.indexOf('useNavTarget('), dash.indexOf('(p) => setPage(p))'))
-  const nietBereikbaar = eigen.filter((p) => !navRegel.includes(`'${p}'`))
-  check('en het dashboard springt er ook heen als je erop klikt',
-    nietBereikbaar.length === 0, nietBereikbaar.join(', '))
+  /* ---- geen dashboard leent een scherm van een ander ---- */
 
-  check('Exact staat erbij', eigen.includes('exact'))
+  /*
+   * Casper: "Bij ontwikkelaar heb ik bij inkoop nog steeds de adressen en
+   * grootboekrekeningen, gezien die bij administratie opkomen, kan dat daar
+   * niet weg?"
+   *
+   * Die schermen stonden daar niet toevallig -- ze stónden er, in
+   * dashboards/developer/, en de administratie importeerde ze daaruit. Een
+   * scherm dat twee dashboards gebruiken is van geen van beide; het hoort
+   * bij de gedeelde componenten, net als het postvak en het overleg.
+   *
+   * Negen bestanden zijn zo verhuisd. Deze regel houdt het zo: uit
+   * src/dashboards/<a>/ mag niets uit src/dashboards/<b>/ komen.
+   */
+  const geleend: string[] = []
+  for (const { map } of dashboards) {
+    for (const bestand of readdirSync(`src/dashboards/${map}`)) {
+      if (!/\.tsx?$/.test(bestand)) continue
+      const bron = readFileSync(`src/dashboards/${map}/${bestand}`, 'utf8')
+      for (const m of bron.matchAll(/from '\.\.\/([a-z][a-zA-Z]*)\//g)) {
+        geleend.push(`${map}/${bestand} leent uit ${m[1]}/`)
+      }
+    }
+  }
+  check('geen dashboard leent een scherm van een ander',
+    geleend.length === 0, geleend.join('; '))
+
+  /* En geen enkel dashboard houdt nog een eigen koppenlijst bij. */
+  const metEigenKoppen = dashboards.filter(({ bestand }) => {
+    const bron = readFileSync(bestand, 'utf8')
+    return /const TIT[EL]LS?:/.test(bron) || bron.includes('const TITELS') || bron.includes('const TITLES')
+  })
+  check('en niemand houdt nog een aparte koppenlijst bij',
+    metEigenKoppen.length === 0, metEigenKoppen.map((d) => d.map).join(', '))
 }
 
 /* ==================================================================== *
@@ -5240,7 +5344,7 @@ console.log('\n38. Het personeel van Exact')
 
   /* --- het scherm --- */
 
-  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const scherm = readFileSync('src/components/Exact.tsx', 'utf8')
   check('je kunt een Exact-medewerker opzoeken in plaats van een nummer typen',
     scherm.includes('function Zoeker'))
   check('en zoeken kan op naam, nummer en adres',
@@ -5346,7 +5450,7 @@ console.log('\n40. Terugkomen uit Exact')
 
   /* --- het scherm --- */
 
-  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const scherm = readFileSync('src/components/Exact.tsx', 'utf8')
   check('het scherm vangt de terugkeer op',
     scherm.includes("searchParams.get('exact')"))
   /*
@@ -6404,7 +6508,7 @@ console.log('\n51. Mensen beheren')
 
   /* ---- 2. uitnodigen staat waar het probleem staat ---- */
 
-  const scherm = readFileSync('src/dashboards/management/Personeel.tsx', 'utf8')
+  const scherm = readFileSync('src/components/Personeel.tsx', 'utf8')
   const balk = scherm.slice(
     scherm.indexOf('Nog geen toegang tot de app'),
     scherm.indexOf('Nog geen toegang tot de app') + 900)
@@ -7708,20 +7812,16 @@ console.log('\n59. Geen doodlopende wegen')
 
   /*
    * Elk dashboard dat een scherm RENDERT moet het ook als navigatiedoel
-   * opgeven, anders doet een diepe link of een knop in een mail niets --
-   * en blijft het doel in useNav hangen, zodat je er later onaangekondigd
-   * op landt in een ander dashboard.
+   * opgeven, anders doet een diepe link of een knop in een mail niets -- en
+   * blijft het doel in useNav hangen, zodat je er later onaangekondigd op
+   * landt in een ander dashboard.
    *
-   * Alleen voor de drie waar het misging; de hele lijst nalopen zou het
-   * parseren van acht dashboards vragen, en dat is een test die zichzelf
-   * niet meer laat lezen.
+   * Hier stond een controle op drie namen in één dashboard, omdat "de hele
+   * lijst nalopen het parseren van acht dashboards zou vragen". Dat hoeft
+   * niet meer: sinds er per dashboard één lijst is, worden de doelen eruit
+   * afgeleid en kan het verschil niet meer bestaan. Groep 35 kijkt dat na,
+   * voor alle negen.
    */
-  const dev = readFileSync('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
-  const doelen = /useNavTarget\(\s*\[([^\]]*)\]/.exec(dev)?.[1] ?? ''
-  for (const nodig of ['werk', 'werving', 'documenten']) {
-    check(`de ontwikkelaar kan naar ${nodig} worden gestuurd`,
-      doelen.includes(`'${nodig}'`) && dev.includes(`page === '${nodig}'`))
-  }
 
   /* ---- en de onderbalk op een telefoon ---- */
 
@@ -8235,7 +8335,7 @@ console.log('\n63. Exact hoort bij de administratie')
 
 {
   const { readFileSync } = await import('node:fs')
-  const dev = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const dev = readFileSync('src/components/Exact.tsx', 'utf8')
   const adm = readFileSync('src/dashboards/administratie/AdministratieDashboard.tsx', 'utf8')
   const mgt = readFileSync('src/dashboards/management/ManagementDashboard.tsx', 'utf8')
 
@@ -11036,7 +11136,7 @@ console.log('\n88. Een rekeningnummer met een cijfer ernaast')
 {
   const { readFileSync } = await import('node:fs')
   const api = readFileSync('src/lib/trucksupply.ts', 'utf8')
-  const betalen = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const betalen = readFileSync('src/components/Exact.tsx', 'utf8')
   const scherm = readFileSync('src/dashboards/administratie/Kostenposten.tsx', 'utf8')
   const m94 = readFileSync(
     'supabase/migrations/0094_een_rekeningnummer_dat_verkeerd_gelezen_is.sql', 'utf8')
@@ -11914,7 +12014,7 @@ console.log('\n96. Betaald is iets wat Exact zegt')
   const fn = readFileSync('supabase/functions/exact/index.ts', 'utf8')
   const gedeeld = readFileSync('supabase/functions/_gedeeld/exact.ts', 'utf8')
   const lib = readFileSync('src/lib/trucksupply.ts', 'utf8')
-  const scherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const scherm = readFileSync('src/components/Exact.tsx', 'utf8')
 
   /* --- 1. de stand komt uit Exact, en van het juiste veld --- */
 
@@ -12569,7 +12669,7 @@ console.log('\n100. Het virtuele kantoor')
    * De instellingen eromheen blijven -- domein, voorvoegsel, wie er leest --
    * want die staan nergens anders.
    */
-  const inkoopScherm = readFileSync('src/dashboards/developer/Inkoop.tsx', 'utf8')
+  const inkoopScherm = readFileSync('src/components/Inkoop.tsx', 'utf8')
   check('de berekende adreslijst staat niet meer bij de ontwikkelaar',
     !inkoopScherm.includes('function AdresRegel'),
     'er staan nog twee lijsten met inkoopadressen')
@@ -12607,9 +12707,11 @@ console.log('\n100. Het virtuele kantoor')
     inkoopScherm.includes('rekeningenVan(schema, rijen, bv || undefined)'),
     'alle bv-en staan nog door elkaar')
 
-  /* Dezelfde regel als bij het boeken, en niet een tweede versie ervan. */
+  /* Dezelfde regel als bij het boeken, en niet een tweede versie ervan.
+     Het pad is korter geworden: dit scherm staat sinds deze versie bij de
+     gedeelde componenten, want de administratie gebruikt het ook. */
   check('en met dezelfde regel als bij het boeken',
-    inkoopScherm.includes("from '../../lib/boeking'"),
+    /from '\.\.?\/(\.\.\/)?lib\/boeking'/.test(inkoopScherm),
     'er staat een tweede regel voor welke rekening bij welke bv hoort')
 
   check('en standaard alleen de rekeningen die iets doen',
@@ -12636,7 +12738,7 @@ console.log('\n100. Het virtuele kantoor')
 
   /* En dat KvK en IBAN niet uit Exact komen, staat op het scherm. Anders
      blijft iemand zoeken naar een knop die niet bestaat. */
-  const exactScherm = readFileSync('src/dashboards/developer/Exact.tsx', 'utf8')
+  const exactScherm = readFileSync('src/components/Exact.tsx', 'utf8')
   check('en er staat bij welke nummers Exact NIET weet',
     exactScherm.includes('blijven handwerk'),
     'niemand kan zien waarom KvK en IBAN met de hand moeten')

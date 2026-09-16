@@ -92,6 +92,10 @@ export const CATEGORIEEN: Categorie[] = [
       'verkoopfacturen',
       'betalen',
       'grootboek',
+      /* Welke bv's er zijn, wie waar boekt en waarvan betaald wordt. Stond
+         hier niet, en was daarmee alleen via het menu van de administratie
+         te bereiken -- niet via het zoeken en niet via het keuzescherm. */
+      'bvs',
       'leveranciers',
       'documenten',
       'dossiers',

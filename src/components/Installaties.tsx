@@ -3,20 +3,20 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ArrowLeft, Plus, Printer, QrCode, RefreshCw, Search, Wrench,
 } from 'lucide-react'
-import { db } from '../../lib/db'
-import { assets as assetRepo } from '../../lib/techniek'
+import { db } from '../lib/db'
+import { assets as assetRepo } from '../lib/techniek'
 import {
   ASSET_CATEGORIES, type Asset, type AssetCategory, type AssetStatus,
   type Fault, type Location, type WorkOrder,
-} from '../../lib/types'
-import { dateShort, duration, relative } from '../../lib/format'
-import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
-import { QrLabel } from '../../components/QrScanner'
-import { SeverityBadge } from '../../components/StoringMelden'
-import { useAuth } from '../../store/useAuth'
-import { usePerms } from '../../store/useNav'
-import { useLocationFilter, visibleLocations } from '../../lib/locations'
-import { toast } from '../../store/useToasts'
+} from '../lib/types'
+import { dateShort, duration, relative } from '../lib/format'
+import { Badge, Card, Empty, Field, Modal, Stat } from '../components/ui'
+import { QrLabel } from '../components/QrScanner'
+import { SeverityBadge } from '../components/StoringMelden'
+import { useAuth } from '../store/useAuth'
+import { usePerms } from '../store/useNav'
+import { useLocationFilter, visibleLocations } from '../lib/locations'
+import { toast } from '../store/useToasts'
 
 const STATUS_TONE: Record<AssetStatus, 'ok' | 'danger' | 'warn' | 'default'> = {
   'in bedrijf': 'ok',

@@ -5,7 +5,8 @@ import {
   Loader2, Mail, MessageSquare, Plus, ShieldAlert, Trash2, Truck, UserMinus,
   UserPlus, Users, X,
 } from 'lucide-react'
-import Shell, { type NavItem } from '../../components/Shell'
+import Shell from '../../components/Shell'
+import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
 import { db } from '../../lib/db'
 import {
   beurtenVan, chauffeursVan, koppelingen, magAfnemen, mijnWerkgevers, regels,
@@ -35,13 +36,6 @@ import { toast } from '../../store/useToasts'
  *  als personeel.
  * ------------------------------------------------------------------ */
 
-const TITELS: Record<string, { title: string; subtitle: string }> = {
-  start: { title: 'Start', subtitle: 'Waar wil je heen?' },
-  chauffeurs: { title: 'Chauffeurs', subtitle: 'Wie er namens jou mag komen wassen' },
-  beurten: { title: 'Wasbeurten', subtitle: 'Wat er op jouw naam is gedaan' },
-  afspraken: { title: 'Afspraken', subtitle: 'Wat er per wagen wel en niet mag' },
-  overleg: { title: 'Overleg', subtitle: 'Contact met Truckwash1' },
-}
 
 export default function EmployerDashboard() {
   const me = useAuth((s) => s.user)!
@@ -75,18 +69,24 @@ export default function EmployerDashboard() {
     [alleRegels, werkgever],
   )
 
-  const items: NavItem[] = [
-    { key: 'start', label: 'Start', icon: LayoutGrid },
-    ...(magBeheren
-      ? [{ key: 'chauffeurs', label: 'Chauffeurs', icon: Users,
-           badge: chauffeurs.filter((c) => c.status === 'wacht op akkoord').length || undefined }]
-      : []),
-    { key: 'beurten', label: 'Wasbeurten', icon: Truck },
-    ...(magBeheren ? [{ key: 'afspraken', label: 'Afspraken', icon: ClipboardList }] : []),
-    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen || undefined },
+  /* Eén lijst voor het menu, de kop en wat van buitenaf te openen is; zie
+     components/paginas.ts. */
+  const paginas: Pagina[] = [
+    { key: 'start', label: 'Start', icon: LayoutGrid, sub: 'Waar wil je heen?' },
+    { key: 'chauffeurs', label: 'Chauffeurs', icon: Users, als: magBeheren,
+      badge: chauffeurs.filter((c) => c.status === 'wacht op akkoord').length,
+      sub: 'Wie er namens jou mag komen wassen' },
+    { key: 'beurten', label: 'Wasbeurten', icon: Truck,
+      sub: 'Wat er op jouw naam is gedaan' },
+    { key: 'afspraken', label: 'Afspraken', icon: ClipboardList, als: magBeheren,
+      sub: 'Wat er per wagen wel en niet mag' },
+    { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
+      sub: 'Contact met Truckwash1' },
   ]
 
-  useNavTarget(items.map((i) => i.key), (p) => setPage(p))
+  const items = menuVan(paginas, () => true)
+
+  useNavTarget(sleutelsVan(paginas, () => true), (p) => setPage(p))
 
   if (!werkgever) {
     return (
@@ -118,7 +118,7 @@ export default function EmployerDashboard() {
     )
   }
 
-  const meta = TITELS[page] ?? TITELS.start
+  const meta = kopVan(paginas, page, 'start')
   const openVerzoeken = chauffeurs.filter((c) => c.status === 'wacht op akkoord').length
   const actieveChauffeurs = chauffeurs.filter((c) => c.status === 'actief').length
   const dezeMaand = beurten.filter(

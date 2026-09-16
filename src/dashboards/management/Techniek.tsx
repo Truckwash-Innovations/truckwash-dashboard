@@ -12,10 +12,10 @@ import { techKpis } from '../../lib/techniek'
 import { filterByLocation, useLocationFilter } from '../../lib/locations'
 import { useAuth } from '../../store/useAuth'
 import { PALETTE, gridStroke, hoverFill, tooltipStyle } from '../../lib/charts'
-import Storingen from '../technician/Storingen'
-import Werkbonnen from '../technician/Werkbonnen'
-import Installaties from '../technician/Installaties'
-import Onderhoud from '../technician/Onderhoud'
+import Storingen from '../../components/Storingen'
+import Werkbonnen from '../../components/Werkbonnen'
+import Installaties from '../../components/Installaties'
+import Onderhoud from '../../components/Onderhoud'
 
 /* ------------------------------------------------------------------ *
  *  Techniek voor het management
