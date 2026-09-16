@@ -12128,6 +12128,35 @@ console.log('\n98. De wekkers gaan naast wat ze wekken')
   check('en een ontbrekende uitbreiding zegt of hij wél kan',
     m101.includes('pg_available_extensions'),
     '"staat niet aan" is niet te onderscheiden van "kan niet"')
+
+  /* --- en de wekker zegt of hij GEHOORD is --- */
+
+  const m102 = readFileSync(
+    'supabase/migrations/0102_een_wekker_die_zegt_of_hij_gehoord_is.sql', 'utf8')
+
+  /*
+   * net.http_post is asynchroon: de cron-taak is "geslaagd" zodra het verzoek
+   * is weggezet, ook als de functie er een 403 op teruggeeft. Een stand die
+   * alleen cron.job_run_details leest staat dus groen terwijl er niets
+   * gebeurt -- en dat is erger dan geen stand, want dan zoek je de oorzaak
+   * ergens anders.
+   */
+  check('de stand leest wat de functie terugstuurde, niet alleen of de taak liep',
+    m102.includes('net._http_response') && m102.includes('status_code'),
+    'een geweigerde wekker ziet er hetzelfde uit als een geslaagde')
+
+  /* Daarvoor moet het verzoeknummer bewaard blijven; dat gooide 0101 weg. */
+  check('en het verzoeknummer wordt bewaard zodat antwoord en wekker bij elkaar horen',
+    m102.includes('wekker_ronde') && m102.includes('verzoek_id'),
+    'er is niet te zien welk antwoord bij welke wekker hoorde')
+
+  /*
+   * pg_net bewaart antwoorden maar zes uur. Daarna weten we nog DAT hij
+   * liep, en dat hoort er anders uit te zien dan "het ging goed".
+   */
+  check('en een vervallen antwoord heet niet stilletjes gelukt',
+    m102.includes('niet (meer) bewaard'),
+    'een antwoord dat pg_net heeft opgeruimd telt als geslaagd')
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

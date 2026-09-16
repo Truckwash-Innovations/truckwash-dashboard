@@ -267,6 +267,11 @@ comment on function public.wekkers_instellen() is
 --  hij in een tabel, en kan een scherm hem laten zien.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg en dan opnieuw: 0102 geeft deze functie kolommen erbij, en
+   "create or replace" mag de vorm van het antwoord niet veranderen. Zonder
+   deze regel loopt een tweede ronde door alle migraties erop vast. */
+drop function if exists public.wekkers_stand(integer);
+
 create or replace function public.wekkers_stand(hoeveel integer default 20)
 returns table (
   naam       text,
