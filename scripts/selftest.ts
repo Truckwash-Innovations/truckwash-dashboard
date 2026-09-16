@@ -12519,5 +12519,173 @@ console.log('\n100. Het virtuele kantoor')
     eigenKleuren.length === 0, eigenKleuren.join(', '))
 }
 
+/* ==================================================================== *
+ *  101. De server zegt zelf welke versie hij draait
+ *
+ *  Casper: "fix het allemaal" -- de eerste van zes.
+ *
+ *  Er was geen enkele manier om te zien of het schema bij was of de functies
+ *  waren uitgerold. Bij elke storing begon het met "heb je de sql gedraaid?"
+ *  en het antwoord was een herinnering.
+ *
+ *  Wat hier hard moet zijn:
+ *
+ *    - het verwachte migratienummer komt uit de map en niet uit een getal
+ *      dat iemand met de hand ophoogt (want dat vergeet je)
+ *    - elke migratie in de uitdraai schrijft zichzelf in; precies een keer
+ *    - elke edge function meldt zijn EIGEN naam, niet die van de buurman
+ *    - en de vergelijking zelf klopt: achterlopen is achterlopen
+ * ==================================================================== */
+
+console.log('\n101. De server zegt welke versie hij draait')
+
+{
+  const { readFileSync, readdirSync } = await import('node:fs')
+
+  const migraties = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).sort()
+  const hoogste = Math.max(...migraties.map((f) => Number(f.slice(0, 4))))
+
+  /* ---- 1. het verwachte nummer komt uit de map ---- */
+
+  /*
+   * Deze twee zet vite normaal klaar. In Node bestaan ze niet, en zonder
+   * deze regels valt de module om op een naam die nergens is. Het getal is
+   * hetzelfde getal dat vite.config.ts uitrekent -- uit dezelfde map.
+   */
+  ;(globalThis as any).__APP_VERSION__ = '1.90.0'
+  ;(globalThis as any).__SCHEMA_VERWACHT__ = hoogste
+
+  const stand = await import('../src/lib/serverstand')
+  const { SCHEMA_VERWACHT, schemaLooptAchter, functiesAchter } = stand
+
+  check('het verwachte schemanummer is het hoogste in de map',
+    SCHEMA_VERWACHT === hoogste, `${SCHEMA_VERWACHT} tegenover ${hoogste}`)
+
+  const viteConfig = readFileSync('vite.config.ts', 'utf8')
+  check('en vite telt het uit de map in plaats van het te onthouden',
+    viteConfig.includes('readdirSync(dir)') && viteConfig.includes('__SCHEMA_VERWACHT__'),
+    'een nummer dat met de hand wordt opgehoogd is een nummer dat je vergeet')
+
+  /* ---- 2. achterlopen is achterlopen ---- */
+
+  const maak = (nummer: number) => ({
+    schema: { nummer, naam: '', at: null, gezien: nummer, aangenomen: 0 },
+    functies: [],
+  })
+
+  check('geen verbinding betekent niet "loopt achter"',
+    schemaLooptAchter(null) === false)
+  check('een schema dat een migratie mist loopt achter',
+    schemaLooptAchter(maak(hoogste - 1)) === true)
+  check('en een dat bij is niet',
+    schemaLooptAchter(maak(hoogste)) === false)
+  /*
+   * Een server die vooruitloopt is geen storing. Dat gebeurt zodra de sql is
+   * gedraaid en de app nog niet is uitgerold, en dat is de goede volgorde.
+   */
+  check('een server die vooruitloopt is geen waarschuwing',
+    schemaLooptAchter(maak(hoogste + 1)) === false)
+
+  /* ---- 3. welke functies oud zijn ---- */
+
+  const metFuncties = {
+    schema: maak(hoogste).schema,
+    functies: [
+      { naam: 'exact', versie: '1.90.0', gebouwd: '', gezienAt: 1 },
+      { naam: 'lezer', versie: '1.89.0', gebouwd: '', gezienAt: 1 },
+      { naam: 'trucky', versie: '', gebouwd: '', gezienAt: 1 },
+    ],
+  }
+  const oud = functiesAchter(metFuncties, '1.90.0')
+  check('een functie op een oudere versie valt op',
+    oud.length === 1 && oud[0].naam === 'lezer', JSON.stringify(oud.map((f) => f.naam)))
+  /*
+   * Een functie zonder versie heeft zich gemeld van vóór dit alles, of de
+   * stempel ontbrak. "Onbekend" is geen "verouderd": dat zou een waarschuwing
+   * geven waar niemand iets mee kan.
+   */
+  check('en een zonder versie wordt niet als verouderd geteld',
+    !oud.some((f) => f.naam === 'trucky'), JSON.stringify(oud.map((f) => f.naam)))
+
+  /* ---- 4. elke migratie schrijft zichzelf in, precies een keer ---- */
+
+  const { standBlok } = await import('../scripts/migratie-stand.cjs') as any
+
+  const blok = standBlok("0103_proef.sql", "Een naam met 'aanhalingstekens'")
+  check('het blokje roept de juiste migratie aan',
+    blok.includes('public.migratie_gedaan(103,'), blok)
+  check('en verdubbelt aanhalingstekens in de naam',
+    blok.includes("''aanhalingstekens''"), blok)
+  /*
+   * De functie bestaat pas vanaf 0103. In setup.sql staan er 102 migraties
+   * vóór; zonder deze vraag zou het bestand daar stuklopen.
+   */
+  check('en doet niets zolang migratie_gedaan nog niet bestaat',
+    blok.includes("to_regprocedure('public.migratie_gedaan(integer,text)') is not null"), blok)
+  /*
+   * to_regprocedure en niet to_regproc. Die laatste geeft ook null bij een
+   * naam die meer dan een keer bestaat, en dat heeft 0101 laten denken dat
+   * pg_cron uit stond terwijl het aanstond.
+   */
+  check('met to_regprocedure, niet met to_regproc',
+    !blok.includes('to_regproc('), blok)
+
+  const setup = readFileSync('supabase/setup.sql', 'utf8')
+  const bij = readFileSync('supabase/bijwerken.sql', 'utf8')
+  const tel = (t: string) => (t.match(/perform public\.migratie_gedaan\(/g) ?? []).length
+
+  check('setup.sql schrijft elke migratie in, precies een keer',
+    tel(setup) === migraties.length, `${tel(setup)} van ${migraties.length}`)
+  check('en bijwerken.sql die hij bevat',
+    tel(bij) === migraties.filter((f) => Number(f.slice(0, 4)) >= 17).length,
+    String(tel(bij)))
+
+  /* ---- 5. elke functie meldt zijn eigen naam ---- */
+
+  const functies = readdirSync('supabase/functions', { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !d.name.startsWith('_'))
+    .map((d) => d.name)
+
+  const zonder: string[] = []
+  const verkeerd: string[] = []
+  for (const naam of functies) {
+    const bron = readFileSync(`supabase/functions/${naam}/index.ts`, 'utf8')
+    const m = bron.match(/meldStand\('([^']+)'\)/)
+    if (!m) zonder.push(naam)
+    else if (m[1] !== naam) verkeerd.push(`${naam} meldt zich als ${m[1]}`)
+  }
+  check('elke edge function meldt zich bij het opstarten',
+    zonder.length === 0, zonder.join(', '))
+  check('en doet dat onder zijn eigen naam',
+    verkeerd.length === 0, verkeerd.join(', '))
+
+  /* ---- 6. de stempel klopt met package.json ---- */
+
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+  const versieTs = readFileSync('supabase/functions/_gedeeld/versie.ts', 'utf8')
+  const gestempeld = versieTs.match(/VERSIE = '([^']+)'/)?.[1]
+  check('de gestempelde versie is een versie',
+    /^\d+\.\d+\.\d+/.test(gestempeld ?? ''), String(gestempeld))
+  /*
+   * Hij hoeft niet gelijk te zijn aan package.json: het stempel wordt gezet
+   * bij het uitrollen, en dat gebeurt na het ophogen. Wat wel moet, is dat
+   * het uitrollen hem zet -- anders meldt elke functie voor altijd de versie
+   * van de dag dat dit is gebouwd.
+   */
+  check('en het uitrollen zet hem opnieuw',
+    String(pkg.scripts.functions).includes('scripts/functie-versie.cjs'),
+    pkg.scripts.functions)
+
+  /* ---- 7. melden mag nooit iets breken ---- */
+
+  const standTs = readFileSync('supabase/functions/_gedeeld/stand.ts', 'utf8')
+  check('het melden wacht nergens op',
+    !/await admin\.rpc/.test(standTs.replace(/const werk = \(async \(\) => \{[\s\S]*?\}\)\(\)/, '')),
+    'een functie die op zijn eigen versiemelding wacht, wacht op niets')
+  check('en slikt elke fout',
+    standTs.includes('catch (e)') && standTs.includes('console.warn'),
+    'een mislukte melding mag geen verzoek laten stranden')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

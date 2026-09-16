@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0102
+--  Bijwerken: migratie 0017 tot en met 0103
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -98,6 +98,7 @@
 --    0100  Betalen dat niet liegt
 --    0101  De wekkers gaan naast wat ze wekken
 --    0102  Een wekker die zegt of hij gehóórd is
+--    0103  De server zegt zelf welke versie hij draait
 -- ===========================================================================
 
 -- ===========================================================================
@@ -236,6 +237,13 @@ create policy notifications_insert on public.notifications for insert to authent
     )
   );
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(17, 'Berichten over de grens van het eigen bedrijf heen');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  In- en uitklokken gaat via de kassa
 --
@@ -363,6 +371,13 @@ drop trigger if exists time_bewaak on public.time_entries;
 create trigger time_bewaak before update on public.time_entries
   for each row execute function public.time_bewaak_wijziging();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(18, 'In- en uitklokken gaat via de kassa');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een bericht als gelezen kunnen melden
 --
@@ -474,6 +489,13 @@ $$;
 drop trigger if exists notif_bewaak on public.notifications;
 create trigger notif_bewaak before update on public.notifications
   for each row execute function public.notif_bewaak_wijziging();
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(19, 'Een bericht als gelezen kunnen melden');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Van melding naar plan
@@ -617,6 +639,13 @@ drop trigger if exists plan_bewaak on public.dev_plans;
 create trigger plan_bewaak before update on public.dev_plans
   for each row execute function public.plan_bewaak_wijziging();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(20, 'Van melding naar plan');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Wat je aan je eigen dossier mag veranderen, en de rondleiding
 --
@@ -717,6 +746,13 @@ $$;
 drop trigger if exists profiel_bewaak on public.profiles;
 create trigger profiel_bewaak before update on public.profiles
   for each row execute function public.profiel_bewaak_wijziging();
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(21, 'Wat je aan je eigen dossier mag veranderen, en de rondleiding');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Bijwerken is geen aanmaken
@@ -834,6 +870,13 @@ create policy agenda_insert on public.agenda_items for insert to authenticated
     public.rij_bestaat('public.agenda_items'::regclass, id)
     or (public.is_staff() and created_by = public.my_id())
   );
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(22, 'Bijwerken is geen aanmaken');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Uitnodigen en uitschrijven
@@ -994,6 +1037,13 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 
 grant execute on function public.is_uitgeschreven(text) to authenticated;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(23, 'Uitnodigen en uitschrijven');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Uren rechtzetten en kilometers verantwoorden
@@ -1274,6 +1324,13 @@ create policy route_select on public.route_cache for select to authenticated
 drop policy if exists route_write on public.route_cache;
 create policy route_write on public.route_cache for all to authenticated
   using (false) with check (false);
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(24, 'Uren rechtzetten en kilometers verantwoorden');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De kluis, en het koppelen van een kassa
@@ -1871,6 +1928,13 @@ drop trigger if exists pos_devices_eigen_regel on public.pos_devices;
 create trigger pos_devices_eigen_regel before update on public.pos_devices
   for each row execute function public.pos_apparaat_eigen_regel();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(25, 'De kluis, en het koppelen van een kassa');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De vestigingen zelf beheren
 --
@@ -2109,6 +2173,13 @@ drop trigger if exists vestiging_kluis on public.locations;
 create trigger vestiging_kluis after insert on public.locations
   for each row execute function public.vestiging_krijgt_kluis();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(26, 'De vestigingen zelf beheren');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een foto bij het artikel
 --
@@ -2164,6 +2235,13 @@ begin
       check (image is null or length(image) <= 150000) not valid;
   end if;
 end $$;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(27, 'Een foto bij het artikel');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een kassa is geen aanmelding
@@ -2382,6 +2460,13 @@ drop trigger if exists profiles_apparaat on public.profiles;
 create trigger profiles_apparaat before insert or update on public.profiles
   for each row execute function public.apparaat_blijft_apparaat();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(28, 'Een kassa is geen aanmelding');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De administratie
 --
@@ -2554,6 +2639,13 @@ begin
 end;
 $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(29, 'De administratie');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Gewone facturen stonden als verdacht in de postbus
 --
@@ -2631,6 +2723,13 @@ begin
   get diagnostics geraakt = row_count;
   raise notice 'Bijlagen vrijgegeven op % berichten', geraakt;
 end $$;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(30, 'Gewone facturen stonden als verdacht in de postbus');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Bijwerken is nog steeds geen aanmaken
@@ -2781,6 +2880,13 @@ create policy progress_insert on public.course_progress for insert to authentica
     or public.is_lead()
   );
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(31, 'Bijwerken is nog steeds geen aanmaken');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Wat weg is, moet ook wegblijven
 --
@@ -2850,6 +2956,13 @@ comment on column public.deletion_log.record_id is
 drop policy if exists deletion_log_select on public.deletion_log;
 create policy deletion_log_select on public.deletion_log for select to authenticated
   using (true);
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(32, 'Wat weg is, moet ook wegblijven');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De vestiging vult de website
@@ -3058,6 +3171,13 @@ revoke execute on function public.website_aantal_medewerkers() from public, anon
 grant execute on function public.website_vestigingen() to service_role;
 grant execute on function public.website_aantal_medewerkers() to service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(33, 'De vestiging vult de website');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Anon hoort hier niet bij te kunnen
 --
@@ -3132,6 +3252,13 @@ revoke execute on function public.vestiging_bezet(text) from public, anon;
 -- En teruggeven wat de bedoeling was, zodat opnieuw draaien altijd mag.
 grant execute on function public.pos_kluis_saldo(text) to authenticated;
 grant execute on function public.vestiging_bezet(text) to authenticated;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(34, 'Anon hoort hier niet bij te kunnen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De achttien vestigingen komen naar binnen
@@ -3371,6 +3498,13 @@ revoke execute on function public.website_aantal_medewerkers() from public, anon
 grant execute on function public.website_vestigingen()        to service_role;
 grant execute on function public.website_aantal_medewerkers() to service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(35, 'De achttien vestigingen komen naar binnen');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Utrecht bleef op "kasweg 2112" staan
 --
@@ -3493,6 +3627,13 @@ where not exists (
   select 1 from public.locations where website_slug = 'utrecht'
 );
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(36, 'Utrecht bleef op "kasweg 2112" staan');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een kassa mag klokken
 --
@@ -3608,6 +3749,13 @@ create trigger profiles_a_klokken before insert or update on public.profiles
 --  Zolang die keuze niet gemaakt is, doet deze migratie het minste van de twee:
 --  klokken werkt, en prijzen blijven waar ze zijn.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(37, 'Een kassa mag klokken');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een verwijdering moet zichzelf melden
@@ -3787,6 +3935,13 @@ values
    'weggehaald bij het koppelen, voordat verwijderingen werden gemeld')
 on conflict (id) do nothing;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(38, 'Een verwijdering moet zichzelf melden');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Verdwaalde regeleindes in de vestigingsteksten
 --
@@ -3839,6 +3994,13 @@ update public.locations
     or bereikbaar like '%' || chr(13) || '%'
     or bijzonder  like '%' || chr(13) || '%'
     or exists (select 1 from unnest(punten) p where p like '%' || chr(13) || '%');
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(39, 'Verdwaalde regeleindes in de vestigingsteksten');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Bijwerken is nog steeds geen aanmaken -- nu op alle tabellen
@@ -3992,6 +4154,13 @@ create policy wash_jobs_insert on public.wash_jobs for insert to authenticated
     or (public.is_staff() or company_id = public.my_company())
   );
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(40, 'Bijwerken is nog steeds geen aanmaken -- nu op alle tabellen');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Trucky praat met bezoekers
 --
@@ -4089,6 +4258,13 @@ $$;
  */
 revoke execute on function public.trucky_verbruik_vandaag() from public, anon, authenticated;
 grant  execute on function public.trucky_verbruik_vandaag() to service_role;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(41, 'Trucky praat met bezoekers');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Trucky kent de antwoorden zelf
@@ -4477,6 +4653,13 @@ insert into public.trucky_vragen (id, vraag, antwoord, trefwoorden, pagina) valu
    array['contact','bellen','telefoonnummer','mailen','e-mail'], '/contact/')
 on conflict (id) do nothing;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(42, 'Trucky kent de antwoorden zelf');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De app en de database waren het oneens over wie een kanaal mag maken
 --
@@ -4571,6 +4754,13 @@ create policy channels_update on public.channels for update to authenticated
     or public.heeft_recht('chat.manage')
     or (kind = 'gesprek' and public.my_id() = any(member_ids))
   );
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(43, 'De app en de database waren het oneens over wie een kanaal mag maken');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Facturen boeken zichzelf
@@ -4918,6 +5108,13 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    '"nee" blijft hij staan tot iemand in de app op voorlezen drukt.')
 on conflict (id) do nothing;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(44, 'Facturen boeken zichzelf');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een kassa ziet wie er bij hem mag werken
 --
@@ -4987,6 +5184,13 @@ create policy profiles_select on public.profiles for select to authenticated
       )
     )
   );
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(45, 'Een kassa ziet wie er bij hem mag werken');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De foto's gaan mee naar de website
@@ -5087,6 +5291,13 @@ $$;
 revoke execute on function public.website_vestigingen() from public, anon, authenticated;
 grant  execute on function public.website_vestigingen() to service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(46, 'De foto''s gaan mee naar de website');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een verkoopfactuur is geen kostenpost
 --
@@ -5174,6 +5385,13 @@ drop trigger if exists expenses_verwijderd on public.expenses;
 create trigger expenses_verwijderd
   after delete on public.expenses
   for each row execute function public.meld_verwijdering();
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(47, 'Een verkoopfactuur is geen kostenpost');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Trucksupply ziet de voorraad
@@ -5911,6 +6129,13 @@ $$;
 revoke execute on function public.supply_kassa_prijzen() from public, anon, authenticated;
 grant  execute on function public.supply_kassa_prijzen() to authenticated, service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(48, 'Trucksupply ziet de voorraad');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De factuur kan ook thuis gelezen worden
 --
@@ -6049,6 +6274,13 @@ end;
 $$;
 
 revoke execute on function public.lezing_blijft_lezing() from public, anon, authenticated;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(49, 'De factuur kan ook thuis gelezen worden');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Wat drie keer hetzelfde was, hoeft de vierde keer niet opnieuw
@@ -6313,6 +6545,13 @@ comment on function public.mag_automatisch_goedkeuren(text, numeric, text, text)
   'deze leverancier eerder door een mens is goedgekeurd, en het bedrag dat '
   'daarbij gebruikelijk was. Beslist niets zelf.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(50, 'Wat drie keer hetzelfde was, hoeft de vierde keer niet opnieuw');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De eigen AI mag ook meedenken
 --
@@ -6451,6 +6690,13 @@ comment on table public.ai_opdrachten is
   'lezer/ haalt hem op via de functie lezer. Rijen worden na afhandeling '
   'weggegooid.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(51, 'De eigen AI mag ook meedenken');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De Exact-sleutels verhuizen van de omgeving naar de database
 --
@@ -6555,6 +6801,13 @@ on conflict (id) do nothing;
 --  belt. Een policy hier zou betekenen dat het clientgeheim in de gewone
 --  synchronisatie terecht kan komen.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(52, 'De Exact-sleutels verhuizen van de omgeving naar de database');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Exact kent het rekeningschema, en de bon weet waar hij heen ging
@@ -6701,6 +6954,13 @@ begin
       t, t);
   end loop;
 end $$;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(53, 'Exact kent het rekeningschema, en de bon weet waar hij heen ging');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Exact kent het personeel, en wij weten wie wie is
@@ -6864,6 +7124,13 @@ begin
   end loop;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(54, 'Exact kent het personeel, en wij weten wie wie is');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Terugkomen in de app na het koppelen
 --
@@ -6900,6 +7167,13 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    'toestaan heeft geklikt. Moet https zijn; leeg laten betekent dat de '
    'serverfunctie zijn eigen pagina toont in plaats van je terug te sturen.')
 on conflict (id) do nothing;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(55, 'Terugkomen in de app na het koppelen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Het dossier valt uiteen: identiteit apart van geld
@@ -7056,6 +7330,13 @@ create policy prive_write on public.personnel_private for all to authenticated
   with check (public.is_management() or public.is_supervisor()
               or public.heeft_recht('staff.view'));
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(56, 'Het dossier valt uiteen: identiteit apart van geld');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Het grootboek komt uit Exact
 --
@@ -7130,6 +7411,13 @@ comment on function public.grootboek_in_gebruik(text) is
   'Hoeveel kostenposten op deze grootboekcode staan (0057). Nul betekent dat '
   'de rekening weg mag; daarboven laat je kostenposten achter met een code '
   'die nergens meer naar wijst.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(57, 'Het grootboek komt uit Exact');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Goedgekeurde facturen naar Exact
@@ -7343,6 +7631,13 @@ $$;
 
 revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated;
 grant  execute on function public.exact_facturen_wachtend() to service_role;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(58, 'Goedgekeurde facturen naar Exact');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Meerdere bv's, elk met een eigen grootboek
@@ -7631,6 +7926,13 @@ $$;
 revoke execute on function public.exact_facturen_wachtend() from public, anon, authenticated;
 grant  execute on function public.exact_facturen_wachtend() to service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(59, 'Meerdere bv''s, elk met een eigen grootboek');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Vier ogen: één die kijkt, één die tekent
 --
@@ -7778,6 +8080,13 @@ comment on function public.expenses_vier_ogen() is
   'Bewaakt dat een factuur langs twee verschillende mensen gaat (0060). Staat '
   'in de database en niet in het scherm: de app praat rechtstreeks met de '
   'database, en een wijziging uit de wachtrij heeft geen scherm gezien.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(60, 'Vier ogen: één die kijkt, één die tekent');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De historie van een factuur, en notities erbij
@@ -7978,6 +8287,13 @@ create policy gebeurtenis_insert on public.expense_gebeurtenis
   with check (public.rij_bestaat('public.expense_gebeurtenis'::regclass, id)
               or (soort = 'notitie' and door = public.my_id()));
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(61, 'De historie van een factuur, en notities erbij');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een factuur splitsen
 --
@@ -8174,6 +8490,13 @@ create policy expense_regel_update on public.expense_regel for update to authent
 drop policy if exists expense_regel_delete on public.expense_regel;
 create policy expense_regel_delete on public.expense_regel for delete to authenticated
   using (public.mag_kosten_beslissen());
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(62, 'Een factuur splitsen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Relaties uit Exact: crediteuren én klanten
@@ -8379,6 +8702,13 @@ insert into public.exact_sync (soort) values ('relaties')
 on conflict (soort) do nothing;
 
 delete from public.exact_sync where soort = 'crediteuren';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(63, 'Relaties uit Exact: crediteuren én klanten');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Verkoopfacturen: de andere kant van de factuurstroom
@@ -8795,6 +9125,13 @@ end $$;
 revoke execute on function public.verkoopfactuur_versturen(text) from public, anon, authenticated;
 grant  execute on function public.verkoopfactuur_versturen(text) to service_role;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(64, 'Verkoopfacturen: de andere kant van de factuurstroom');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Betaald zetten, en een SEPA-bestand voor de bank
 --
@@ -9046,6 +9383,13 @@ begin
   end loop;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(65, 'Betaald zetten, en een SEPA-bestand voor de bank');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Links in mails wijzen naar de site, niet naar GitHub
 --
@@ -9093,6 +9437,13 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    'zelf gaan, zoals /medewerkers/ om hem te downloaden. Moet https zijn; '
    'leeg laten betekent dat de serverfunctie de wortel van app_url pakt.')
 on conflict (id) do nothing;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(66, 'Links in mails wijzen naar de site, niet naar GitHub');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Werk: taken, projecten en een bord
@@ -9395,6 +9746,13 @@ create policy taak_reactie_update on public.taak_reactie
   for update to authenticated
   using (door = public.my_id())
   with check (door = public.my_id());
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(67, 'Werk: taken, projecten en een bord');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Vacatures en sollicitaties in eigen huis
@@ -9760,6 +10118,13 @@ create policy sollicitatie_update on public.sollicitatie
    procedure is, is "weg" hetzelfde als "kwijt". Wat weg moet krijgt de status
    ingetrokken. */
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(68, 'Vacatures en sollicitaties in eigen huis');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De vacatures die nu op de site staan komen naar binnen
 --
@@ -9790,6 +10155,13 @@ values
 Je kunt je aanmelden via het formulier onderstaand. Wil je liever bellen of heb je vooraf vragen dan kun je ons bereiken op 06-51001528', '{}'::text[], array['Je weet op een enthousiaste en persoonlijke manier met de gasten om te gaan', 'Je bent een teamplayer', 'Je hebt een representatieve uitstraling', 'Je kan organiseren, motiveren en instrueren', 'Je bent flexibel inzetbaar', 'Uiteraard heb je horeca ervaring', 'Je hebt goede beheersing van de Nederlandse taal, Engels is een pre', 'Je houdt van een uitdaging'], array['Een gezellige werksfeer in een bedrijf met korte lijntjes', 'Uitstekende primaire en secundaire arbeidsvoorwaarden', 'Per direct een functie bij een dynamisch en solide bedrijf', 'Leuke teamuitjes'], null, '{}'::text[], 2),
   ('vac_open_sollicitatie', 'open-sollicitatie', 'Open Sollicitatie', 'Op dit moment geen passend vacature voor jou? En wil je wel graag werken bij Truckwash 1 Group? Laat het ons weten via onderstaand formulier.', '', '{}'::text[], '{}'::text[], '{}'::text[], null, '{}'::text[], 3)
 on conflict (id) do nothing;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(69, 'De vacatures die nu op de site staan komen naar binnen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De takenmail: om 7 en om 15 uur wat er bij je ligt
@@ -9929,6 +10301,13 @@ $$;
    waarom niemand anders haar mag aanroepen. */
 revoke execute on function public.taken_voor_mail() from public, anon, authenticated;
 grant  execute on function public.taken_voor_mail() to service_role;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(70, 'De takenmail: om 7 en om 15 uur wat er bij je ligt');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Documentbeheer
@@ -10425,6 +10804,13 @@ insert into public.instellingen (id, sleutel, waarde, omschrijving) values
    'documentbeheer. Leeg laten zet het uit.')
 on conflict (id) do nothing;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(71, 'Documentbeheer');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De administratie komt binnen
 --
@@ -10691,6 +11077,13 @@ create policy instellingen_update on public.instellingen for update to authentic
         and public.is_trucksupply_instelling(sleutel))
   );
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(72, 'De administratie komt binnen');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een nagekomen wasbeurt blokkeert niet de hele ronde
 --
@@ -10873,6 +11266,13 @@ grant  execute on function public.verkoopfacturen_opmaken(text, text) to service
 comment on function public.verkoopfacturen_opmaken(text, text) is
   'Maakt per klant een conceptverkoopfactuur uit de gereedgemelde wasbeurten van een maand. Ligt er al een verstuurde factuur over die maand, dan komt er een naregel-factuur met een eigen id; nagekomen beurten blokkeren zo niet de facturatie van de andere klanten.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(73, 'Een nagekomen wasbeurt blokkeert niet de hele ronde');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Je eigen woonadres invullen
 --
@@ -11007,6 +11407,13 @@ create trigger eigen_rij_alleen_adres_trg
 
 comment on function public.eigen_rij_alleen_adres() is
   'Wie zijn eigen dossierrij schrijft en geen personeelszaken is, mag alleen address, postcode en city zetten. De rest wordt teruggezet op de oude waarde -- RLS werkt per rij, niet per kolom.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(74, 'Je eigen woonadres invullen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Klanten beheren
@@ -11155,6 +11562,13 @@ create trigger companies_verwijderd
   after delete on public.companies
   for each row execute function public.meld_verwijdering();
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(75, 'Klanten beheren');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Wachtwoord vergeten -- een code in plaats van een link naar localhost
 --
@@ -11244,6 +11658,13 @@ alter table public.wachtwoord_herstel enable row level security;
 -- het staat er wel, en een latere policy die per ongeluk breed is zou dan
 -- meteen doorwerken. Dus intrekken.
 revoke all on public.wachtwoord_herstel from anon, authenticated;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(76, 'Wachtwoord vergeten -- een code in plaats van een link naar localhost');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een vacature op een vestiging die niet op de website staat
@@ -11338,6 +11759,13 @@ $$;
  */
 revoke execute on function public.website_vacatures() from public, anon, authenticated;
 grant  execute on function public.website_vacatures() to service_role;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(77, 'Een vacature op een vestiging die niet op de website staat');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De app zei ja en de database nee
@@ -11560,6 +11988,13 @@ create policy doc_bestand_select on public.doc_bestand for select to authenticat
  * Alleen de leesregel op doc_bestand zelf mocht hem niet gebruiken, en dat
  * is precies de plek waar de rij nog niet bestaat.
  */
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(78, 'De app zei ja en de database nee');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De bon weet zelf in welke bv hij hoort
@@ -12035,6 +12470,13 @@ comment on function public.bonnen_zonder_bv() is
   '(0079). Zonder deze vraag is die stapel alleen te vinden door alles een '
   'voor een te openen.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(79, 'De bon weet zelf in welke bv hij hoort');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De AI leest ook een pasje
 --
@@ -12140,6 +12582,13 @@ on conflict (id) do nothing;
 --
 --  Dat staat hier opgeschreven omdat het anders lijkt of het vergeten is.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(80, 'De AI leest ook een pasje');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een eigen werkadres
@@ -12400,6 +12849,13 @@ on conflict (id) do nothing;
 --  omdat de verleiding groot is om het "netjes" te maken zodra de postvakken
 --  werken. Zelftest 66 houdt het tegen.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(81, 'Een eigen werkadres');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een postvak per medewerker
@@ -12718,6 +13174,13 @@ comment on column public.profiles.mail_handtekening is
  * wél in die lijst hoort, en "vergeten" de gewone verklaring zou zijn.
  */
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(82, 'Een postvak per medewerker');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Documenten maak je hier
 --
@@ -12823,6 +13286,13 @@ end $$;
 --  regel voor te maken, en twee regels voor dezelfde vraag is hoe ze uit
 --  elkaar gaan lopen.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(83, 'Documenten maak je hier');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Gedeelde postvakken, en eigen mappen om in te sorteren
@@ -13366,6 +13836,13 @@ begin
   end loop;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(84, 'Gedeelde postvakken, en eigen mappen om in te sorteren');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De omschrijving in het dagboek
 --
@@ -13474,6 +13951,13 @@ comment on function public.exact_facturen_wachtend() is
   'heeft in één vraag (0058/0059). Sinds 0085 ook het kenmerk uit de lezing, '
   'zodat er in het inkoopdagboek staat waar de factuur over ging en niet nog '
   'een keer het factuurnummer.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(85, 'De omschrijving in het dagboek');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Alles per bv
@@ -14085,6 +14569,13 @@ comment on function public.bon_niet_boekbaar() is
   'goedkeurt -- daar stond tot nu toe nergens dat een factuur zou blijven '
   'liggen.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(86, 'Alles per bv');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De geschiedenis van Exact
 --
@@ -14254,6 +14745,13 @@ comment on function public.exact_stand_kort(bigint) is
   'wachtende erbij, want een factuur van drie maanden geleden die er nog '
   'staat is een ander verhaal dan een van gisteren.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(87, 'De geschiedenis van Exact');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De koppeling die niemand terugvond
 --
@@ -14357,6 +14855,13 @@ end $$;
 --  op: de factuur blijft in "Wat er nog blokkeert" staan, en één keer opnieuw
 --  koppelen zet het goed.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(88, 'De koppeling die niemand terugvond');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Wat Exact zelf al wist
@@ -14482,6 +14987,13 @@ comment on function public.exact_facturen_wachtend() is
   'heeft in één vraag (0058/0059/0086). Sinds 0085 het kenmerk uit de lezing '
   'en sinds 0089 de vervaldatum -- Exact eist die bij een inkoopboeking en '
   'kan hem niet zelf weten.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(89, 'Wat Exact zelf al wist');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Het nummer waarop je een boeking in Exact terugvindt
@@ -14649,6 +15161,13 @@ end $$;
  * eraan hangt wijst naar dezelfde naam en hoeft niet opnieuw. En de rechten
  * blijven ook staan: dit is geen drop.
  */
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(90, 'Het nummer waarop je een boeking in Exact terugvindt');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een boeking die niet optelt gaat niet
@@ -14905,6 +15424,13 @@ comment on function public.bon_niet_boekbaar() is
   'niet optelt tot het factuurbedrag -- het enige geval waarin er wel wat '
   'geboekt wordt en niet alles.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(91, 'Een boeking die niet optelt gaat niet');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Niet meer per bv instellen wat Exact al weet
 --
@@ -15047,6 +15573,13 @@ comment on function public.bon_niet_boekbaar() is
   'ontbreekt en wat je eraan doet (0086/0091). Sinds 0092 staan het dagboek '
   'en de btw-code er NIET meer bij: die zoekt de verzendlus zelf op bij Exact '
   '(0089), en erom vragen is werk dat niemand hoeft te doen.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(92, 'Niet meer per bv instellen wat Exact al weet');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Indelen zonder eerst over te nemen
@@ -15229,6 +15762,13 @@ comment on function public.factuur_indelen(text, text, text) is
 --  Dat staat hier opgeschreven omdat de verleiding bestaat hem "ook even mee
 --  te nemen", en daar is geen reden voor.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(93, 'Indelen zonder eerst over te nemen');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een rekeningnummer dat verkeerd gelezen is
@@ -15510,6 +16050,13 @@ begin
   return new;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(94, 'Een rekeningnummer dat verkeerd gelezen is');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een inkoopadres per onderneming, met een naam eraan
 --
@@ -15775,6 +16322,13 @@ create policy inkoop_adres_delete on public.inkoop_adres for delete to authentic
 --  Deze functie verandert dus niet. Dat staat hier opgeschreven omdat het
 --  anders lijkt of het vergeten is.
 -- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(95, 'Een inkoopadres per onderneming, met een naam eraan');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De tweede handtekening ligt bij iemand
@@ -16054,6 +16608,13 @@ comment on function public.facturen_op_handtekening(text) is
   'Wat er op de tweede handtekening wacht, met bij wie het ligt en hoeveel '
   'dagen het er staat (0096). Zonder `wie` alles; met `wie` wat er bij die '
   'persoon ligt plus wat bij niemand ligt.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(96, 'De tweede handtekening ligt bij iemand');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  De adressen maken zichzelf
@@ -16384,6 +16945,13 @@ update public.instellingen
          'een korte naam (inkoop.vastgoed@). Hernoemen mag; wat er staat '
          'blijft staan.'
  where sleutel = 'inkoop_domein';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(97, 'De adressen maken zichzelf');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Een vestiging hoort bij de bv die zo heet
@@ -16950,6 +17518,13 @@ begin
     ingevuld, verzet, weg, uit.gemaakt;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(98, 'Een vestiging hoort bij de bv die zo heet');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een weigering die je terugvindt, en die weggaat als je hem oplost
 --
@@ -17108,6 +17683,13 @@ drop trigger if exists expenses_exact_fout_opruimen on public.expenses;
 create trigger expenses_exact_fout_opruimen
   before update on public.expenses
   for each row execute function public.expense_exact_fout_opruimen();
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(99, 'Een weigering die je terugvindt, en die weggaat als je hem oplost');
+  end if;
+end $stand$;
 
 -- ===========================================================================
 --  Betalen dat niet liegt
@@ -17761,6 +18343,13 @@ comment on function public.betaal_blijft_hangen(integer) is
   'afgeletterd (0100). Staan in geen enkele andere lijst; zonder deze vraag '
   'verdwijnen ze stil.';
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(100, 'Betalen dat niet liegt');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  De wekkers gaan naast wat ze wekken
 --
@@ -18096,6 +18685,13 @@ begin
   end loop;
 end $$;
 
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(101, 'De wekkers gaan naast wat ze wekken');
+  end if;
+end $stand$;
+
 -- ===========================================================================
 --  Een wekker die zegt of hij gehóórd is
 --
@@ -18382,3 +18978,220 @@ begin
       coalesce(r.waarom, r.planning);
   end loop;
 end $$;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(102, 'Een wekker die zegt of hij gehóórd is');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  De server zegt zelf welke versie hij draait
+--
+--  Casper: "fix het allemaal" -- dit is de eerste van zes.
+--
+--  Wat er stond
+--  ------------
+--
+--  Niets. Er was geen tabel, geen nummer, geen tijdstip. Het schema werd
+--  bijgewerkt door supabase/bijwerken.sql met de hand in de SQL-editor te
+--  plakken, en daarna was er geen enkele manier om te zien of dat gelukt was.
+--
+--  Dat betekende dat bij elke storing de eerste vraag "heb je de sql
+--  gedraaid?" was, en het antwoord een herinnering. Een foutmelding over een
+--  functie die niet bestaat ziet er namelijk precies zo uit als een functie
+--  die stuk is.
+--
+--  Hetzelfde gold voor de edge functions: "npm run functions" vergeten is van
+--  buitenaf niet te onderscheiden van een functie die het niet doet.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Twee tabellen die bijhouden wat er draait, en een functie die het in een
+--  keer teruggeeft:
+--
+--    schema_stand    welke migraties zijn toegepast, en wanneer
+--    functie_stand   welke versie elke edge function draait, en wanneer hij
+--                    voor het laatst is opgestart
+--
+--  De migraties schrijven zichzelf in. Niet in het migratiebestand zelf --
+--  dan zou ik er honderd moeten aanpassen -- maar in de uitdraai:
+--  scripts/build-setup-sql.cjs en build-bijwerken-sql.cjs plakken achter elke
+--  migratie een blokje dat migratie_gedaan() aanroept. Dat blokje kijkt eerst
+--  of die functie al bestaat, zodat het in de migraties vóór deze een lege
+--  handeling is.
+--
+--  Wat hier NIET gebeurt
+--  ---------------------
+--
+--  Deze tabel maakt niets waar. Hij noteert wat er is gedraaid; hij
+--  controleert niet of het schema klopt en hij draait niets na. Wie de
+--  migraties in de verkeerde volgorde of half draait krijgt een nummer dat
+--  liegt. Dat is een bewuste grens: een echte schemacontrole is een ander
+--  gereedschap, en een half werkende zou erger zijn dan geen.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Welke migraties zijn toegepast
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.schema_stand (
+  /* Het nummer uit de bestandsnaam: 103 voor deze. */
+  nummer       integer primary key,
+  /* De eerste regel uit de kop van de migratie, zodat het nummer iets zegt. */
+  naam         text not null default '',
+  /*
+   * Wanneer hij is gedraaid. Null betekent iets anders dan nul: "we nemen aan
+   * dat hij gedraaid is, maar we hebben het niet zien gebeuren". Dat geldt
+   * voor alles van vóór deze migratie -- die konden zichzelf nog niet
+   * inschrijven, en dat verzwijgen zou precies de soort leugen zijn waar deze
+   * tabel voor bedoeld is.
+   */
+  toegepast_at bigint
+);
+
+comment on table public.schema_stand is
+  'Welke migraties deze database heeft gezien (0103). toegepast_at null = '
+  'aangenomen omdat een latere migratie draaide, niet zelf waargenomen.';
+
+alter table public.schema_stand enable row level security;
+
+/* Lezen mag iedereen die binnen werkt: het staat ook op het
+   ontwikkelaarsscherm. Schrijven doet alleen de functie hieronder, en die is
+   security definer. */
+drop policy if exists schema_stand_lezen on public.schema_stand;
+create policy schema_stand_lezen on public.schema_stand
+  for select using (public.is_staff());
+
+-- ---------------------------------------------------------------------------
+--  2. Een migratie schrijft zichzelf in
+--
+--  De aanroep hiervan staat niet in de migratiebestanden maar in de uitdraai
+--  die de bouwscripts maken. Zie de kop.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.migratie_gedaan(p_nummer integer, p_naam text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.schema_stand (nummer, naam, toegepast_at)
+  values (p_nummer, coalesce(nullif(trim(p_naam), ''), ''), public.now_ms())
+  on conflict (nummer) do update
+    set naam = case
+                 when excluded.naam <> '' then excluded.naam
+                 else schema_stand.naam
+               end,
+        toegepast_at = excluded.toegepast_at;
+$$;
+
+revoke execute on function public.migratie_gedaan(integer, text) from public, anon, authenticated;
+
+/*
+ * En wat er vóór deze migratie draaide.
+ *
+ * Wie hier komt heeft 0001 tot en met 0102 gedraaid -- anders zou de helft
+ * van wat hierboven staat niet bestaan. Dat mag dus aangenomen worden. Maar
+ * het blijft een aanname, en daarom blijft toegepast_at leeg.
+ */
+insert into public.schema_stand (nummer, naam, toegepast_at)
+select g, '', null from generate_series(1, 102) g
+on conflict (nummer) do nothing;
+
+-- ---------------------------------------------------------------------------
+--  3. Welke versie draait elke edge function
+--
+--  De functies melden zich bij het opstarten. Dat gebeurt bij elke koude
+--  start -- vaak genoeg om actueel te zijn, zelden genoeg om iets te kosten.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.functie_stand (
+  /* De mapnaam onder supabase/functions, bijvoorbeeld "exact". */
+  naam      text primary key,
+  /* De versie uit package.json op het moment van uitrollen. */
+  versie    text not null default '',
+  /* Wanneer die uitrol is gemaakt, als ISO-tekst. */
+  gebouwd   text not null default '',
+  /* Wanneer deze functie voor het laatst is opgestart. */
+  gezien_at bigint not null default public.now_ms()
+);
+
+comment on table public.functie_stand is
+  'Welke versie elke edge function draait, gemeld bij elke koude start (0103). '
+  'Een functie die hier ontbreekt of een oude versie toont, is niet uitgerold.';
+
+alter table public.functie_stand enable row level security;
+
+drop policy if exists functie_stand_lezen on public.functie_stand;
+create policy functie_stand_lezen on public.functie_stand
+  for select using (public.is_staff());
+
+create or replace function public.functie_gezien(
+  p_naam text, p_versie text, p_gebouwd text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.functie_stand (naam, versie, gebouwd, gezien_at)
+  values (trim(p_naam), coalesce(p_versie, ''), coalesce(p_gebouwd, ''), public.now_ms())
+  on conflict (naam) do update
+    set versie    = excluded.versie,
+        gebouwd   = excluded.gebouwd,
+        gezien_at = excluded.gezien_at;
+$$;
+
+revoke execute on function public.functie_gezien(text, text, text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+--  4. Alles in een keer, voor het scherm
+--
+--  Een aanroep in plaats van twee, zodat het scherm niet twee keer hoeft te
+--  wachten en er geen half ingevulde stand in beeld kan staan.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.server_stand();
+
+create or replace function public.server_stand()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'schema', jsonb_build_object(
+      'nummer',     coalesce((select max(nummer) from public.schema_stand), 0),
+      'naam',       (select naam from public.schema_stand order by nummer desc limit 1),
+      'at',         (select toegepast_at from public.schema_stand
+                      order by nummer desc limit 1),
+      /* Tot hier hebben we het echt zien gebeuren. */
+      'gezien',     coalesce((select max(nummer) from public.schema_stand
+                               where toegepast_at is not null), 0),
+      'aangenomen', (select count(*) from public.schema_stand where toegepast_at is null)
+    ),
+    'functies', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'naam', naam, 'versie', versie,
+               'gebouwd', gebouwd, 'gezienAt', gezien_at)
+             order by naam)
+      from public.functie_stand
+    ), '[]'::jsonb)
+  )
+  where public.is_staff();
+$$;
+
+revoke execute on function public.server_stand() from public, anon;
+grant execute on function public.server_stand() to authenticated;
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(103, 'De server zegt zelf welke versie hij draait');
+  end if;
+end $stand$;

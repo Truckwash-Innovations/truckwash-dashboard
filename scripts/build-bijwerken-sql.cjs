@@ -31,6 +31,7 @@
 
 const { readFileSync, readdirSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { korteNaam, metStand } = require('./migratie-stand.cjs')
 
 const root = join(__dirname, '..')
 const dir = join(root, 'supabase', 'migrations')
@@ -43,18 +44,11 @@ const bestanden = readdirSync(dir)
   .filter((f) => Number(f.slice(0, 4)) >= VANAF)
   .sort()
 
-/** De eerste zin uit de kop van een migratie, om in de inhoudsopgave te zetten. */
-function korteNaam(bestand) {
-  const tekst = readFileSync(join(dir, bestand), 'utf8')
-  const regel = tekst.split('\n').find((r) => /^--\s{2}\S/.test(r) && !/^--\s*=+/.test(r))
-  return (regel ?? '').replace(/^--\s+/, '').trim()
-}
-
 const eerste = bestanden[0].slice(0, 4)
 const laatste = bestanden[bestanden.length - 1].slice(0, 4)
 
 const inhoudsopgave = bestanden
-  .map((f) => `--    ${f.slice(0, 4)}  ${korteNaam(f)}`)
+  .map((f) => `--    ${f.slice(0, 4)}  ${korteNaam(dir, f)}`)
   .join('\n')
 
 const KOP = `-- ===========================================================================
@@ -76,8 +70,10 @@ ${inhoudsopgave}
 
 `
 
+/* metStand plakt achter elke migratie het blokje dat hem inschrijft in
+   public.schema_stand; zie scripts/migratie-stand.cjs. */
 const inhoud = KOP + bestanden
-  .map((f) => readFileSync(join(dir, f), 'utf8').trimEnd())
+  .map((f) => metStand(dir, f))
   .join('\n\n')
   + '\n'
 

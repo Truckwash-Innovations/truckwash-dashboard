@@ -72,6 +72,10 @@ import {
   type Lezing,
 } from '../_gedeeld/factuurlezer.ts'
 import { markeerLezenMislukt, verwerkLezing } from '../_gedeeld/verwerking.ts'
+import { meldStand } from '../_gedeeld/stand.ts'
+
+/* Zegt bij de eerste start welke versie hier draait; zie _gedeeld/stand.ts. */
+meldStand('lezer')
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

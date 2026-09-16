@@ -24,6 +24,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { controleerBijlage, lijktEchtOp } from './controle.ts'
 import { leesFactuur, MODEL } from '../_gedeeld/factuurlezer.ts'
 import { markeerLezenMislukt, meldManagement, verwerkLezing } from '../_gedeeld/verwerking.ts'
+import { meldStand } from '../_gedeeld/stand.ts'
+
+/* Zegt bij de eerste start welke versie hier draait; zie _gedeeld/stand.ts. */
+meldStand('ontvang-mail')
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

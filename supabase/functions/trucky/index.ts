@@ -23,6 +23,10 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { lokaleInstelling, vraagLokaal } from '../_gedeeld/lokaal.ts'
+import { meldStand } from '../_gedeeld/stand.ts'
+
+/* Zegt bij de eerste start welke versie hier draait; zie _gedeeld/stand.ts. */
+meldStand('trucky')
 
 const ANTHROPIC_KEY = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY') ?? ''

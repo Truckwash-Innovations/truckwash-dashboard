@@ -1,9 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+
+/** Het hoogste nummer in supabase/migrations. Zie __SCHEMA_VERWACHT__. */
+function hoogsteMigratie(): number {
+  const dir = path.resolve(import.meta.dirname, 'supabase', 'migrations')
+  const nummers = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .map((f) => Number(f.slice(0, 4)))
+    .filter((n) => Number.isFinite(n))
+  return nummers.length ? Math.max(...nummers) : 0
+}
 
 export default defineConfig({
   plugins: [react()],
@@ -37,6 +47,17 @@ export default defineConfig({
    */
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    /*
+     * Het hoogste migratienummer dat bij deze app hoort.
+     *
+     * Sinds 0103 zegt de server zelf hoe ver zijn schema staat. Zonder dit
+     * getal is dat antwoord een los nummer waar niemand iets aan afleest;
+     * met dit getal ernaast kan het scherm zeggen dat het schema achterloopt.
+     *
+     * Uit de bestandsnamen geteld en niet met de hand bijgehouden: een
+     * nummer dat je met de hand ophoogt is een nummer dat je vergeet.
+     */
+    __SCHEMA_VERWACHT__: hoogsteMigratie(),
   },
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, 'src') },

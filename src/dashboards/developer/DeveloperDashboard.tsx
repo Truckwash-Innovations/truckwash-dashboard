@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
+  ArrowLeft, BriefcaseBusiness, Bug, Check, Code2, Copy, Cpu, DoorOpen, FolderOpen, Inbox, Link2, ListChecks, ListTodo, Lock, Mail, MessageSquare, Radio, RefreshCw, ScrollText, Search, Send, Server, ShieldAlert, Trash2, TriangleAlert, Wallet, Wand2,
 } from 'lucide-react'
 import Shell, { type NavItem } from '../../components/Shell'
 import Kantoor from '../kantoor/Kantoor'
@@ -22,6 +22,10 @@ import { useNavTarget, usePerms } from '../../store/useNav'
 import { useSync } from '../../lib/sync'
 import { useUpdates } from '../../lib/updates'
 import { activeBackend } from '../../lib/api'
+import {
+  SCHEMA_VERWACHT, functiesAchter, schemaLooptAchter, serverStand,
+  type ServerStand,
+} from '../../lib/serverstand'
 import { toast } from '../../store/useToasts'
 import Overleg, { useOverlegTeller } from '../../components/Overleg'
 import Post from './Post'
@@ -808,6 +812,153 @@ function Logboek({ logs }: { logs: LogEvent[] }) {
  *  Systeem
  * ================================================================== */
 
+/* ================================================================== *
+ *  Wat er op de server draait
+ *
+ *  Casper: "fix het allemaal" -- de eerste van zes.
+ *
+ *  Er was geen enkele manier om te zien of supabase/bijwerken.sql was
+ *  gedraaid of "npm run functions" was gedaan. Bij elke storing begon het
+ *  daarmee, en het antwoord was een herinnering in plaats van een feit.
+ *
+ *  Sinds 0103 houdt de server het zelf bij. Deze kaart laat het zien, en
+ *  zegt er hardop bij wat er NIET wordt gecontroleerd: dat het schema klopt.
+ *  Hier staat alleen wat er is gedraaid.
+ * ================================================================== */
+
+function ServerStandKaart() {
+  const [stand, setStand] = useState<ServerStand | null>(null)
+  const [fout, setFout] = useState('')
+  const [bezig, setBezig] = useState(true)
+
+  const haal = useCallback(() => {
+    setBezig(true)
+    setFout('')
+    serverStand()
+      .then(setStand)
+      .catch((e) => setFout(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBezig(false))
+  }, [])
+
+  useEffect(() => { haal() }, [haal])
+
+  const achter = schemaLooptAchter(stand)
+  const versie = __APP_VERSION__
+  const oudeFuncties = functiesAchter(stand, versie)
+
+  return (
+    <Card
+      title="Wat er op de server draait"
+      hint="Het schema en de functies, zoals de server ze zelf meldt"
+      className="mb"
+      action={
+        <button className="btn ghost sm" onClick={haal} disabled={bezig}>
+          <RefreshCw size={14} /> Opnieuw
+        </button>
+      }
+    >
+      {fout ? (
+        <Empty text={`De stand ophalen lukte niet: ${fout}`} icon={<TriangleAlert size={22} />} />
+      ) : !stand ? (
+        <Empty text={bezig ? 'Bezig met ophalen…' : 'Geen verbinding met Supabase.'} />
+      ) : (
+        <>
+          {/* ---------------------------------------------- het schema ---- */}
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '.84rem', color: 'var(--text-2)' }}>Schema</span>
+            <span>
+              <span className="mono">
+                {String(stand.schema.nummer).padStart(4, '0')}
+              </span>{' '}
+              {achter
+                ? <Badge tone="warn">loopt achter</Badge>
+                : <Badge tone="ok">bij</Badge>}
+            </span>
+          </div>
+
+          <p className="help" style={{ marginTop: 4 }}>
+            {achter ? (
+              <>
+                Deze app hoort bij{' '}
+                <span className="mono">{String(SCHEMA_VERWACHT).padStart(4, '0')}</span>.
+                Draai <strong>supabase/bijwerken.sql</strong> in de SQL-editor van Supabase.
+              </>
+            ) : stand.schema.naam ? (
+              <>{stand.schema.naam}{stand.schema.at ? ` — ${relative(stand.schema.at)}` : ''}</>
+            ) : (
+              <>Het nummer klopt, maar deze migratie heeft zichzelf niet ingeschreven.</>
+            )}
+          </p>
+
+          {stand.schema.aangenomen > 0 && (
+            <p className="help" style={{ marginTop: 2, color: 'var(--text-3)' }}>
+              {stand.schema.aangenomen} oudere migraties staan als aangenomen genoteerd:
+              die konden zichzelf nog niet inschrijven. Alles vanaf{' '}
+              <span className="mono">
+                {String(stand.schema.gezien > 0 ? stand.schema.gezien : 103).padStart(4, '0')}
+              </span>{' '}
+              is wel echt waargenomen.
+            </p>
+          )}
+
+          {/* --------------------------------------------- de functies ---- */}
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', marginTop: 14 }}>
+            <span style={{ fontSize: '.84rem', color: 'var(--text-2)' }}>Edge functions</span>
+            <span>
+              <span className="mono">{stand.functies.length}</span>{' '}
+              {oudeFuncties.length > 0
+                ? <Badge tone="warn">{oudeFuncties.length} verouderd</Badge>
+                : stand.functies.length > 0
+                  ? <Badge tone="ok">op {versie}</Badge>
+                  : <Badge>nog niets gemeld</Badge>}
+            </span>
+          </div>
+
+          {stand.functies.length === 0 ? (
+            <p className="help" style={{ marginTop: 4 }}>
+              Nog geen enkele functie heeft zich gemeld. Dat kan twee dingen
+              betekenen: er is nog niet uitgerold sinds 0103, of er is sindsdien
+              geen functie aangeroepen.
+            </p>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: 8 }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Functie</th>
+                    <th style={{ width: 90 }}>Versie</th>
+                    <th style={{ width: 130 }}>Laatst gestart</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stand.functies.map((f) => (
+                    <tr key={f.naam}>
+                      <td><code>{f.naam}</code></td>
+                      <td>
+                        {f.versie || '—'}{' '}
+                        {f.versie && f.versie !== versie && <Badge tone="warn">oud</Badge>}
+                      </td>
+                      <td style={{ color: 'var(--text-2)' }}>{relative(f.gezienAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="help" style={{ marginTop: 10, color: 'var(--text-3)' }}>
+            Een functie meldt zich bij elke koude start, niet bij elk verzoek.
+            Staat er een oude versie, dan draait er een oude versie — maar een
+            functie die hier ontbreekt kan ook gewoon niet zijn aangeroepen.
+            En dit zegt niets over of het schema klópt, alleen over wat er is
+            gedraaid.
+          </p>
+        </>
+      )}
+    </Card>
+  )
+}
+
 function Systeem({ tickets, logs }: { tickets: Ticket[]; logs: LogEvent[] }) {
   const sync = useSync()
   const { version, channel, state } = useUpdates()
@@ -843,6 +994,8 @@ function Systeem({ tickets, logs }: { tickets: Ticket[]; logs: LogEvent[] }) {
 
   return (
     <>
+      <ServerStandKaart />
+
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat
           label="Backend"

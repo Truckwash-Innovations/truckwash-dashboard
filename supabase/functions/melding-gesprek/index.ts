@@ -19,6 +19,10 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { lokaleInstelling, vraagLokaal } from '../_gedeeld/lokaal.ts'
+import { meldStand } from '../_gedeeld/stand.ts'
+
+/* Zegt bij de eerste start welke versie hier draait; zie _gedeeld/stand.ts. */
+meldStand('melding-gesprek')
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? ''

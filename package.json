@@ -19,7 +19,7 @@
     "functietest": "node scripts/functies-nakijken.mjs",
     "proefset": "tsx scripts/proefset.mts",
     "sql:bouw": "node scripts/build-setup-sql.cjs && node scripts/build-bijwerken-sql.cjs",
-    "functions": "npm run functions:open && npm run functions:dicht",
+    "functions": "node scripts/functie-versie.cjs && npm run functions:open && npm run functions:dicht",
     "functions:open": "supabase functions deploy stuur-mail ontvang-mail kassa-koppelen website-gegevens trucky trucksupply exact lezer solliciteren takenmail wachtwoord-vergeten --no-verify-jwt --project-ref yxsbmhavnttswxczeovt",
     "functions:dicht": "supabase functions deploy nodig-uit melding-gesprek postbus-actie medewerker route kassa-apparaat factuur-lezen document-lezen werkmail site-herbouwen --project-ref yxsbmhavnttswxczeovt",
     "secrets": "supabase secrets list --project-ref yxsbmhavnttswxczeovt",

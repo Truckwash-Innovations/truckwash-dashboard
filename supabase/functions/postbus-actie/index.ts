@@ -21,6 +21,10 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.48.1'
 import { controleerBijlage, lijktEchtOp } from '../ontvang-mail/controle.ts'
+import { meldStand } from '../_gedeeld/stand.ts'
+
+/* Zegt bij de eerste start welke versie hier draait; zie _gedeeld/stand.ts. */
+meldStand('postbus-actie')
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

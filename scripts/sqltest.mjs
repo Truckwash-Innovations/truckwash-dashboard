@@ -8823,5 +8823,121 @@ console.log('\n69. De wekkers gaan naast wat ze wekken')
   await wk.close()
 }
 
+console.log('\n70. De server zegt welke versie hij draait')
+
+{
+  /*
+   * Met setup.sql en niet met de losse migraties, want het inschrijven
+   * gebeurt in de uitdraai: scripts/migratie-stand.cjs plakt achter elke
+   * migratie een blokje dat migratie_gedaan() aanroept. Draai je de
+   * migratiebestanden los, dan is er niets om in te schrijven -- en dat is
+   * precies waarom deze controle setup.sql neemt.
+   */
+  const sv = await fresh()
+  await sv.exec(sqlFile('supabase/setup.sql'))
+  await asServer(sv)
+
+  /* --- elke migratie staat erin, en de laatste is echt gezien --- */
+
+  const hoogste = Math.max(...migratieBestanden().map((f) => Number(f.slice(0, 4))))
+
+  const stand = (await sv.query(
+    'select max(nummer)::int as nu, count(*)::int as n from public.schema_stand')).rows[0]
+  check('het hoogste migratienummer staat in schema_stand',
+    stand.nu === hoogste, `${stand.nu} tegenover ${hoogste}`)
+  check('en alle migraties staan erin', stand.n === hoogste, `${stand.n} van ${hoogste}`)
+
+  const laatste = (await sv.query(
+    'select naam, toegepast_at from public.schema_stand where nummer = $1', [hoogste])).rows[0]
+  check('de laatste migratie is echt waargenomen',
+    laatste.toegepast_at !== null, String(laatste.toegepast_at))
+  check('en draagt de naam uit zijn eigen kop',
+    String(laatste.naam).length > 5, laatste.naam)
+
+  /*
+   * En alles van vóór 0103 staat als aangenomen genoteerd -- met een lege
+   * toegepast_at. Dat verschil is het hele punt van deze tabel: wat we hebben
+   * zien gebeuren, en wat we afleiden. Zou 0103 die rijen een tijdstip geven,
+   * dan zou de tabel iets beweren wat niemand heeft waargenomen.
+   */
+  const aangenomen = (await sv.query(
+    'select count(*)::int as n from public.schema_stand where toegepast_at is null')).rows[0]
+  check('de migraties van vóór 0103 staan als aangenomen genoteerd',
+    aangenomen.n === 102, String(aangenomen.n))
+
+  /* --- opnieuw draaien schuift het tijdstip op en verzint niets bij --- */
+
+  await sv.exec(sqlFile('supabase/setup.sql'))
+  const nogmaals = (await sv.query(
+    'select count(*)::int as n from public.schema_stand')).rows[0]
+  check('setup.sql nog een keer maakt geen rij dubbel',
+    nogmaals.n === hoogste, String(nogmaals.n))
+
+  /* --- functie_gezien houdt één rij per functie bij --- */
+
+  await sv.exec("select public.functie_gezien('exact', '1.90.0', '2026-09-16T10:00:00Z')")
+  await sv.exec("select public.functie_gezien('exact', '1.91.0', '2026-09-17T10:00:00Z')")
+  await sv.exec("select public.functie_gezien('lezer', '1.90.0', '2026-09-16T10:00:00Z')")
+
+  const fn = (await sv.query(
+    'select naam, versie from public.functie_stand order by naam')).rows
+  check('elke functie houdt één rij', fn.length === 2, JSON.stringify(fn))
+  check('en de nieuwste melding wint',
+    fn.find((r) => r.naam === 'exact')?.versie === '1.91.0', JSON.stringify(fn))
+
+  /* --- server_stand() geeft het in één keer, en alleen aan wie binnen werkt --- */
+
+  const leeg = (await sv.query('select public.server_stand() as j')).rows[0]
+  check('zonder medewerker geeft server_stand niets terug',
+    leeg.j === null, JSON.stringify(leeg.j))
+
+  /*
+   * setup.sql alleen levert geen mensen op; seed.sql is een apart bestand.
+   * Een account aanmaken en handle_new_user() het dossier laten maken, zoals
+   * elders in dit bestand -- zelf in profiles schrijven botst op de sleutels
+   * en op de rem die daar staat.
+   */
+  const dev = '70707070-7070-7070-7070-707070707070'
+  await sv.exec(`
+    insert into auth.users (id, email)
+    values ('${dev}', 'stand@truckwash1group.nl');
+    update public.profiles set roles = array['developer'], active = true
+     where auth_id = '${dev}';
+  `)
+  await asUser(sv, dev)
+
+  const j = (await sv.query('select public.server_stand() as j')).rows[0].j
+  check('een medewerker krijgt het schema', Number(j?.schema?.nummer) === hoogste,
+    JSON.stringify(j?.schema))
+  /*
+   * En nul aangenomen, want setup.sql is hierboven een tweede keer gedraaid.
+   * Bij die tweede ronde bestond public.migratie_gedaan() al, dus schreven
+   * ook de migraties van vóór 0103 zichzelf in -- met een echt tijdstip,
+   * omdat ze op dat moment echt draaiden. Dat is de bedoeling: aangenomen
+   * blijft alleen staan zolang niemand het heeft zien gebeuren.
+   */
+  check('na een tweede ronde is er niets meer aangenomen',
+    Number(j?.schema?.aangenomen) === 0, JSON.stringify(j?.schema))
+  check('en de functies', Array.isArray(j?.functies) && j.functies.length === 2,
+    JSON.stringify(j?.functies))
+  check('de functies staan op naam gesorteerd',
+    j?.functies?.[0]?.naam === 'exact', JSON.stringify(j?.functies))
+
+  /* --- schrijven mag alleen de server --- */
+
+  for (const fn2 of ['migratie_gedaan(integer, text)', 'functie_gezien(text, text, text)']) {
+    const rechten = (await sv.query(`
+      select has_function_privilege('anon', 'public.${fn2}', 'execute') as anon,
+             has_function_privilege('authenticated', 'public.${fn2}', 'execute') as auth
+    `)).rows[0]
+    check(`${fn2.split('(')[0]} is niet aan te roepen door anon`,
+      rechten.anon === false, String(rechten.anon))
+    check('en ook niet door een ingelogde gebruiker',
+      rechten.auth === false, String(rechten.auth))
+  }
+
+  await sv.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

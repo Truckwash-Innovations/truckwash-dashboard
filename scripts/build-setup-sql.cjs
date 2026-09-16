@@ -8,8 +8,9 @@
  *   node scripts/build-setup-sql.cjs
  */
 
-const { readFileSync, readdirSync, writeFileSync } = require('node:fs')
+const { readdirSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
+const { metStand } = require('./migratie-stand.cjs')
 
 const root = join(__dirname, '..')
 const dir = join(root, 'supabase', 'migrations')
@@ -28,8 +29,10 @@ const KOP = `-- ================================================================
 
 const bestanden = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
 
+/* metStand plakt achter elke migratie het blokje dat hem inschrijft in
+   public.schema_stand; zie scripts/migratie-stand.cjs. */
 const inhoud = KOP + bestanden
-  .map((f) => readFileSync(join(dir, f), 'utf8').trimEnd())
+  .map((f) => metStand(dir, f))
   .join('\n\n')
   + '\n'
 
