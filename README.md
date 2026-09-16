@@ -1,8 +1,13 @@
 # Truckwash1 Dashboard
 
-Eén codebase, drie dashboards, drie platformen. Offline-first met automatische
-synchronisatie zodra er verbinding is, en automatische updates op Windows,
-iOS en Android.
+Eén codebase, meerdere dashboards, drie platformen. Offline-first met
+automatische synchronisatie zodra er verbinding is, en automatische updates op
+Windows, iOS en Android.
+
+> **Zoek je iets bepaalds?** In [docs/README.md](docs/README.md) staat een
+> wegwijzer, gesorteerd op wie je bent: iemand die facturen verwerkt, iemand
+> die het systeem beheert, of iemand die eraan bouwt. Dit bestand gaat over
+> dat laatste — de app draaien, bouwen en uitbrengen.
 
 ---
 
@@ -763,15 +768,24 @@ zet alle formaten in de Android- en iOS-projecten.
 ## Structuur
 
 ```
+docs/                de documentatie; begin bij docs/README.md
 electron/            main-proces + preload (auto-update, IPC)
 android/ ios/        native projecten (Capacitor) -- horen in git
+lezer/               het programma dat op de pc op kantoor facturen leest
+statuspagina/        de meter achter de statuspagina (nog niet in git)
 supabase/
-  migrations/        het schema, per stap
-  setup.sql          alles achter elkaar -- dit plak je in Supabase
+  migrations/        het schema, per stap -- hier staat het WAAROM
+  setup.sql          alles achter elkaar -- gegenereerd, niet met de hand
+  bijwerken.sql      vanaf 0017 -- dit plak je in een bestaande database
   functions/
+    _gedeeld/        wat meerdere functies delen: Exact, de factuurlezer,
+                     de verwerking na het lezen, SEPA
+    ontvang-mail/    de webhook van Resend
+    lezer/           het loket waar de pc thuis werk komt halen
+    exact/           alles richting Exact: boeken, koppelen, betalen
     stuur-mail/      de enige plek met de sleutel van Resend
 assets/              bron voor app-iconen en opstartschermen
-scripts/             starters voor desktop/APK, zelftest
+scripts/             starters voor desktop/APK, zelftest, sqltest
 src/
   lib/
     db.ts            lokale cache (Dexie)
@@ -799,7 +813,9 @@ src/
     customer/        start, overzicht, plannen, historie, facturen
     supervisor/      team, rooster, smartroster, uren
     technician/      storingen, werkbonnen, installaties, onderhoud
-    developer/       meldingen, logboek, systeem, post
+    developer/       meldingen, logboek, systeem, post, Exact, betalen
+    administratie/   te verwerken, inkoopfacturen, boekhouding,
+                     op handtekening, inkoopadressen
     management/      overzicht, financieel, planning, personeel,
                      aanmeldingen, voorraad, techniek, beheer
 ```

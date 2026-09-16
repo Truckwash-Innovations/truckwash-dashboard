@@ -12159,5 +12159,79 @@ console.log('\n98. De wekkers gaan naast wat ze wekken')
     'een antwoord dat pg_net heeft opgeruimd telt als geslaagd')
 }
 
+/* ==================================================================== *
+ *  99. De documentatie wijst naar iets dat bestaat
+ *
+ *  Casper: "nu heb ik een gehele documentatie nodig, van a tot z, zodat zowel
+ *  medewerkers, zowel toekomstige iters weten wat ze waar moeten vinden."
+ *
+ *  Het probleem was nooit dat er te weinig documentatie was -- er lagen een
+ *  README van achthonderd regels en zes losse stukken. Het was dat niemand
+ *  wist waar hij moest kijken, en dat de grootste keten van allemaal nergens
+ *  beschreven stond behalve in migratiecommentaar.
+ *
+ *  Er is nu een wegwijzer. En een wegwijzer die naar een bestand verwijst dat
+ *  niet bestaat is erger dan geen wegwijzer: dan zoek je naar iets dat er
+ *  nooit was. Dat is precies wat verrot als bestanden hernoemd worden, en
+ *  precies wat een test wél kan vangen.
+ * ==================================================================== */
+
+console.log('\n99. De documentatie wijst naar iets dat bestaat')
+
+{
+  const { readFileSync, existsSync, readdirSync } = await import('node:fs')
+
+  check('er is een wegwijzer', existsSync('docs/README.md'),
+    'docs/README.md ontbreekt')
+
+  /* De vier die de keten beschrijven. */
+  for (const naam of ['facturen-verwerken.md', 'facturen-techniek.md', 'uitrollen.md']) {
+    check(`docs/${naam} bestaat`, existsSync(`docs/${naam}`))
+  }
+
+  /*
+   * Elke verwijzing in elk document moet ergens op uitkomen. Dit is de
+   * controle die echt iets doet: bestandsnamen veranderen, en dan wijst een
+   * tabel met "lees dit" naar niets.
+   */
+  const kapot: string[] = []
+  const bestanden = ['README.md', ...readdirSync('docs').map((f) => `docs/${f}`)]
+    .filter((f) => f.endsWith('.md'))
+
+  for (const bestand of bestanden) {
+    const tekst = readFileSync(bestand, 'utf8')
+    const map = bestand.includes('/') ? bestand.slice(0, bestand.lastIndexOf('/')) : '.'
+    for (const m of tekst.matchAll(/\]\(([^)#]+?)(?:#[^)]*)?\)/g)) {
+      const doel = m[1].trim()
+      /* Alleen verwijzingen naar bestanden hier; het web controleren we niet. */
+      if (/^[a-z]+:/i.test(doel) || doel.startsWith('/')) continue
+      const pad = doel.startsWith('../')
+        ? doel.replace(/^\.\.\//, '')
+        : (map === '.' ? doel : `${map}/${doel}`)
+      if (!existsSync(pad)) kapot.push(`${bestand} -> ${doel}`)
+    }
+  }
+
+  check('en elke verwijzing komt ergens op uit',
+    kapot.length === 0, kapot.join(' | '))
+
+  /*
+   * En de wegwijzer wijst naar alles wat er ligt. Een document dat er wel is
+   * maar nergens genoemd wordt, is een document dat niemand vindt -- precies
+   * het probleem waar dit voor bedoeld was.
+   */
+  const wegwijzer = readFileSync('docs/README.md', 'utf8')
+  const vergeten = readdirSync('docs')
+    .filter((f) => f.endsWith('.md') && f !== 'README.md')
+    .filter((f) => !wegwijzer.includes(f))
+  check('en noemt elk document dat er ligt',
+    vergeten.length === 0, vergeten.join(', '))
+
+  /* De hoofd-README hoort ernaar te wijzen, anders begint niemand daar. */
+  check('de hoofd-README wijst naar de wegwijzer',
+    readFileSync('README.md', 'utf8').includes('docs/README.md'),
+    'wie bij README.md begint vindt de rest niet')
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
