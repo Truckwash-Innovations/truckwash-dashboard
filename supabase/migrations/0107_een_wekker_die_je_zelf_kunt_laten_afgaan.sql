@@ -40,6 +40,10 @@
 --  zodat de knop dezelfde lijst ziet.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: 0111 geeft deze functie kolommen erbij, en create or replace
+   kan het teruggegeven type niet veranderen. */
+drop function if exists public.wekkers_lijst();
+
 create or replace function public.wekkers_lijst()
 returns table (naam text, planning text, functie text, actie text, sleutel text)
 language sql stable as $$
@@ -174,6 +178,10 @@ grant  execute on function public.wekkers_instellen() to service_role;
 --  Alleen de ontwikkelaar: dit stuurt een verzoek naar buiten met een geheim
 --  eraan, en dat is niets voor een knop die iedereen kan vinden.
 -- ---------------------------------------------------------------------------
+
+/* Eerst weg: 0111 geeft deze functie kolommen erbij, en create or replace
+   kan het teruggegeven type niet veranderen. */
+drop function if exists public.wekker_nu(text);
 
 create or replace function public.wekker_nu(naam_in text)
 returns table (naam text, verzoek_id bigint, gelukt boolean, waarom text)

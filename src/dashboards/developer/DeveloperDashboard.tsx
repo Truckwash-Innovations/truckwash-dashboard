@@ -1004,11 +1004,11 @@ function Wekkers() {
 
   useEffect(() => { haal() }, [haal])
 
-  async function nu(naam: string) {
+  async function nu(naam: string, forceren = false) {
     setLoopt(naam)
     setUitkomst((o) => ({ ...o, [naam]: 'bezig…' }))
     try {
-      const ronde = await wekkerNu(naam)
+      const ronde = await wekkerNu(naam, forceren)
       if (!ronde.gelukt || ronde.verzoekId === null) {
         setUitkomst((o) => ({ ...o, [naam]: ronde.waarom || 'het verzoek is niet weggezet' }))
         return
@@ -1115,13 +1115,36 @@ function Wekkers() {
                             : <span className="ts-sub">nog niets gehoord</span>}
                   </td>
                   <td>
-                    <button
-                      className="btn sm"
-                      onClick={() => nu(w.naam)}
-                      disabled={loopt !== ''}
-                    >
-                      <Play size={13} /> Nu
-                    </button>
+                    <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                      <button
+                        className="btn sm"
+                        onClick={() => nu(w.naam)}
+                        disabled={loopt !== ''}
+                        title="Precies wat de cron doet. De functie mag zelf weigeren — bijvoorbeeld omdat het niet zijn uur is."
+                      >
+                        <Play size={13} /> Nu
+                      </button>
+                      {/*
+                        En een tweede, die de uurgrens van de functie overslaat.
+                        Wat dat DOET verschilt per functie -- de takenmail
+                        verstuurt dan echt -- dus staat die uitleg op de knop en
+                        wordt er gevraagd voordat hij gaat.
+                      */}
+                      {w.nuUitleg && (
+                        <button
+                          className="btn ghost sm"
+                          title={w.nuUitleg}
+                          disabled={loopt !== ''}
+                          onClick={() => {
+                            if (window.confirm(`${w.naam}\n\n${w.nuUitleg}\n\nDoorgaan?`)) {
+                              void nu(w.naam, true)
+                            }
+                          }}
+                        >
+                          Buiten het uur
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1135,6 +1158,10 @@ function Wekkers() {
         antwoord van de functie. Dat is een echte proef: de cron-taak heet
         namelijk al geslaagd zodra het verzoek is weggezet, ook als de functie
         er een fout op teruggeeft.
+        {' '}De functies bewaken zichzelf — de takenmail gaat alleen op de
+        ingestelde uren en één keer per uur — dus buiten die tijden antwoorden
+        ze met "overgeslagen". "Buiten het uur" slaat die grens over; wat dat
+        per functie doet staat op de knop.
       </p>
     </Card>
   )

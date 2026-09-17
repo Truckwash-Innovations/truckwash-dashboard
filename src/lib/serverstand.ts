@@ -185,6 +185,15 @@ export interface Wekker {
   inhoud: string
   /** Hoeveel van de laatste rondes zijn mislukt. */
   mislukt: number
+  /**
+   * Wat er gebeurt als je hem buiten zijn uur laat gaan.
+   *
+   * Verschilt per functie, en dat is geen slordigheid maar hoe ze zijn
+   * gebouwd: de takenmail verstuurt dan echt, de voorraad-ochtend rapporteert
+   * alleen. Die tekst komt uit de database en hoort op de knop -- één knop
+   * met drie betekenissen en geen tekst erbij is erger dan geen knop.
+   */
+  nuUitleg: string
 }
 
 /**
@@ -206,6 +215,7 @@ export async function wekkers(): Promise<Wekker[]> {
     antwoordHoe: String(r.antwoord_hoe ?? ''),
     inhoud: String(r.inhoud ?? ''),
     mislukt: Number(r.mislukt) || 0,
+    nuUitleg: String(r.nu_uitleg ?? ''),
   }))
 }
 
@@ -217,9 +227,18 @@ export interface WekkerRonde {
   waarom: string
 }
 
-/** Een wekker nu laten afgaan. */
-export async function wekkerNu(naam: string): Promise<WekkerRonde> {
-  const { data, error } = await supabase().rpc('wekker_nu', { naam_in: naam })
+/**
+ * Een wekker nu laten afgaan.
+ *
+ * Met `forceren` de actie waarmee de functie zijn eigen uurgrens overslaat.
+ * Zonder dat doet de knop precies wat de cron doet -- en dan antwoordt de
+ * takenmail buiten zijn uur met "overgeslagen", wat eerlijk is maar niet wat
+ * je wilt als je zit te kijken of de keten overeind staat.
+ */
+export async function wekkerNu(naam: string, forceren = false): Promise<WekkerRonde> {
+  const { data, error } = await supabase().rpc('wekker_nu', {
+    naam_in: naam, forceren,
+  })
   if (error) throw new Error(error.message)
 
   const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null
