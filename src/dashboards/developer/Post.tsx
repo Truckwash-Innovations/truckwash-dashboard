@@ -4,6 +4,8 @@ import {
   AlertTriangle, CheckCircle2, Mail, MailX, Search, ShieldCheck, XCircle,
 } from 'lucide-react'
 import { db } from '../../lib/db'
+import { mailVrij } from '../../lib/mail'
+import { useAuth } from '../../store/useAuth'
 import type { EmailLog } from '../../lib/types'
 import { dateTime, relative } from '../../lib/format'
 import { Badge, Card, Empty, Stat } from '../../components/ui'
@@ -29,6 +31,7 @@ const SJABLOON_LABEL: Record<string, string> = {
 }
 
 export default function Post() {
+  const ik = useAuth((s) => s.user)
   const [q, setQ] = useState('')
   const [alleenMislukt, setAlleenMislukt] = useState(false)
 
@@ -52,6 +55,49 @@ export default function Post() {
   const dag = alle.filter((e) => e.at > Date.now() - 86_400_000)
   const mislukt = alle.filter((e) => e.status === 'mislukt')
 
+  /* ---------------------------------------------------------------- *
+   *  Kan er überhaupt post weg?
+   *
+   *  Casper: "Geen enkele timer is goed gelukt, geen enkele mail is
+   *  verzonden??"
+   *
+   *  Dat was op dat moment niet te beantwoorden zonder te wachten tot er
+   *  vanzelf iets verstuurd werd. Resend weigert namelijk stil: een domein
+   *  dat daar niet is geverifieerd geeft geen foutmelding in de app maar een
+   *  regel in dit logboek -- en die staat er pas als er iets is geprobeerd.
+   *
+   *  Deze knop probeert het. Eén mail naar je eigen adres, en het antwoord
+   *  van Resend komt er woordelijk uit. Tien seconden in plaats van wachten
+   *  tot morgenochtend.
+   * ---------------------------------------------------------------- */
+
+  const [proefBezig, setProefBezig] = useState(false)
+  const [proefUit, setProefUit] = useState('')
+
+  async function proefmail() {
+    if (!ik?.email) {
+      setProefUit('Je eigen account heeft geen e-mailadres.')
+      return
+    }
+    setProefBezig(true)
+    setProefUit('')
+    try {
+      const uit = await mailVrij(
+        ik.email,
+        'Proefmail uit het dashboard',
+        'Als je deze leest, komt er post weg vanaf het ingestelde domein.',
+      )
+      if (!uit) setProefUit('Geen verbinding met de server.')
+      else if (uit.sent > 0) setProefUit(`Verstuurd naar ${ik.email}. Kijk in je postvak.`)
+      else setProefUit(uit.reden || uit.skipped
+        || 'Niet verstuurd, en er kwam geen reden mee.')
+    } catch (e) {
+      setProefUit(e instanceof Error ? e.message : String(e))
+    } finally {
+      setProefBezig(false)
+    }
+  }
+
   return (
     <>
       <div className="grid cols-3" style={{ marginBottom: 16 }}>
@@ -64,6 +110,30 @@ export default function Post() {
         />
         <Stat label="Totaal vastgelegd" value={alle.length} icon={<CheckCircle2 size={17} />} />
       </div>
+
+      <Card
+        title="Kan er post weg?"
+        hint="Eén proefmail naar je eigen adres, met het antwoord van Resend erbij"
+        className="mb"
+        action={
+          <button className="btn sm" onClick={() => void proefmail()} disabled={proefBezig}>
+            <Mail size={14} /> {proefBezig ? 'Bezig…' : 'Stuur een proefmail'}
+          </button>
+        }
+      >
+        {proefUit ? (
+          <p style={{ margin: 0 }}>
+            <strong>{proefUit}</strong>
+          </p>
+        ) : (
+          <p className="help" style={{ margin: 0 }}>
+            Gaat hij weg, dan staat het domein goed bij Resend. Gaat hij niet
+            weg, dan staat hier woordelijk waarom — en dat is bijna altijd het
+            domein waarvandaan wordt verstuurd, niet het adres waar hij heen
+            moet.
+          </p>
+        )}
+      </Card>
 
       {mislukt.length > 0 && (
         <div className="waarschuwing mb">

@@ -162,7 +162,7 @@ async function verstuur(
   naar: string,
   brief: Brief,
   meta: { template: string; toUserId?: string },
-): Promise<boolean> {
+): Promise<{ ok: boolean; fout: string | null }> {
   const id = 'em_' + crypto.randomUUID().replace(/-/g, '')
   let ok = false
   let providerId: string | undefined
@@ -206,7 +206,16 @@ async function verstuur(
     at: nu(),
   })
 
-  return ok
+  /*
+   * En de reden mee terug, niet alleen "het lukte niet".
+   *
+   * Hij stond alleen in email_log. Dat is de juiste plek om hem te bewaren,
+   * maar het betekende dat de aanroeper niets kon zeggen -- en dus dat een
+   * scherm "verzenden mislukt" toonde terwijl de echte melding ("The domain
+   * is not verified") een tabel verderop stond. Bij een proefmail is juist
+   * die melding het hele antwoord.
+   */
+  return { ok, fout: fout ?? null }
 }
 
 /**
@@ -443,7 +452,7 @@ Deno.serve(async (req) => {
     const naam = String(aanmelding.name ?? '').split(' ')[0] || 'daar'
     let verstuurd = 0
 
-    if (await verstuur(aanmelding.email, briefAanmelding(naam), { template: 'aanmelding' })) {
+    if ((await verstuur(aanmelding.email, briefAanmelding(naam), { template: 'aanmelding' })).ok) {
       verstuurd++
     }
 
@@ -457,7 +466,7 @@ Deno.serve(async (req) => {
     for (const baas of bazen ?? []) {
       if (!baas.email) continue
       if (await teVaak(baas.email, 30)) continue
-      const ok = await verstuur(
+      const uit = await verstuur(
         baas.email,
         briefManagement(
           await adresVoorMail(),
@@ -468,7 +477,7 @@ Deno.serve(async (req) => {
         ),
         { template: 'nieuwe-aanmelding', toUserId: baas.id },
       )
-      if (ok) verstuurd++
+      if (uit.ok) verstuurd++
     }
 
     return json({ sent: verstuurd })
@@ -497,8 +506,8 @@ Deno.serve(async (req) => {
       ? briefGoedgekeurd(await adresVoorMail(), naam, String(vars.rollen ?? ''))
       : briefAfgewezen(naam, String(vars.reden ?? ''))
 
-    const ok = await verstuur(aanmelding.email, brief, { template })
-    return json({ sent: ok ? 1 : 0 })
+    const uit = await verstuur(aanmelding.email, brief, { template })
+    return json({ sent: uit.ok ? 1 : 0, reden: uit.fout })
   }
 
   if (template === 'vrij') {
@@ -529,13 +538,13 @@ Deno.serve(async (req) => {
       return json({ sent: 0, skipped: 'te veel verstuurd dit uur' })
     }
 
-    const ok = await verstuur(naar, briefVrij(onderwerp, tekst, beller.naam), {
+    const uit = await verstuur(naar, briefVrij(onderwerp, tekst, beller.naam), {
       template: 'vrij',
       // Wie hem verstuurde, niet wie hem krijgt: bij een vrije mail is de
       // ontvanger vaak iemand buiten het bedrijf.
       toUserId: beller.profileId,
     })
-    return json({ sent: ok ? 1 : 0 })
+    return json({ sent: uit.ok ? 1 : 0, reden: uit.fout })
   }
 
   if (template === 'bericht') {
@@ -558,7 +567,7 @@ Deno.serve(async (req) => {
     const tekst = String(vars.tekst ?? '').slice(0, 1200)
     if (!titel) return json({ error: 'Geen onderwerp' }, 400)
 
-    const ok = await verstuur(
+    const uit = await verstuur(
       ontvanger.email,
       /* open en id zeggen waar het bericht over gaat. Ze komen van de
          aanroeper, en dat mag: adressen.ts laat alleen letters, cijfers, - en _
@@ -571,7 +580,7 @@ Deno.serve(async (req) => {
       ),
       { template: 'bericht', toUserId: ontvanger.id },
     )
-    return json({ sent: ok ? 1 : 0 })
+    return json({ sent: uit.ok ? 1 : 0, reden: uit.fout })
   }
 
   return json({ error: `Onbekend sjabloon: ${template}` }, 400)

@@ -8,6 +8,77 @@
 import { api, check, db, eq, zonderCommentaar } from './kern.ts'
 
 export async function groepen() {
+
+/* ==================================================================== *
+ *  105. Waarom een mail niet aankwam, staat niet alleen in het logboek
+ *
+ *  Casper: "Geen enkele timer is goed gelukt, geen enkele mail is
+ *  verzonden??"
+ *
+ *  Dat was niet te beantwoorden zonder te wachten tot er vanzelf iets werd
+ *  verstuurd. Resend weigert stil -- een domein dat daar niet geverifieerd
+ *  is levert geen foutmelding in de app op maar een regel in email_log, en
+ *  die staat er pas nadat er iets is geprobeerd.
+ *
+ *  Twee dingen moesten daarvoor kloppen: de reden moet uit de serverfunctie
+ *  terugkomen (hij stond alleen in het logboek), en er moet een knop zijn die
+ *  het probeert.
+ * ==================================================================== */
+
+console.log('\n105. Waarom een mail niet aankwam')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const fn = readFileSync('supabase/functions/stuur-mail/index.ts', 'utf8')
+
+  /* ---- de reden komt mee terug ---- */
+
+  check('versturen geeft de reden terug, niet alleen ja of nee',
+    /async function verstuur\([\s\S]{0,400}Promise<\{ ok: boolean; fout: string \| null \}>/.test(fn),
+    'de aanroeper kan alleen "het lukte niet" zeggen')
+
+  check('en de vrije mail geeft hem door aan het scherm',
+    /sent: uit\.ok \? 1 : 0, reden: uit\.fout/.test(fn),
+    'de reden blijft in het logboek hangen')
+
+  /*
+   * En hij wordt nog steeds vastgelegd. Dat is waar email_log voor is; de
+   * reden meesturen is een aanvulling, geen vervanging -- anders is een
+   * mislukte mail weg zodra het tabblad dicht gaat.
+   */
+  check('en hij wordt nog steeds vastgelegd',
+    fn.includes("status: ok ? 'verstuurd' : 'mislukt'") && fn.includes('error: fout ?? null'),
+    'een mislukte mail verdwijnt als niemand kijkt')
+
+  /* ---- en er is een knop die het probeert ---- */
+
+  const post = readFileSync('src/dashboards/developer/Post.tsx', 'utf8')
+
+  check('er is een proefmail op het postscherm',
+    post.includes('mailVrij(') && post.includes('Stuur een proefmail'),
+    'je kunt alleen wachten tot er vanzelf iets wordt verstuurd')
+
+  /*
+   * Naar je eigen adres, en niet naar een vrij in te tikken adres. Dit is een
+   * proef of de keten werkt, geen manier om post te versturen -- en een
+   * invoerveld zou van dit scherm het tweede mailprogramma maken.
+   */
+  check('naar je eigen adres, niet naar een vrij veld',
+    post.includes('ik?.email') && !/proefAdres|setProefAdres/.test(post),
+    'er staat een adresveld bij de proefmail')
+
+  check('en de reden komt woordelijk in beeld',
+    /uit\.reden \|\| uit\.skipped/.test(post),
+    'het scherm verzint zijn eigen samenvatting')
+
+  /* ---- de mailregels van de app kennen dat veld ---- */
+
+  const lib = readFileSync('src/lib/mail.ts', 'utf8')
+  check('het antwoord van de mailfunctie draagt de reden',
+    /reden\?: string \| null/.test(lib),
+    'het veld bestaat niet in de app')
+}
+
 /* ==================================================================== *
  *  66. Het werkadres komt ernaast, niet ervoor in de plaats
  *

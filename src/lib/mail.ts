@@ -51,6 +51,15 @@ export interface MailRequest {
 export interface MailResult {
   sent: number
   skipped?: string
+  /**
+   * Waarom hij niet aankwam, woordelijk zoals Resend het zegt.
+   *
+   * Die stond alleen in email_log. Dat is de juiste plek om hem te bewaren,
+   * maar het betekende dat een scherm "verzenden mislukt" kon tonen terwijl
+   * de echte melding -- "The domain is not verified" -- een tabel verderop
+   * stond. Bij een proefmail is juist die melding het hele antwoord.
+   */
+  reden?: string | null
 }
 
 const FUNCTION = 'stuur-mail'
