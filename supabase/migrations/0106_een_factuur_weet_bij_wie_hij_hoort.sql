@@ -182,6 +182,8 @@ comment on column public.expenses.route_bron is
 --  scherm te laten zien wat er ZOU gebeuren.
 -- ---------------------------------------------------------------------------
 
+drop function if exists public.factuur_route(text, text, text);
+
 create or replace function public.factuur_route(
   administratie_in text,
   leverancier_in   text,
@@ -252,6 +254,8 @@ comment on function public.factuur_route(text, text, text) is
 --  inmiddels iets anders zou zeggen. Zonder die regel zou de eerstvolgende
 --  ronde de beslissing van het management terugdraaien, en dat merkt niemand.
 -- ---------------------------------------------------------------------------
+
+drop function if exists public.factuur_route_zetten(text);
 
 create or replace function public.factuur_route_zetten(expense_in text)
 returns table (wie text, naam text, bron text)
@@ -421,39 +425,63 @@ create trigger expenses_route_handmatig
 --  geheugen er inmiddels van weet.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.bv_routes()
-returns table (
-  administratie text,
-  bv_naam       text,
-  eerste        text,
-  eerste_naam   text,
-  ai_direct     boolean,
-  vanaf_keren   integer,
-  onthouden     integer,
-  wachtend      integer
-)
-language sql stable security definer set search_path = public as $$
-  select a.code,
-         a.naam,
-         r.eerste,
-         p.name,
-         coalesce(r.ai_direct, true),
-         coalesce(r.vanaf_keren, 3),
-         (select count(*)::integer from public.leverancier_route lr
-           where lr.administratie = a.code),
-         (select count(*)::integer from public.expenses e
-           where e.status = 'eerste_akkoord'
-             and public.bon_administratie(e.id) = a.code)
-    from public.exact_administratie a
-    left join public.bv_route r on r.id = a.code
-    left join public.profiles  p on p.id = r.eerste
-   where a.actief
-     and public.is_staff()
-   order by a.hoofd desc nulls last, a.naam;
-$$;
+/*
+ * Alleen zolang bv_route.eerste nog één naam is.
+ *
+ * Dit is een SQL-functie, en die wordt bij het AANMAKEN al nagekeken -- niet
+ * pas bij het uitvoeren, zoals plpgsql. Zodra 0110 van die kolom een lijst
+ * maakt, is "p.id = r.eerste" een vergelijking van text met text[], en dan
+ * valt deze migratie om bij een tweede ronde van bijwerken.sql.
+ *
+ * Een "drop function if exists" helpt hier niet: het probleem is niet het
+ * teruggegeven type maar de inhoud. Dus wordt hij overgeslagen zodra 0110
+ * er is geweest -- die maakt hem toch meteen daarna opnieuw, met twee
+ * groepen.
+ */
+do $bv$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'bv_route'
+       and column_name = 'eerste' and data_type <> 'ARRAY')
+  then
+    execute $f$
+      create or replace function public.bv_routes()
+      returns table (
+        administratie text,
+        bv_naam       text,
+        eerste        text,
+        eerste_naam   text,
+        ai_direct     boolean,
+        vanaf_keren   integer,
+        onthouden     integer,
+        wachtend      integer
+      )
+      language sql stable security definer set search_path = public as $q$
+        select a.code,
+               a.naam,
+               r.eerste,
+               p.name,
+               coalesce(r.ai_direct, true),
+               coalesce(r.vanaf_keren, 3),
+               (select count(*)::integer from public.leverancier_route lr
+                 where lr.administratie = a.code),
+               (select count(*)::integer from public.expenses e
+                 where e.status = 'eerste_akkoord'
+                   and public.bon_administratie(e.id) = a.code)
+          from public.exact_administratie a
+          left join public.bv_route r on r.id = a.code
+          left join public.profiles  p on p.id = r.eerste
+         where a.actief
+           and public.is_staff()
+         order by a.hoofd desc nulls last, a.naam;
+      $q$;
+    $f$;
 
-revoke execute on function public.bv_routes() from public, anon;
-grant  execute on function public.bv_routes() to authenticated, service_role;
+    execute 'revoke execute on function public.bv_routes() from public, anon';
+    execute 'grant  execute on function public.bv_routes() to authenticated, service_role';
+  end if;
+end $bv$;
 
 -- ---------------------------------------------------------------------------
 --  9. En de werklijst zegt erbij waarom

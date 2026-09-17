@@ -1534,8 +1534,9 @@ export interface OpHandtekeningRegel {
   bedragExcl: number
   bedragIncl: number
   /** Bij wie hij ligt; leeg = bij niemand in het bijzonder. */
-  ligtBij: string | null
-  ligtBijNaam: string | null
+  /* Bij wie hij ligt. Een lijst sinds 0110: één van de groep is genoeg. */
+  ligtBij: string[]
+  ligtBijNaam: string[]
   /** Waarom hij daar ligt (0106): adres, geheugen, eerste, handmatig. */
   routeBron: string | null
   eersteDoorNaam: string | null
@@ -1567,8 +1568,8 @@ export async function facturenOpHandtekening(wie?: string): Promise<OpHandtekeni
     administratie: (r.administratie as string) ?? null,
     bedragExcl: Number(r.bedrag_excl) || 0,
     bedragIncl: Number(r.bedrag_incl) || 0,
-    ligtBij: (r.ligt_bij as string) ?? null,
-    ligtBijNaam: (r.ligt_bij_naam as string) ?? null,
+    ligtBij: Array.isArray(r.ligt_bij) ? (r.ligt_bij as string[]) : [],
+    ligtBijNaam: Array.isArray(r.ligt_bij_naam) ? (r.ligt_bij_naam as string[]) : [],
     routeBron: (r.route_bron as string) ?? null,
     eersteDoorNaam: (r.eerste_door_naam as string) ?? null,
     automatisch: r.automatisch === true,

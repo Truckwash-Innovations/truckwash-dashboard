@@ -138,6 +138,12 @@ on conflict (id) do nothing;
 --  ander postvak maar hetzelfde met een merkteken.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: 0110 geeft deze functie een lijst goedkeurders terug in plaats
+   van één naam, en create or replace kan het teruggegeven type niet
+   veranderen. Zonder deze regel loopt een tweede ronde van bijwerken.sql
+   hier stuk op "cannot change return type of existing function". */
+drop function if exists public.inkoop_adres_van(text);
+
 create or replace function public.inkoop_adres_van(adres_in text)
 returns table (
   id text, adres text, administratie text, location_id text, goedkeurder text

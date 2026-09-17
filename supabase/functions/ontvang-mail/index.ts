@@ -518,8 +518,9 @@ interface Inkoopadres {
   id: string
   administratie: string
   locationId: string | null
-  goedkeurder: string | null
-  goedkeurderNaam: string | null
+  /* Een postvak kan door meer dan één mens gelezen worden (0110). */
+  goedkeurders: string[]
+  goedkeurdersNaam: string[]
 }
 
 async function welkInkoopadres(aanAdres: string): Promise<Inkoopadres | null> {
@@ -532,22 +533,28 @@ async function welkInkoopadres(aanAdres: string): Promise<Inkoopadres | null> {
   const r = (Array.isArray(data) ? data[0] : data) as Willekeurig | undefined
   if (!r) return null
 
-  /* De naam van de goedkeurder erbij, zodat hij op de bon kan worden
-     vastgelegd. Wisselt dat adres later van eigenaar, dan blijft een oude
-     factuur liggen waar hij lag -- en dan moet die naam er nog staan. */
-  let naam: string | null = null
-  const wie = String(r.goedkeurder ?? '').trim()
-  if (wie) {
-    const { data: p } = await admin.from('profiles').select('name').eq('id', wie).maybeSingle()
-    naam = String(p?.name ?? '').trim() || null
+  /* De namen erbij, zodat ze op de bon kunnen worden vastgelegd. Wisselt dat
+     adres later van eigenaar, dan blijft een oude factuur liggen waar hij lag
+     -- en dan moeten die namen er nog staan. */
+  const wie = (Array.isArray(r.goedkeurders) ? r.goedkeurders : [])
+    .map((x: unknown) => String(x ?? '').trim())
+    .filter(Boolean)
+
+  let namen: string[] = []
+  if (wie.length > 0) {
+    const { data: mensen } = await admin
+      .from('profiles').select('id, name').in('id', wie)
+    /* Op dezelfde volgorde als de ids: de twee lijsten horen bij elkaar. */
+    const opId = new Map((mensen ?? []).map((m: Willekeurig) => [String(m.id), String(m.name ?? '')]))
+    namen = wie.map((id) => opId.get(id) ?? '')
   }
 
   return {
     id: String(r.id),
     administratie: String(r.administratie ?? '').trim(),
     locationId: String(r.location_id ?? '').trim() || null,
-    goedkeurder: wie || null,
-    goedkeurderNaam: naam,
+    goedkeurders: wie,
+    goedkeurdersNaam: namen,
   }
 }
 
@@ -1370,10 +1377,17 @@ Deno.serve(async (req) => {
         ...(adres?.administratie
           ? { administratie: adres.administratie, administratie_bron: 'adres' }
           : {}),
-        /* En bij wie de tweede handtekening komt te liggen (0095/0096). */
+        /*
+         * En bij wie de tweede handtekening komt te liggen (0095/0096, een
+         * groep sinds 0110).
+         *
+         * Dit is alleen wat het POSTVAK zegt. De echte route wordt gezet
+         * zodra de factuur is gelezen -- pas dan is de leverancier bekend,
+         * en daar hangt het geheugen aan. Zie factuur_route_zetten().
+         */
         inkoop_adres_id: adres?.id ?? null,
-        goedkeurder: adres?.goedkeurder ?? null,
-        goedkeurder_naam: adres?.goedkeurderNaam ?? null,
+        goedkeurders: adres?.goedkeurders ?? [],
+        goedkeurders_naam: adres?.goedkeurdersNaam ?? [],
         attachment_path: bon.path,
         attachment_name: bon.naam,
       })

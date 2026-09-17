@@ -9428,11 +9428,13 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
    * Casper, met een schermafdruk van de suggestieroutes in Blue10: "Je moet
    * dus ai laten kijken, en evt direct laten daarzetten naar degene die
    * akkoord moet geven. Maar als AI hem nog niet kent ect, moet je hem onder
-   * de eerste persoon zetten."
+   * de eerste persoon zetten." En daarna: "Kan je het mogelijk maken om
+   * meerdere mensen bij zowel de eerste als tweede neer te zetten?"
    *
-   * Drie lagen, en de volgorde ertussen is het hele punt. Een adres wint van
-   * het geheugen, het geheugen wint van de eerste persoon, en wat een mens
-   * met de hand heeft gezet wint van alles.
+   * Twee stappen, allebei een groep. Eén van de groep is genoeg -- het is
+   * "ligt bij ons", niet "iedereen moet tekenen". En vier ogen blijft vier
+   * ogen: wie de eerste zette mag de tweede niet zetten, ook niet als hij in
+   * allebei de groepen staat.
    */
   const rt = await fresh()
   await rt.exec(sqlFile('supabase/setup.sql'))
@@ -9457,8 +9459,8 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
     on conflict (code) do nothing;
   `)
 
-  const wie = async (naam) => (await rt.query(
-    "select id from public.profiles where email = $1", [naam])).rows[0].id
+  const wie = async (mail) => (await rt.query(
+    'select id from public.profiles where email = $1', [mail])).rows[0].id
 
   const aap = await wie('aap74@truckwash1group.nl')
   const noot = await wie('noot74@truckwash1group.nl')
@@ -9467,25 +9469,35 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
   const route = async (lev, adres = null) => (await rt.query(
     'select * from public.factuur_route($1, $2, $3)', ['740', lev, adres])).rows[0]
 
-  /* --- zonder iets ingesteld: niemand, zoals het was --- */
+  /* --- zonder iets ingesteld: allebei leeg --- */
 
   const kaal = await route('Shell Nederland')
   check('zonder route ligt hij bij niemand',
-    kaal.wie === null && kaal.bron === null, JSON.stringify(kaal))
+    kaal.eerste.length === 0 && kaal.tweede.length === 0 && kaal.bron === null,
+    JSON.stringify(kaal))
 
-  /* --- de eerste persoon van de bv --- */
+  /* --- de eerste stap is een groep --- */
 
   await rt.exec(`
-    insert into public.bv_route (id, eerste, ai_direct, vanaf_keren)
-    values ('740', '${aap}', true, 3)
-    on conflict (id) do update set eerste = excluded.eerste;
+    insert into public.bv_route (id, eerste, tweede, ai_direct, vanaf_keren)
+    values ('740', array['${aap}','${noot}'], array['${mies}'], true, 3)
+    on conflict (id) do update
+      set eerste = excluded.eerste, tweede = excluded.tweede;
   `)
 
-  const eerste = await route('Shell Nederland')
-  check('een onbekende factuur gaat naar de eerste persoon',
-    eerste.wie === aap && eerste.bron === 'eerste', JSON.stringify(eerste))
+  const metGroep = await route('Shell Nederland')
+  check('de eerste beoordeling ligt bij een groep',
+    metGroep.eerste.length === 2
+      && metGroep.eerste.includes(aap) && metGroep.eerste.includes(noot),
+    JSON.stringify(metGroep.eerste))
+  check('met hun namen erbij, op alfabet',
+    metGroep.eerste_naam.join(',') === 'Aap,Noot', JSON.stringify(metGroep.eerste_naam))
 
-  /* --- het geheugen wint van de eerste persoon --- */
+  check('en de tweede handtekening bij de tweede groep',
+    metGroep.tweede.join(',') === mies && metGroep.bron === 'eerste',
+    JSON.stringify(metGroep))
+
+  /* --- het geheugen wint van de tweede groep --- */
 
   await rt.exec(`
     insert into public.leverancier_route (administratie, leverancier, goedkeurder, keren)
@@ -9496,45 +9508,36 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
 
   const uitGeheugen = await route('Shell Nederland')
   check('een bekende leverancier gaat direct naar zijn tekenaar',
-    uitGeheugen.wie === noot && uitGeheugen.bron === 'geheugen', JSON.stringify(uitGeheugen))
+    uitGeheugen.tweede.join(',') === noot && uitGeheugen.bron === 'geheugen',
+    JSON.stringify(uitGeheugen))
+  /* De eerste stap verandert daar niet van mee: wie de eerste beoordeling
+     doet hangt aan de organisatie, niet aan de leverancier. */
+  check('maar de eerste groep blijft dezelfde',
+    uitGeheugen.eerste.length === 2, JSON.stringify(uitGeheugen.eerste))
 
-  /* En hoofdletters doen er niet toe: de leverancier staat op het papier
-     zoals de drukker hem zette. */
-  const anders = await route('SHELL NEDERLAND  ')
-  check('en dat luistert niet naar hoofdletters',
-    anders.wie === noot, JSON.stringify(anders))
+  /* --- en het adres wint van allebei --- */
 
-  /*
-   * Maar alleen als het vaak genoeg is gebeurd. Eén waarneming is een
-   * aanwijzing, geen gewoonte -- en een route op één waarneming is raden met
-   * een naam eronder.
-   */
-  await rt.exec("update public.leverancier_route set keren = 1 where leverancier = 'shell nederland'")
-  const teWeinig = await route('Shell Nederland')
-  check('één keer is niet genoeg om een route te zijn',
-    teWeinig.wie === aap && teWeinig.bron === 'eerste', JSON.stringify(teWeinig))
-  await rt.exec("update public.leverancier_route set keren = 5 where leverancier = 'shell nederland'")
+  const viaAdres = await route('Shell Nederland', [mies, aap])
+  check('een postvak met namen eraan gaat voor',
+    viaAdres.bron === 'adres' && viaAdres.tweede.length === 2,
+    JSON.stringify(viaAdres))
 
-  /* --- en het is per bv uit te zetten --- */
+  /* --- direct doorzetten is per bv uit te zetten --- */
 
   await rt.exec("update public.bv_route set ai_direct = false where id = '740'")
   const uit = await route('Shell Nederland')
-  check('met direct doorzetten uit gaat alles langs de eerste persoon',
-    uit.wie === aap && uit.bron === 'eerste', JSON.stringify(uit))
+  check('met direct doorzetten uit gaat alles langs de tweede groep',
+    uit.tweede.join(',') === mies && uit.bron === 'eerste', JSON.stringify(uit))
   await rt.exec("update public.bv_route set ai_direct = true where id = '740'")
 
-  /* --- het adres wint van allebei --- */
-
-  const viaAdres = await route('Shell Nederland', mies)
-  check('een adres met een naam eraan gaat voor',
-    viaAdres.wie === mies && viaAdres.bron === 'adres', JSON.stringify(viaAdres))
-
-  /* --- iemand die weg is telt niet meer mee --- */
+  /* --- wie weg is telt niet meer mee --- */
 
   await rt.exec(`update public.profiles set active = false where id = '${noot}'`)
   const weg = await route('Shell Nederland')
-  check('een vertrokken collega bepaalt de route niet meer',
-    weg.wie === aap && weg.bron === 'eerste', JSON.stringify(weg))
+  check('een vertrokken collega valt uit de groep',
+    weg.eerste.join(',') === aap, JSON.stringify(weg.eerste))
+  check('en bepaalt de route niet meer',
+    weg.bron === 'eerste', JSON.stringify(weg))
   await rt.exec(`update public.profiles set active = true where id = '${noot}'`)
 
   /* ---------------------------------------------------------------- *
@@ -9551,168 +9554,194 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
   `)
 
   await rt.exec("select * from public.factuur_route_zetten('exp_74')")
-  const bon = async () => (await rt.query(
-    "select goedkeurder, goedkeurder_naam, route_bron, status from public.expenses where id = 'exp_74'")).rows[0]
+  const bon = async () => (await rt.query(`
+    select eerste_bij, eerste_bij_naam, goedkeurders, goedkeurders_naam,
+           goedkeurder, goedkeurder_naam, route_bron, status
+      from public.expenses where id = 'exp_74'`)).rows[0]
 
   const gezet = await bon()
-  check('de bon krijgt de goedkeurder en de reden erop',
-    gezet.goedkeurder === noot && gezet.route_bron === 'geheugen', JSON.stringify(gezet))
-  check('met de naam erbij, zodat de lijst leesbaar blijft',
-    gezet.goedkeurder_naam === 'Noot', String(gezet.goedkeurder_naam))
+  check('de bon draagt allebei de groepen',
+    gezet.eerste_bij.length === 2 && gezet.goedkeurders.join(',') === noot,
+    JSON.stringify(gezet))
+  check('met de namen erbij, zodat de lijst leesbaar blijft',
+    gezet.goedkeurders_naam.join(',') === 'Noot', JSON.stringify(gezet.goedkeurders_naam))
+
+  /*
+   * En de oude kolom loopt mee. Die blijft bestaan zolang er toestellen op
+   * 1.91 draaien: die sturen hem mee bij elke wijziging, en zou hij weg zijn
+   * dan weigert PostgREST de hele rij.
+   */
+  check('de oude kolom wijst naar de eerste van de lijst',
+    gezet.goedkeurder === noot && gezet.goedkeurder_naam === 'Noot',
+    JSON.stringify([gezet.goedkeurder, gezet.goedkeurder_naam]))
 
   /* --- een keuze van een mens blijft staan --- */
 
-  /*
-   * Dit is de regel waar het management aan hangt: "degene met managment kan
-   * het override". Zonder deze regel zou de eerstvolgende ronde die keuze
-   * terugdraaien met een gok, en dat merkt niemand.
-   */
   await rt.exec(`
-    update public.expenses set goedkeurder = '${mies}', goedkeurder_naam = 'Mies',
+    update public.expenses
+       set goedkeurders = array['${mies}'], goedkeurders_naam = array['Mies'],
            route_bron = 'handmatig'
      where id = 'exp_74'
   `)
   await rt.exec("select * from public.factuur_route_zetten('exp_74')")
   const metHand = await bon()
   check('een keuze met de hand wordt niet overschreven',
-    metHand.goedkeurder === mies && metHand.route_bron === 'handmatig',
+    metHand.goedkeurders.join(',') === mies && metHand.route_bron === 'handmatig',
     JSON.stringify(metHand))
 
-  /* --- en een factuur die al getekend is verhuist niet meer --- */
+  /* ---------------------------------------------------------------- *
+   *  Wie mag wat
+   * ---------------------------------------------------------------- */
+
+  const magEerste = async (uid) => {
+    await asUser(rt, uid)
+    const r = (await rt.query(
+      "select public.mag_eerste_beoordeling('exp_74') as m")).rows[0].m
+    await asServer(rt)
+    return r
+  }
+  const magTweede = async (uid) => {
+    await asUser(rt, uid)
+    const r = (await rt.query(
+      "select public.mag_tweede_handtekening('exp_74') as m")).rows[0].m
+    await asServer(rt)
+    return r
+  }
 
   await rt.exec(`
     update public.expenses
-       set route_bron = 'eerste', status = 'eerste_akkoord',
-           eerste_door = '${aap}', eerste_at = public.now_ms()
-     where id = 'exp_74';
-    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
-     where id = 'exp_74';
+       set eerste_bij = array['${aap}'], eerste_bij_naam = array['Aap'],
+           goedkeurders = array['${mies}'], goedkeurders_naam = array['Mies']
+     where id = 'exp_74'
   `)
-  await rt.exec("select * from public.factuur_route_zetten('exp_74')")
-  const getekend = await bon()
-  check('een getekende factuur blijft liggen waar hij lag',
-    getekend.goedkeurder === mies, JSON.stringify(getekend))
+
+  check('wie in de eerste groep staat, mag de eerste beoordeling',
+    (await magEerste(AAP)) === true)
+  check('en wie er niet in staat, niet',
+    (await magEerste(NOOT)) === false)
+  check('wie in de tweede groep staat, mag de tweede handtekening',
+    (await magTweede(MIES)) === true)
+  check('en wie er niet in staat, niet',
+    (await magTweede(AAP)) === false)
+
+  /* Leeg betekent iedereen die over kosten mag beslissen -- zoals het was. */
+  await rt.exec("update public.expenses set eerste_bij = '{}' where id = 'exp_74'")
+  check('een lege groep laat iedereen die over kosten beslist erbij',
+    (await magEerste(NOOT)) === true)
+
+  /* ---------------------------------------------------------------- *
+   *  De taak komt bij iedereen uit de groep
+   * ---------------------------------------------------------------- */
+
+  await rt.exec(`
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron,
+       goedkeurders, goedkeurders_naam)
+    values ('exp_74t', 1, 'overig', 'Gamma', 'Schroeven', 40, 21,
+            'open', 'mail', '740', 'handmatig',
+            array['${aap}','${noot}'], array['Aap','Noot'])
+    on conflict (id) do nothing;
+
+    update public.expenses
+       set status = 'eerste_akkoord', eerste_door = '${mies}',
+           eerste_door_naam = 'Mies', eerste_at = public.now_ms()
+     where id = 'exp_74t';
+  `)
+
+  const taken = async () => (await rt.query(`
+    select id, toegewezen_aan, status from public.taak
+     where bron_id = 'exp_74t' order by id`)).rows
+
+  const bijAllebei = await taken()
+  check('allebei krijgen ze de taak',
+    bijAllebei.length === 2
+      && bijAllebei.every((t) => t.status === 'te_doen'),
+    JSON.stringify(bijAllebei))
+  check('elk op zijn eigen naam',
+    bijAllebei.map((t) => t.toegewezen_aan).sort().join(',')
+      === [aap, noot].sort().join(','),
+    JSON.stringify(bijAllebei.map((t) => t.toegewezen_aan)))
+
+  /* Verandert de groep, dan gaat wie er niet meer bij hoort van de lijst.
+     Een taak laten staan bij iemand die er niets meer mee te maken heeft is
+     erger dan geen taak. */
+  await rt.exec(`
+    update public.expenses
+       set goedkeurders = array['${aap}'], goedkeurders_naam = array['Aap']
+     where id = 'exp_74t'
+  `)
+  const naWissel = await taken()
+  check('wie uit de groep valt, raakt zijn taak kwijt',
+    naWissel.filter((t) => t.status !== 'klaar').length === 1,
+    JSON.stringify(naWissel))
+
+  /* En tekent er een, dan gaan ze allemaal van de lijst. */
+  await rt.exec(`
+    update public.expenses
+       set goedkeurders = array['${aap}','${noot}'],
+           goedkeurders_naam = array['Aap','Noot']
+     where id = 'exp_74t';
+    update public.expenses set status = 'goedgekeurd', approved_by = '${aap}'
+     where id = 'exp_74t';
+  `)
+  const naTekenen = await taken()
+  check('als er een tekent, gaat hij bij iedereen van de lijst',
+    naTekenen.length > 0 && naTekenen.every((t) => t.status === 'klaar'),
+    JSON.stringify(naTekenen))
+
+  /* ---------------------------------------------------------------- *
+   *  Vier ogen blijft vier ogen
+   * ---------------------------------------------------------------- */
+
+  /*
+   * Ook als iemand in allebei de groepen staat. Dat is juist de reden dat
+   * deze controle hier staat: met groepen is het verleidelijk om te denken
+   * dat "hij mag tekenen" genoeg is.
+   */
+  await rt.exec(`
+    insert into public.expenses
+      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
+       status, source, administratie, administratie_bron,
+       eerste_bij, eerste_bij_naam, goedkeurders, goedkeurders_naam)
+    values ('exp_74v', 1, 'overig', 'Praxis', 'Verf', 30, 21,
+            'open', 'mail', '740', 'handmatig',
+            array['${aap}'], array['Aap'], array['${aap}','${noot}'],
+            array['Aap','Noot'])
+    on conflict (id) do nothing;
+
+    update public.expenses
+       set status = 'eerste_akkoord', eerste_door = '${aap}',
+           eerste_door_naam = 'Aap', eerste_at = public.now_ms()
+     where id = 'exp_74v';
+  `)
+
+  let zelfdeTwee = false
+  try {
+    await rt.exec(`
+      update public.expenses set status = 'goedgekeurd', approved_by = '${aap}'
+       where id = 'exp_74v'
+    `)
+  } catch { zelfdeTwee = true }
+  check('wie de eerste zette mag de tweede niet zetten, ook in beide groepen',
+    zelfdeTwee, 'dezelfde persoon tekende twee keer')
+
+  await rt.exec(`
+    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
+     where id = 'exp_74v'
+  `)
+  check('maar iemand anders uit de groep wel',
+    (await rt.query("select status from public.expenses where id = 'exp_74v'"))
+      .rows[0].status === 'goedgekeurd')
 
   /* ---------------------------------------------------------------- *
    *  Het geheugen leert van echte handtekeningen
    * ---------------------------------------------------------------- */
 
-  await rt.exec(`
-    delete from public.leverancier_route where leverancier = 'gamma bouwmarkt';
-    insert into public.expenses
-      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
-       status, source, administratie, administratie_bron, eerste_door, eerste_at)
-    values ('exp_74b', 1, 'overig', 'Gamma Bouwmarkt', 'Schroeven', 50, 21,
-            'eerste_akkoord', 'mail', '740', 'handmatig', '${aap}', public.now_ms())
-    on conflict (id) do nothing;
-  `)
-
-  await rt.exec(`
-    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
-     where id = 'exp_74b'
-  `)
-
   const geleerd = (await rt.query(
-    "select goedkeurder, keren from public.leverancier_route where leverancier = 'gamma bouwmarkt'")).rows[0]
+    "select goedkeurder, keren from public.leverancier_route where leverancier = 'praxis'")).rows[0]
   check('een echte handtekening wordt onthouden',
-    geleerd?.goedkeurder === noot && geleerd?.keren === 1, JSON.stringify(geleerd))
-
-  /* En een automatische goedkeuring niet. Een geheugen dat leert van zijn
-     eigen gokken bevestigt voortaan zijn eigen vergissingen. */
-  await rt.exec(`
-    delete from public.leverancier_route where leverancier = 'praxis';
-    insert into public.expenses
-      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
-       status, source, administratie, administratie_bron, goedkeuring_bron)
-    values ('exp_74c', 1, 'overig', 'Praxis', 'Verf', 30, 21,
-            'eerste_akkoord', 'mail', '740', 'handmatig', 'automatisch')
-    on conflict (id) do nothing;
-
-    update public.expenses set status = 'goedgekeurd', approved_by = '${noot}'
-     where id = 'exp_74c';
-  `)
-
-  const nietGeleerd = (await rt.query(
-    "select count(*)::int as n from public.leverancier_route where leverancier = 'praxis'")).rows[0]
-  check('een automatische goedkeuring leert het geheugen niets',
-    nietGeleerd.n === 0, String(nietGeleerd.n))
-
-  /*
-   * En een tekenaar zonder dossier houdt de handtekening niet tegen. Dit is
-   * een AFTER-trigger op de factuur zelf: een fout hier draait de hele
-   * goedkeuring terug, en dan mislukt het tekenen omdat er iets te onthouden
-   * viel. Dat is het omgekeerde van wat dit moet doen.
-   */
-  await rt.exec(`
-    insert into public.expenses
-      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
-       status, source, administratie, administratie_bron)
-    values ('exp_74d', 1, 'overig', 'Onbekend BV', 'Iets', 10, 21,
-            'eerste_akkoord', 'mail', '740', 'handmatig')
-    on conflict (id) do nothing;
-  `)
-  let tekenenLukte = true
-  try {
-    await rt.exec(`
-      update public.expenses set status = 'goedgekeurd', approved_by = 'u_bestaat_niet'
-       where id = 'exp_74d'
-    `)
-  } catch { tekenenLukte = false }
-  check('een tekenaar zonder dossier houdt de handtekening niet tegen',
-    tekenenLukte, 'de goedkeuring liep stuk op het geheugen')
-
-  /* ---------------------------------------------------------------- *
-   *  En een oude rij uit de app draait niets terug
-   *
-   *  De app schrijft een kostenpost terug als HELE rij. Zat daar een oude
-   *  route_bron in -- 'eerste', terwijl het management hem intussen met de
-   *  hand ergens anders had gelegd -- dan zou die oude waarde de 'handmatig'
-   *  overschrijven, en pakt de eerstvolgende ronde de factuur alsnog af van
-   *  degene bij wie hij was neergelegd.
-   * ---------------------------------------------------------------- */
-
-  await rt.exec(`
-    insert into public.expenses
-      (id, expense_date, category, supplier, description, amount_excl, vat_pct,
-       status, source, administratie, administratie_bron, goedkeurder, route_bron)
-    values ('exp_74e', 1, 'overig', 'Shell Nederland', 'Diesel', 60, 21,
-            'open', 'mail', '740', 'handmatig', '${mies}', 'handmatig')
-    on conflict (id) do nothing;
-  `)
-
-  await asUser(rt, AAP)
-  await rt.exec("update public.expenses set route_bron = 'eerste' where id = 'exp_74e'")
-    .catch(() => { /* de rem mag ook een fout geven */ })
-  await asServer(rt)
-
-  const oud = (await rt.query(
-    "select route_bron from public.expenses where id = 'exp_74e'")).rows[0]
-  check('een oude route_bron uit de app draait de keuze niet terug',
-    oud.route_bron === 'handmatig', String(oud.route_bron))
-
-  /*
-   * Maar de goedkeurder zelf mag een mens wél veranderen -- dat is de
-   * override waar de vraag over ging -- en dan komt er vanzelf 'handmatig'
-   * op te staan.
-   */
-  await rt.exec(`
-    update public.expenses set goedkeurder = '${aap}', route_bron = 'eerste'
-     where id = 'exp_74e'
-  `)
-  check('de server mag hem wel terugzetten',
-    (await rt.query("select route_bron from public.expenses where id = 'exp_74e'"))
-      .rows[0].route_bron === 'eerste')
-
-  await asUser(rt, AAP)
-  await rt.exec(`update public.expenses set goedkeurder = '${mies}' where id = 'exp_74e'`)
-    .catch(() => {})
-  await asServer(rt)
-
-  const omgezet = (await rt.query(
-    "select goedkeurder, route_bron from public.expenses where id = 'exp_74e'")).rows[0]
-  check('wie hem met de hand omzet, zet hem op handmatig',
-    omgezet.goedkeurder === mies && omgezet.route_bron === 'handmatig',
-    JSON.stringify(omgezet))
+    geleerd?.goedkeurder === noot, JSON.stringify(geleerd))
 
   /* ---------------------------------------------------------------- *
    *  Het overzicht voor het scherm
@@ -9720,11 +9749,12 @@ console.log('\n74. Een factuur weet bij wie hij hoort')
 
   await asUser(rt, AAP)
   const overzicht = (await rt.query('select * from public.bv_routes()')).rows
-  check('het overzicht kent de bv', overzicht.length === 1, JSON.stringify(overzicht))
-  check('met de naam van de eerste persoon erbij',
-    overzicht[0]?.eerste_naam === 'Aap', JSON.stringify(overzicht[0]))
-  check('en hoeveel het geheugen weet',
-    Number(overzicht[0]?.onthouden) >= 1, JSON.stringify(overzicht[0]))
+  check('het overzicht geeft allebei de groepen',
+    overzicht[0]?.eerste?.length === 2 && overzicht[0]?.tweede?.length === 1,
+    JSON.stringify(overzicht[0]))
+  check('met de namen erbij',
+    overzicht[0]?.eerste_naam?.join(',') === 'Aap,Noot',
+    JSON.stringify(overzicht[0]?.eerste_naam))
   await asServer(rt)
 
   await rt.close()

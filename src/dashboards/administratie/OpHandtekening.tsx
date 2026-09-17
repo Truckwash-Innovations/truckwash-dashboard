@@ -55,11 +55,12 @@ export function OpHandtekening({ onOpen }: { onOpen?: (id: string) => void }) {
     if (!alleen || !user) return alles
     /* Wat bij mij ligt, plus wat bij niemand ligt -- dat laatste is werk dat
        anders blijft staan omdat iedereen aanneemt dat een ander het doet. */
-    return alles.filter((r) => !r.ligtBij || r.ligtBij === user.id)
+    return alles.filter(
+      (r) => r.ligtBij.length === 0 || r.ligtBij.includes(user.id))
   }, [regels, alleen, user])
 
   const vanMij = useMemo(
-    () => (regels ?? []).filter((r) => user && r.ligtBij === user.id).length,
+    () => (regels ?? []).filter((r) => user && r.ligtBij.includes(user.id)).length,
     [regels, user])
 
   return (
@@ -143,10 +144,13 @@ export function OpHandtekening({ onOpen }: { onOpen?: (id: string) => void }) {
                     <td className="mono">{r.administratie ?? '—'}</td>
                     <td className="num">{money(r.bedragIncl)}</td>
                     <td className="afgekapt">
-                      {r.ligtBijNaam
-                        ?? (r.ligtBij
-                          ? r.ligtBij
-                          : <span className="ts-sub">niemand in het bijzonder</span>)}
+                      {/* Eén van de groep is genoeg; wie er allemaal bij mogen
+                          staat erbij, want anders lijkt het van één persoon. */}
+                      {r.ligtBijNaam.length > 0
+                        ? r.ligtBijNaam.join(', ')
+                        : r.ligtBij.length > 0
+                          ? r.ligtBij.join(', ')
+                          : <span className="ts-sub">niemand in het bijzonder</span>}
                       {/*
                         En waarom hij daar ligt (0106). Zonder die reden is
                         "ligt bij Milos" een feit zonder herkomst, en dan is de

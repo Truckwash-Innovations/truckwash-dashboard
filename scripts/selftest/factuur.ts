@@ -8,6 +8,89 @@
 import { api, check, db, eq, zonderCommentaar } from './kern.ts'
 
 export async function groepen() {
+
+/* ==================================================================== *
+ *  104. Meer dan één paar ogen per stap
+ *
+ *  Casper: "Kan je het mogelijk maken om meerdere mensen bij zowel de eerste
+ *  als tweede neer te zetten?"
+ *
+ *  Overal stond één naam. Dat maakt van elke stap een flessenhals: gaat die
+ *  ene op vakantie, dan staat de stapel stil tot het management ingrijpt.
+ *
+ *  Wat hier hard moet zijn is niet de opmaak maar de rekenregel eronder: één
+ *  kiezer voor "welke mensen", en die moet namen en ids bij elkaar houden.
+ *  Lopen die uit de pas, dan staat er een naam bij het verkeerde id -- en dat
+ *  merk je pas als er iemand tekent die er niet over ging.
+ * ==================================================================== */
+
+console.log('\n104. Meer dan één paar ogen per stap')
+
+{
+  const { readFileSync } = await import('node:fs')
+
+  /* ---- de kiezer staat op één plek ---- */
+
+  /*
+   * De route per bv en het inkoopadres stellen dezelfde vraag. Twee kiezers
+   * voor "welke mensen" is er één te veel -- dat is precies hoe de twee
+   * lijsten van "wie mag tekenen" eerder uit elkaar gingen lopen.
+   */
+  const routering = readFileSync('src/dashboards/administratie/Routering.tsx', 'utf8')
+  const adressen = readFileSync('src/dashboards/administratie/Inkoopadressen.tsx', 'utf8')
+
+  check('de routekaart gebruikt de gedeelde groepskiezer',
+    routering.includes("from '../../components/Groep'"),
+    'er staat een eigen kopie in dit scherm')
+  check('en het inkoopadres dezelfde',
+    adressen.includes("from '../../components/Groep'"),
+    'het adresscherm heeft zijn eigen kiezer')
+
+  /* ---- namen en ids blijven bij elkaar ---- */
+
+  const groepBron = readFileSync('src/components/Groep.tsx', 'utf8')
+
+  /*
+   * Bij het weghalen van iemand moeten de twee lijsten samen krimpen. Een
+   * filter op de ids met de oude namenlijst ernaast schuift alles één op --
+   * en dan staat de naam van de een bij het id van de ander.
+   */
+  check('weghalen bouwt beide lijsten samen op',
+    /function haalWeg[\s\S]{0,400}over\.push\(x\)[\s\S]{0,200}overNamen\.push/.test(groepBron),
+    'de namen worden niet samen met de ids bijgehouden')
+
+  check('en erbij doen zet de naam erachter',
+    /function doeErbij[\s\S]{0,300}\[\.\.\.ids\.map\(toon\), naamVan\.get\(id\)/.test(groepBron),
+    'de naam van de nieuwe komt niet op dezelfde plek als zijn id')
+
+  /*
+   * Een vastgelegde naam gaat voor op de naam van nu. Die is meegeschreven op
+   * het moment zelf en blijft leesbaar als iemand later vertrekt -- precies
+   * waarom hij op de bon wordt vastgelegd (0095).
+   */
+  check('de vastgelegde naam gaat voor',
+    /const toon = \(id: string, i: number\) => namen\[i\] \|\| naamVan\.get\(id\) \|\| id/.test(groepBron),
+    'een vertrokken collega wordt onleesbaar')
+
+  /* ---- leeg betekent iets, en dat staat er ---- */
+
+  check('een lege groep zegt wat dat betekent',
+    groepBron.includes('leegTekst') && groepBron.includes('iedereen die over kosten beslist'),
+    'een leeg vakje ziet eruit als "nog niet ingevuld"')
+
+  /* ---- en de lijst op handtekening rekent op een groep ---- */
+
+  const opHandtekening = readFileSync(
+    'src/dashboards/administratie/OpHandtekening.tsx', 'utf8')
+
+  check('wat bij mij ligt kijkt of ik in de groep zit',
+    opHandtekening.includes('r.ligtBij.includes(user.id)'),
+    'de filter vergelijkt nog met één naam')
+  check('en werk dat bij niemand ligt blijft zichtbaar',
+    opHandtekening.includes('r.ligtBij.length === 0'),
+    'werk zonder groep valt uit de lijst en blijft dus liggen')
+}
+
 /* ==================================================================== *
  *  De historie bij een factuur
  *

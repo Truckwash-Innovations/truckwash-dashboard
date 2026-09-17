@@ -28,6 +28,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { AlertTriangle, Check, Copy, Plus, Wand2, X } from 'lucide-react'
 
 import { Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
+import Groep from '../../components/Groep'
 import { db, uid } from '../../lib/db'
 import { enqueue, scheduleFlush } from '../../lib/sync'
 import { toast } from '../../store/useToasts'
@@ -208,8 +209,9 @@ export default function Inkoopadressen() {
                       : <span className="ts-sub">— geen —</span>}
                   </td>
                   <td className="afgekapt">
-                    {a.goedkeurder
-                      ? (mensNaam.get(a.goedkeurder) ?? a.goedkeurder)
+                    {(a.goedkeurders ?? []).length > 0
+                      ? (a.goedkeurders ?? [])
+                          .map((id) => mensNaam.get(id) ?? id).join(', ')
                       /* Leeg is geen fout maar wel het vermelden waard: dan
                          ligt het werk bij een groep, en dat is bij niemand. */
                       : <span className="ts-sub">wie over kosten beslist</span>}
@@ -296,7 +298,7 @@ function Wijzigen({ rij, bedrijven, vestigingen, mensen, sluit, bewaar }: {
   const [adres, setAdres] = useState(rij?.adres ?? '')
   const [bv, setBv] = useState(rij?.administratie ?? '')
   const [vestiging, setVestiging] = useState(rij?.locationId ?? '')
-  const [wie, setWie] = useState(rij?.goedkeurder ?? '')
+  const [wie, setWie] = useState<string[]>(rij?.goedkeurders ?? [])
   const [actief, setActief] = useState(rij?.actief ?? true)
   const [bezig, setBezig] = useState(false)
 
@@ -312,7 +314,7 @@ function Wijzigen({ rij, bedrijven, vestigingen, mensen, sluit, bewaar }: {
         adres: schoon,
         administratie: bv,
         locationId: vestiging || undefined,
-        goedkeurder: wie || undefined,
+        goedkeurders: wie,
         omschrijving: rij?.omschrijving,
         actief,
         door: rij?.door,
@@ -371,17 +373,14 @@ function Wijzigen({ rij, bedrijven, vestigingen, mensen, sluit, bewaar }: {
 
       <Field
         label="Tweede handtekening"
-        help="Wie deze facturen aftekent. Het management kan het altijd — ook als deze persoon er niet is."
+        help="Wie deze facturen aftekent. Eén van hen is genoeg; het management kan het altijd — ook als er niemand staat."
       >
-        <Kiezer
-          waarde={wie}
-          leeg="— wie over kosten beslist —"
-          zoekHint="Naam"
-          legeLijst="Niemand met het recht om kosten goed te keuren"
-          opties={mensen.map((u) => ({
-            waarde: u.id, label: u.name, sub: u.function ?? undefined,
-          }))}
-          onKies={setWie}
+        <Groep
+          ids={wie}
+          mag
+          kandidaten={mensen}
+          leegTekst="wie over kosten beslist"
+          onZet={(ids) => setWie(ids)}
         />
       </Field>
 

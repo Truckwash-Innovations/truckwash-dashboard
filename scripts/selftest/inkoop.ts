@@ -93,10 +93,12 @@ console.log('\n90. Een adres per onderneming, en een handtekening met een naam')
    * wisselen; een factuur van vorige maand hoort dan niet ineens bij iemand
    * anders te liggen.
    */
+  /* Een lijst sinds 0110: een postvak kan door meer dan één mens gelezen
+     worden, en dan is "de goedkeurder" er een te weinig. */
   check('en wordt bij het binnenkomen losgetrokken van het adres',
-    /goedkeurder: adres\?\.goedkeurder/.test(post)
-      && /goedkeurder_naam: adres\?\.goedkeurderNaam/.test(post),
-    'de goedkeurder wordt niet op de bon vastgelegd')
+    /goedkeurders: adres\?\.goedkeurders/.test(post)
+      && /goedkeurders_naam: adres\?\.goedkeurdersNaam/.test(post),
+    'de goedkeurders worden niet op de bon vastgelegd')
 
   check('en alleen hij of het management mag tekenen',
     m96.includes('create or replace function public.mag_tweede_handtekening'),

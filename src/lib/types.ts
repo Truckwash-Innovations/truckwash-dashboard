@@ -671,10 +671,29 @@ export interface Expense {
 
   /** Van het inkoopadres, en daarna losgetrokken: een adres kan van eigenaar
    *  wisselen, een factuur van vorige maand niet. */
+  /**
+   * Wie de EERSTE beoordeling mag doen (0110).
+   *
+   * Leeg = iedereen die over kosten mag beslissen, zoals het was. Eén van de
+   * groep is genoeg; het is "ligt bij ons", niet "iedereen moet tekenen".
+   */
+  eersteBij?: string[]
+  eersteBijNaam?: string[]
+  /** Wie de TWEEDE handtekening mag zetten (0095/0096, een groep sinds 0110). */
+  goedkeurders?: string[]
+  goedkeurdersNaam?: string[]
+  /**
+   * De eerste uit goedkeurders, bijgehouden door de server.
+   *
+   * Blijft bestaan zolang er toestellen op 1.91 draaien: die sturen deze
+   * kolom mee bij elke wijziging, en zou hij weg zijn dan weigert PostgREST
+   * de hele rij. Schrijven heeft geen zin -- hij staat in
+   * kolom_van_de_server en wordt teruggezet.
+   */
   goedkeurder?: string
   goedkeurderNaam?: string
   /**
-   * Waarom hij bij die persoon ligt (0106): adres, geheugen, eerste of
+   * Waarom hij bij die groep ligt (0106): adres, geheugen, eerste of
    * handmatig.
    *
    * Zonder dit is "ligt bij Milos" een feit zonder reden, en dan is de enige
@@ -832,7 +851,14 @@ export interface InkoopAdres {
   administratie: string
   /** Mag. Staat hij er, dan draagt de bon ook meteen de vestiging. */
   locationId?: string
-  /** Wie de tweede handtekening zet. Leeg = iedereen die over kosten beslist. */
+  /**
+   * Wie de tweede handtekening zet. Leeg = iedereen die over kosten beslist.
+   *
+   * Een lijst sinds 0110: een postvak kan door meer dan één mens gelezen
+   * worden, en dan is "de goedkeurder" er een te weinig.
+   */
+  goedkeurders?: string[]
+  /** De eerste uit die lijst, bijgehouden door de server. Niet schrijven. */
   goedkeurder?: string
   omschrijving?: string
   actief: boolean

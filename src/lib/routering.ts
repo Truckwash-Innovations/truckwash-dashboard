@@ -56,9 +56,17 @@ export const ROUTE_UITLEG: Record<RouteBron, string> = {
 export interface BvRoute {
   administratie: string
   bvNaam: string
-  /** Wie een onbekende factuur krijgt. Leeg = de rol administratie. */
-  eerste: string | null
-  eersteNaam: string | null
+  /**
+   * Wie de eerste beoordeling doet. Leeg = iedereen die over kosten beslist.
+   *
+   * Een lijst, want Casper: "Kan je het mogelijk maken om meerdere mensen bij
+   * zowel de eerste als tweede neer te zetten?" Eén van de groep is genoeg.
+   */
+  eerste: string[]
+  eersteNaam: string[]
+  /** Wie de tweede handtekening zet als we de leverancier niet kennen. */
+  tweede: string[]
+  tweedeNaam: string[]
   /** Mag het geheugen een factuur direct bij de vorige tekenaar leggen? */
   aiDirect: boolean
   /** Vanaf hoeveel keer het geheugen meetelt. */
@@ -69,6 +77,10 @@ export interface BvRoute {
   wachtend: number
 }
 
+/** Wat er uit de database komt is soms null; een lijst is dan leeg. */
+const lijst = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : []).map((x) => String(x ?? '')).filter(Boolean)
+
 /** De routes van alle actieve ondernemingen. */
 export async function bvRoutes(): Promise<BvRoute[]> {
   const { data, error } = await supabase().rpc('bv_routes')
@@ -77,8 +89,10 @@ export async function bvRoutes(): Promise<BvRoute[]> {
   return (Array.isArray(data) ? data : []).map((r: Record<string, unknown>) => ({
     administratie: String(r.administratie ?? ''),
     bvNaam: String(r.bv_naam ?? ''),
-    eerste: r.eerste ? String(r.eerste) : null,
-    eersteNaam: r.eerste_naam ? String(r.eerste_naam) : null,
+    eerste: lijst(r.eerste),
+    eersteNaam: lijst(r.eerste_naam),
+    tweede: lijst(r.tweede),
+    tweedeNaam: lijst(r.tweede_naam),
     aiDirect: r.ai_direct !== false,
     vanafKeren: Number(r.vanaf_keren) || 3,
     onthouden: Number(r.onthouden) || 0,
@@ -89,13 +103,15 @@ export async function bvRoutes(): Promise<BvRoute[]> {
 /** De route van één onderneming zetten. */
 export async function bewaarBvRoute(input: {
   administratie: string
-  eerste: string | null
+  eerste: string[]
+  tweede: string[]
   aiDirect: boolean
   vanafKeren: number
 }): Promise<void> {
   const { error } = await supabase().from('bv_route').upsert({
     id: input.administratie,
     eerste: input.eerste,
+    tweede: input.tweede,
     ai_direct: input.aiDirect,
     /* Onder de één zou betekenen dat één waarneming een gewoonte is. De
        database weigert het ook; hier vangen we het voordat het een rode

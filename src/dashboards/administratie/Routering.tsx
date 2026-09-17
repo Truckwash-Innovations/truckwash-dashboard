@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Brain, Play, RefreshCw, Trash2, TriangleAlert, UserCheck } from 'lucide-react'
 
-import { Badge, Card, Empty, Field, Kiezer, Modal } from '../../components/ui'
+import { Badge, Card, Empty, Field, Modal } from '../../components/ui'
+import Groep from '../../components/Groep'
 import { db } from '../../lib/db'
 import { relative } from '../../lib/format'
 import {
@@ -68,6 +69,7 @@ export default function Routering() {
       await bewaarBvRoute({
         administratie: nieuw.administratie,
         eerste: nieuw.eerste,
+        tweede: nieuw.tweede,
         aiDirect: nieuw.aiDirect,
         vanafKeren: nieuw.vanafKeren,
       })
@@ -104,7 +106,7 @@ export default function Routering() {
     }
   }
 
-  const zonderEerste = rijen.filter((r) => !r.eerste)
+  const zonderEerste = rijen.filter((r) => r.eerste.length === 0 && r.tweede.length === 0)
 
   return (
     <Card
@@ -139,9 +141,10 @@ export default function Routering() {
               <thead>
                 <tr>
                   <th>Onderneming</th>
-                  <th style={{ width: 280 }}>Eerste beoordelaar</th>
-                  <th style={{ width: 210 }}>Bekende leveranciers</th>
-                  <th style={{ width: 110 }}>Wacht nu</th>
+                  <th style={{ width: 250 }}>Eerste beoordeling</th>
+                  <th style={{ width: 250 }}>Tweede handtekening</th>
+                  <th style={{ width: 190 }}>Bekende leveranciers</th>
+                  <th style={{ width: 90 }}>Wacht</th>
                 </tr>
               </thead>
               <tbody>
@@ -154,19 +157,23 @@ export default function Routering() {
                     </td>
 
                     <td>
-                      {mag ? (
-                        <Kiezer
-                          waarde={r.eerste ?? ''}
-                          leeg="— de rol administratie —"
-                          zoekHint="Naam"
-                          opties={kandidaten.map((u) => ({
-                            waarde: u.id, label: u.name, sub: u.function ?? undefined,
-                          }))}
-                          onKies={(v) => zet(r, { eerste: v || null })}
-                        />
-                      ) : (
-                        r.eersteNaam ?? <span className="ts-sub">de rol administratie</span>
-                      )}
+                      <Groep
+                        ids={r.eerste}
+                        namen={r.eersteNaam}
+                        mag={mag}
+                        kandidaten={kandidaten}
+                        onZet={(ids, namen) => zet(r, { eerste: ids, eersteNaam: namen })}
+                      />
+                    </td>
+
+                    <td>
+                      <Groep
+                        ids={r.tweede}
+                        namen={r.tweedeNaam}
+                        mag={mag}
+                        kandidaten={kandidaten}
+                        onZet={(ids, namen) => zet(r, { tweede: ids, tweedeNaam: namen })}
+                      />
                     </td>
 
                     <td>
@@ -219,9 +226,9 @@ export default function Routering() {
               {zonderEerste.length === 1
                 ? 'Eén onderneming heeft'
                 : `${zonderEerste.length} ondernemingen hebben`}{' '}
-              nog geen eerste beoordelaar. Een factuur die we niet herkennen
-              blijft daar bij de rol administratie liggen — zichtbaar voor
-              iedereen, en daarmee van niemand.
+              nog niemand staan. Een factuur die we niet herkennen blijft daar
+              bij de rol administratie liggen — zichtbaar voor iedereen, en
+              daarmee van niemand.
             </p>
           )}
 
