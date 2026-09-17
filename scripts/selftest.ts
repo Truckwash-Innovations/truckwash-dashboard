@@ -2186,7 +2186,7 @@ check('en er staat meer dan één ding op',
 /* --- wat er te vieren valt --- */
 
 const feest = teVieren(agendaMensen as never, agendaPrive as never, peildag)
-check('drie dingen te vieren', feest.length === 3, String(feest.length))
+check('drie dingen te vieren', feest.length === 3, feest.map((f) => f.id).join(','))
 check('het id ligt vast op persoon en jaar',
   feest.some((f) => f.id === 'nt_vj_zt_a_2026'), feest.map((f) => f.id).join(','))
 check('de tekst spreekt iemand aan met zijn voornaam',
@@ -2201,15 +2201,46 @@ for (const m of agendaMensen) await db.users.put(m as never)
 for (const pv of agendaPrive) await db.personnelPrivate.put(pv as never)
 
 const ilseA = (await db.users.get('u_manager'))!
-const eersteRonde = await feliciteer(ilseA, peildag)
-check('er zijn felicitaties verstuurd', eersteRonde === 3, String(eersteRonde))
+
+/*
+ * Alleen de mensen van deze proef tellen.
+ *
+ * Hier stond `=== 3`, geteld over ALLES wat er in de database zit. En de
+ * proefgegevens van de mock rekenen met datums ten opzichte van vandaag
+ * (mockApi.ts: `startDate: t - (200 + idx * 37) * DAY`), terwijl deze proef
+ * een vaste peildag gebruikt. Die twee schuiven dus langs elkaar heen: op
+ * 17 september 2026 viel er een verzonnen medewerker precies op "1 jaar in
+ * dienst" op de peildag, en stonden er vier in plaats van drie.
+ *
+ * De test faalde daarmee op een kalenderdag, zonder dat er iets aan de code
+ * was veranderd. Dat is het ergste soort test: hij gaat vanzelf weer op
+ * groen, dus je zoekt naar iets dat er niet is en leert intussen om rood te
+ * negeren.
+ *
+ * Wat hier getest hoort te worden is het gedrag van feliciteer() op de drie
+ * mensen die deze proef klaarzet -- niet hoeveel er toevallig nog meer jarig
+ * zijn. Dus tellen we die drie.
+ */
+/* Op naam van de proefpersonen, en niet op het jaartal erachter: een eerste
+   werkdag heet nt_id_zt_b -- zonder jaar, want die gebeurtenis is er maar
+   een keer. */
+const vanDeProef = (id: string) => /_zt_[a-d](_|$)/.test(id)
+
+await feliciteer(ilseA, peildag)
+
+const naEerste = (await db.notifications.toArray())
+  .filter((n) => vanDeProef(n.id))
+check('er zijn felicitaties verstuurd voor de drie uit deze proef',
+  naEerste.length === 3, naEerste.map((n) => n.id).join(','))
 
 const tweedeRonde = await feliciteer(ilseA, peildag)
 check('een tweede ronde stuurt niets extra', tweedeRonde === 0, String(tweedeRonde))
 
-const gefeliciteerd = (await db.notifications.toArray()).filter(
-  (n) => n.id.startsWith('nt_vj_') || n.id.startsWith('nt_jub_') || n.id.startsWith('nt_id_'))
-check('en er staan er precies drie', gefeliciteerd.length === 3, String(gefeliciteerd.length))
+const gefeliciteerd = (await db.notifications.toArray())
+  .filter((n) => n.id.startsWith('nt_vj_') || n.id.startsWith('nt_jub_') || n.id.startsWith('nt_id_'))
+  .filter((n) => vanDeProef(n.id))
+check('en er staan er precies drie', gefeliciteerd.length === 3,
+  gefeliciteerd.map((n) => n.id).join(','))
 
 /* --- een afspraak toevoegen --- */
 

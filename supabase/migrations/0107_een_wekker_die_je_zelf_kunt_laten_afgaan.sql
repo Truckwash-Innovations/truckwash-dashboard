@@ -298,6 +298,11 @@ grant  execute on function public.wekker_antwoord(bigint) to authenticated, serv
 --  de cron doet, en dan bewijst een groene regel niets.
 -- ---------------------------------------------------------------------------
 
+/* Eerst weg: 0109 geeft deze functie een kolom erbij (de inhoud van het
+   antwoord), en create or replace kan het teruggegeven type niet veranderen.
+   Zonder deze regel loopt een tweede ronde van bijwerken.sql hier stuk. */
+drop function if exists public.wekkers_overzicht(integer);
+
 create or replace function public.wekkers_overzicht(hoeveel integer default 20)
 returns table (
   naam          text,

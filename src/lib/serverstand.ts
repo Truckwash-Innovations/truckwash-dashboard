@@ -106,15 +106,46 @@ export function schemaLooptAchter(stand: ServerStand | null): boolean {
 }
 
 /**
- * Welke functies een andere versie draaien dan deze app.
+ * Een versie als drie getallen, om te kunnen vergelijken.
  *
- * Een functie die hier niet in staat is niet per se goed: hij kan ook nog
- * nooit zijn aangeroepen sinds de uitrol. Daarom geeft het scherm er ook bij
- * hoe lang geleden elke functie zich voor het laatst heeft gemeld.
+ * Null als het geen versie is. Dan wordt er niet geraden: onbekend is iets
+ * anders dan oud.
+ */
+function alsGetallen(versie: string): [number, number, number] | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(versie.trim())
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
+}
+
+/** -1 als a ouder is, 0 gelijk, 1 nieuwer. Null als een van beide niet telt. */
+export function vergelijkVersie(a: string, b: string): number | null {
+  const x = alsGetallen(a)
+  const y = alsGetallen(b)
+  if (!x || !y) return null
+  for (let i = 0; i < 3; i++) {
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
+  }
+  return 0
+}
+
+/**
+ * Welke functies ECHT achterlopen op deze app.
+ *
+ * Hier stond `f.versie !== appVersie`, en dat is niet hetzelfde. Casper zag
+ * zes functies op 1.91.2 met "oud" erachter terwijl er één op 1.91.1 zonder
+ * badge stond -- precies omgekeerd. Hij keek naar de app van vóór de laatste
+ * uitrol; alles wat nieuwer was dan zijn tabblad heette daarmee "oud".
+ *
+ * Vooruitlopen is geen storing maar de goede volgorde: de functies worden
+ * uitgerold en daarna vernieuwt de app. Bij schemaLooptAchter() stond die
+ * regel al, met een controle eronder -- hier was hij vergeten.
+ *
+ * Een functie die hier niet in staat is niet per se bij: hij kan ook nog
+ * nooit zijn aangeroepen sinds de uitrol, en meldt dan nog de vorige versie.
+ * Daarom geeft het scherm er ook bij wanneer hij zich voor het laatst meldde.
  */
 export function functiesAchter(stand: ServerStand | null, appVersie: string): FunctieStand[] {
   if (!stand) return []
-  return stand.functies.filter((f) => f.versie !== '' && f.versie !== appVersie)
+  return stand.functies.filter((f) => vergelijkVersie(f.versie, appVersie) === -1)
 }
 
 /* ------------------------------------------------------------------ *
@@ -143,6 +174,15 @@ export interface Wekker {
   antwoord: number | null
   /** In gewone taal wat daar mis mee is; leeg als het goed ging. */
   antwoordHoe: string
+  /**
+   * Wat de functie zelf terugstuurde.
+   *
+   * Hier zit het verschil tussen "hij nam het aan" en "hij heeft iets
+   * gedaan". Een 200 betekent alleen het eerste: takenmail antwoordt met
+   * {"overgeslagen":"het is 14 uur"} en dat is net zo goed een 200 als
+   * {"verstuurd":9}.
+   */
+  inhoud: string
   /** Hoeveel van de laatste rondes zijn mislukt. */
   mislukt: number
 }
@@ -164,6 +204,7 @@ export async function wekkers(): Promise<Wekker[]> {
     laatstAt: r.laatst_at ? new Date(String(r.laatst_at)).getTime() : null,
     antwoord: r.antwoord == null ? null : Number(r.antwoord),
     antwoordHoe: String(r.antwoord_hoe ?? ''),
+    inhoud: String(r.inhoud ?? ''),
     mislukt: Number(r.mislukt) || 0,
   }))
 }

@@ -1597,6 +1597,88 @@ console.log('\n101. De server zegt welke versie hij draait')
  *  op. Daarom telt hij verder op (updated_at, id).
  * ==================================================================== */
 
+/* ==================================================================== *
+ *  103. Oud is ouder, niet anders
+ *
+ *  Casper, met een schermafdruk van het systeemscherm: zes functies op
+ *  1.91.2 met "oud" erachter, en er één op 1.91.1 zonder badge. Precies
+ *  omgekeerd.
+ *
+ *  De oorzaak was één teken: `f.versie !== appVersie`. Hij keek naar het
+ *  tabblad van vóór de laatste uitrol, en daarmee heette alles wat NIEUWER
+ *  was dan zijn app "oud".
+ *
+ *  Vooruitlopen is geen storing maar de goede volgorde -- de functies worden
+ *  eerst uitgerold en daarna vernieuwt de app. Bij het schema stond die regel
+ *  al, met een controle eronder (groep 101). Hier was hij vergeten, en dat is
+ *  het soort fout dat je alleen ziet als iemand ernaar wijst.
+ * ==================================================================== */
+
+console.log('\n103. Oud is ouder, niet anders')
+
+{
+  const { functiesAchter, vergelijkVersie } = await import('../../src/lib/serverstand.ts')
+
+  check('een lagere versie is ouder', vergelijkVersie('1.91.1', '1.91.2') === -1)
+  check('een hogere versie is nieuwer', vergelijkVersie('1.91.2', '1.91.1') === 1)
+  check('dezelfde versie is gelijk', vergelijkVersie('1.91.2', '1.91.2') === 0)
+
+  /* Op getal en niet op tekst: als tekst komt "1.9.0" ná "1.10.0". */
+  check('tien is meer dan negen', vergelijkVersie('1.10.0', '1.9.0') === 1)
+
+  /*
+   * Onbekend is iets anders dan oud. Een functie die zich meldde van vóór het
+   * stempelen heeft een lege versie; daar mag geen waarschuwing op staan,
+   * want er valt niets uit af te leiden.
+   */
+  check('een lege versie levert geen oordeel op', vergelijkVersie('', '1.91.2') === null)
+  check('en onzin ook niet', vergelijkVersie('binnenkort', '1.91.2') === null)
+
+  const stand = {
+    schema: { nummer: 0, naam: '', at: null, gezien: 0, aangenomen: 0 },
+    functies: [
+      { naam: 'oud', versie: '1.91.1', gebouwd: '', gezienAt: 1 },
+      { naam: 'gelijk', versie: '1.91.2', gebouwd: '', gezienAt: 1 },
+      { naam: 'nieuwer', versie: '1.92.0', gebouwd: '', gezienAt: 1 },
+      { naam: 'onbekend', versie: '', gebouwd: '', gezienAt: 1 },
+    ],
+  }
+
+  const achter = functiesAchter(stand, '1.91.2').map((f) => f.naam)
+  check('alleen wat echt ouder is telt als verouderd',
+    achter.join(',') === 'oud', JSON.stringify(achter))
+
+  /* Dit was de fout zelf: een functie die vooruitloopt kreeg "oud". */
+  check('een functie die vooruitloopt is niet verouderd',
+    !achter.includes('nieuwer'), JSON.stringify(achter))
+
+  /* ---- en wat een wekker terugstuurde ---- */
+
+  /*
+   * Casper: "Maar hij heeft nooit iets gestuurd?"
+   *
+   * De wekker meldde "aangenomen" en er was geen mail verstuurd. Allebei
+   * waar: de functie neemt het verzoek aan en besluit daarna zelf of er iets
+   * te doen valt. {"overgeslagen":"het is 14 uur"} is net zo goed een 200 als
+   * {"verstuurd":9}. Het antwoord moet dus mee tot in het scherm.
+   */
+  const { readFileSync } = await import('node:fs')
+  const sql = readFileSync('supabase/setup.sql', 'utf8')
+
+  /* De laatste definitie van wekkers_stand is die van 0109; daar hoort het
+     antwoord zelf in te staan. Vanaf de laatste 'create or replace' kijken,
+     want de eerdere versies staan er in setup.sql ook nog. */
+  const laatsteStand = sql.slice(sql.lastIndexOf('create or replace function public.wekkers_stand'))
+  check('de stand geeft het antwoord van de functie terug',
+    laatsteStand.includes("left(coalesce(a.content, ''), 500)"),
+    'alleen de statuscode; dan blijft "aangenomen" het enige dat je ziet')
+
+  const scherm = readFileSync('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
+  check('en het scherm laat het zien',
+    scherm.includes('w.inhoud'),
+    'het scherm toont alleen nog de statuscode')
+}
+
 console.log('\n102. Ophalen tot er niets meer is')
 
 {

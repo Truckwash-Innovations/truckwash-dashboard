@@ -25,7 +25,7 @@ import { useUpdates } from '../../lib/updates'
 import { activeBackend } from '../../lib/api'
 import {
   SCHEMA_VERWACHT, functiesAchter, schemaLooptAchter, serverStand,
-  wekkerAntwoord, wekkerNu, wekkers,
+  vergelijkVersie, wekkerAntwoord, wekkerNu, wekkers,
   type ServerStand, type Wekker,
 } from '../../lib/serverstand'
 import { toast } from '../../store/useToasts'
@@ -904,7 +904,7 @@ function ServerStandKaart() {
               {oudeFuncties.length > 0
                 ? <Badge tone="warn">{oudeFuncties.length} verouderd</Badge>
                 : stand.functies.length > 0
-                  ? <Badge tone="ok">op {versie}</Badge>
+                  ? <Badge tone="ok">niets verouderd</Badge>
                   : <Badge>nog niets gemeld</Badge>}
             </span>
           </div>
@@ -931,7 +931,18 @@ function ServerStandKaart() {
                       <td><code>{f.naam}</code></td>
                       <td>
                         {f.versie || '—'}{' '}
-                        {f.versie && f.versie !== versie && <Badge tone="warn">oud</Badge>}
+                        {/*
+                          Oud is ouder, niet anders. Hier stond `!==`, en dat
+                          zette "oud" achter alles wat NIEUWER was dan het
+                          tabblad waar je naar kijkt -- de functies worden
+                          namelijk eerst uitgerold en daarna vernieuwt de app.
+                        */}
+                        {vergelijkVersie(f.versie, versie) === -1 && (
+                          <Badge tone="warn">oud</Badge>
+                        )}
+                        {vergelijkVersie(f.versie, versie) === 1 && (
+                          <Badge>nieuwer dan deze app</Badge>
+                        )}
                       </td>
                       <td style={{ color: 'var(--text-2)' }}>{relative(f.gezienAt)}</td>
                     </tr>
@@ -943,10 +954,11 @@ function ServerStandKaart() {
 
           <p className="help" style={{ marginTop: 10, color: 'var(--text-3)' }}>
             Een functie meldt zich bij elke koude start, niet bij elk verzoek.
-            Staat er een oude versie, dan draait er een oude versie — maar een
-            functie die hier ontbreekt kan ook gewoon niet zijn aangeroepen.
-            En dit zegt niets over of het schema klópt, alleen over wat er is
-            gedraaid.
+            Wat hier staat is dus de versie van zijn laatste start — is dat
+            vóór de laatste uitrol, dan draait er inmiddels nieuwere code die
+            zich nog niet heeft gemeld. Een functie die hier ontbreekt kan
+            gewoon niet zijn aangeroepen. En dit zegt niets over of het schema
+            klópt, alleen over wat er is gedraaid.
           </p>
         </>
       )}
@@ -1082,13 +1094,25 @@ function Wekkers() {
                     {w.laatstAt ? relative(w.laatstAt) : '—'}
                   </td>
                   <td className="afgekapt">
+                    {/*
+                      Casper: "Maar hij heeft nooit iets gestuurd?"
+                      Hier stond alleen "aangenomen" -- de statuscode. Dat is
+                      één laag te vroeg stoppen: de functie NEEMT het verzoek
+                      aan en besluit daarna zelf of er iets te doen valt.
+                      {"overgeslagen":"het is 14 uur"} is net zo goed een 200
+                      als {"verstuurd":9}. Wat hij zei staat er nu bij.
+                    */}
                     {uitkomst[w.naam]
                       ? <strong>{uitkomst[w.naam]}</strong>
-                      : w.antwoordHoe
+                      : w.antwoordHoe && w.antwoordHoe !== 'aangenomen'
                         ? <span style={{ color: 'var(--warn)' }}>{w.antwoordHoe}</span>
-                        : w.antwoord
-                          ? `${w.antwoord} — in orde`
-                          : <span className="ts-sub">nog niets gehoord</span>}
+                        : w.inhoud
+                          ? <span className="mono" style={{ fontSize: '.78rem' }}>
+                              {w.inhoud.slice(0, 160)}
+                            </span>
+                          : w.antwoordHoe
+                            ? <span style={{ color: 'var(--warn)' }}>{w.antwoordHoe}</span>
+                            : <span className="ts-sub">nog niets gehoord</span>}
                   </td>
                   <td>
                     <button
