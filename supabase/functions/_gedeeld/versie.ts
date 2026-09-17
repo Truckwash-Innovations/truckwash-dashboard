@@ -7,4 +7,4 @@
 export const VERSIE = '1.91.3'
 
 /** Wanneer die uitrol is gemaakt. */
-export const GEBOUWD = '2026-09-17T08:57:22.012Z'
+export const GEBOUWD = '2026-09-17T08:59:54.790Z'
