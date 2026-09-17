@@ -25,6 +25,71 @@ export async function groepen() {
  *  het probeert.
  * ==================================================================== */
 
+/* ==================================================================== *
+ *  106. Een roosterwijziging die geen mail stuurt, zegt dat ook
+ *
+ *  Casper: "Bij wijzigen rooster ect, hij stuurt bij veranderingen geen
+ *  emails meer? wat wel moet..."
+ *
+ *  De keten is heel: shifts.update roept meldRooster aan, die stuurt een
+ *  melding met mail: true. Maar de mail gaat met `void mailBericht(...)` de
+ *  deur uit -- niet op wachten, want de bel in de app is al gegaan. Gaat hij
+ *  mis, dan gebeurt er verder niets.
+ *
+ *  Intussen bewaarde lib/mail.ts de laatste reden allang, met een functie
+ *  eromheen om hem op te vragen. Die werd nergens aangeroepen.
+ *
+ *  Twee dingen leggen we hier vast: dat de keten heel blijft, en dat wat de
+ *  app weet ook ergens te zien is.
+ * ==================================================================== */
+
+console.log('\n106. Een roosterwijziging die geen mail stuurt, zegt dat ook')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const repo = readFileSync('src/lib/repo.ts', 'utf8')
+
+  /* ---- de keten zelf ---- */
+
+  check('een roosterwijziging meldt het aan de betrokkene',
+    /shifts = \{[\s\S]*?async update[\s\S]{0,900}meldRooster\(bijgewerkt/.test(repo),
+    'een gewijzigde dienst stuurt geen bericht meer')
+
+  check('en die melding vraagt om een mail',
+    /async function meldRooster[\s\S]{0,1400}mail: true/.test(repo),
+    'de melding blijft in de app hangen')
+
+  /*
+   * Twee gevallen waarin er met opzet GEEN mail gaat, en die horen hier te
+   * staan -- anders wordt de volgende die dit leest gek van "hij doet het
+   * soms wel en soms niet".
+   */
+  check('wie zijn eigen dienst wijzigt krijgt geen mail van zichzelf',
+    /async function meldRooster[\s\S]{0,400}if \(door\.id === shift\.userId\) return/.test(repo),
+    'je mailt jezelf over je eigen wijziging')
+
+  check('en een bijgestelde opmerking is geen wijziging',
+    /const raakt =[\s\S]{0,300}patch\.startAt[\s\S]{0,200}patch\.endAt[\s\S]{0,200}patch\.kind/.test(repo),
+    'elke komma in een notitie levert een mail op')
+
+  /* ---- en wat er misgaat komt in beeld ---- */
+
+  const lib = readFileSync('src/lib/mail.ts', 'utf8')
+  const post = readFileSync('src/dashboards/developer/Post.tsx', 'utf8')
+
+  check('de app onthoudt waarom er geen post uitging',
+    lib.includes('export function laatsteMailFout'),
+    'de reden verdwijnt in de console')
+
+  check('en laat dat ergens zien',
+    post.includes('laatsteMailFout()'),
+    'de app weet het en zegt het tegen niemand')
+
+  check('post die op verzending wacht staat er ook',
+    post.includes('wachtendePost()'),
+    'mail die zonder bereik is opgesteld blijft onzichtbaar wachten')
+}
+
 console.log('\n105. Waarom een mail niet aankwam')
 
 {

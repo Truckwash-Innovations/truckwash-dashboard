@@ -5,7 +5,8 @@ import {
 } from 'lucide-react'
 import { db } from '../../lib/db'
 import {
-  mailVrij, misluktEnTeRedden, probeerOpnieuw, type MisluktEnTeRedden,
+  laatsteMailFout, mailVrij, misluktEnTeRedden, probeerOpnieuw, wachtendePost,
+  type MisluktEnTeRedden,
 } from '../../lib/mail'
 import { useAuth } from '../../store/useAuth'
 import type { EmailLog } from '../../lib/types'
@@ -124,6 +125,39 @@ export default function Post() {
     }
   }
 
+  /* ---------------------------------------------------------------- *
+   *  Wat de app zelf al wist
+   *
+   *  Casper: "Bij wijzigen rooster ect, hij stuurt bij veranderingen geen
+   *  emails meer? wat wel moet..."
+   *
+   *  Een roosterwijziging stuurt de mail met `void mailBericht(...)` -- niet
+   *  op wachten, want de bel in de app is al gegaan. Gaat die mail mis, dan
+   *  gebeurt er verder niets: geen melding, geen rood, alleen een regel in de
+   *  console van een tabblad dat allang dicht is.
+   *
+   *  Intussen bewaarde lib/mail.ts de laatste reden allang in laatsteFout,
+   *  met een functie eromheen om hem op te vragen -- en die werd nergens
+   *  aangeroepen. Weer een geval van: het systeem wist het en zei het niet.
+   *
+   *  En de wachtrij erbij. Post die op een tablet zonder bereik is opgesteld
+   *  staat daar te wachten; blijft dat staan, dan is het aantal het enige dat
+   *  het zegt.
+   * ---------------------------------------------------------------- */
+
+  const [mailFout, setMailFout] = useState<string | null>(null)
+  const [wachtend, setWachtend] = useState(0)
+
+  useEffect(() => {
+    const lees = () => {
+      setMailFout(laatsteMailFout())
+      void wachtendePost().then(setWachtend)
+    }
+    lees()
+    const klok = setInterval(lees, 5000)
+    return () => clearInterval(klok)
+  }, [])
+
   const [proefBezig, setProefBezig] = useState(false)
   const [proefUit, setProefUit] = useState('')
 
@@ -187,6 +221,27 @@ export default function Post() {
           </p>
         )}
       </Card>
+
+      {(mailFout || wachtend > 0) && (
+        <div className="waarschuwing mb">
+          <AlertTriangle size={17} />
+          <span>
+            {wachtend > 0 && (
+              <>
+                {wachtend} {wachtend === 1 ? 'mail wacht' : 'mails wachten'} op
+                verzending — die zijn opgesteld zonder verbinding en gaan mee
+                zodra er weer bereik is.{' '}
+              </>
+            )}
+            {mailFout && (
+              <>
+                De laatste keer dat de app post probeerde te versturen kwam
+                dit terug: <strong>{mailFout}</strong>
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {teRedden.length > 0 && (
         <Card
