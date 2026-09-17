@@ -4,7 +4,7 @@
  */
 
 /** De versie uit package.json op het moment van uitrollen. */
-export const VERSIE = '1.92.2'
+export const VERSIE = '1.92.3'
 
 /** Wanneer die uitrol is gemaakt. */
-export const GEBOUWD = '2026-09-17T10:13:27.814Z'
+export const GEBOUWD = '2026-09-17T11:17:52.641Z'

@@ -33,7 +33,9 @@
  * uitvoer niet meer op -- vandaar de tussenkopjes.
  */
 
-import { check, eq, setOnline, telling, zonderCommentaar } from './selftest/kern.ts'
+import {
+  check, eq, setOnline, telling, wachtTot, zonderCommentaar,
+} from './selftest/kern.ts'
 
 /* ====================================================================
  *  0. Draait deze test op hetzelfde gereedschap als de CI
@@ -431,8 +433,14 @@ check('de teller blijft op nul staan', (await getMeta(LAST_SYNC, -1)) === 0,
 setSyncEnabled(true)
 await sync()
 
-check('na inloggen loopt de wachtrij alsnog leeg', (await db.outbox.count()) === 0)
-check('en staat de teller op de servertijd', (await getMeta(LAST_SYNC, 0)) > 0)
+/* Wachten tot hij leeg is, niet aannemen dat één aanroep genoeg was: zie
+   wachtTot() in selftest/kern.ts. */
+check('na inloggen loopt de wachtrij alsnog leeg',
+  await wachtTot(async () => (await db.outbox.count()) === 0),
+  String(await db.outbox.count()))
+check('en staat de teller op de servertijd',
+  await wachtTot(async () => (await getMeta(LAST_SYNC, 0)) > 0),
+  String(await getMeta(LAST_SYNC, 0)))
 
 /* --- een verlopen sessie mag geen werk kosten --- */
 
@@ -465,7 +473,9 @@ check('de app zegt dat je opnieuw moet inloggen', syncStore.getState().sessieWeg
 api.push = echtePush
 await sync()
 
-check('na opnieuw inloggen gaat het alsnog mee', (await db.outbox.count()) === 0)
+check('na opnieuw inloggen gaat het alsnog mee',
+  await wachtTot(async () => (await db.outbox.count()) === 0),
+  String(await db.outbox.count()))
 check('en is de melding weg', !syncStore.getState().sessieWeg)
 
 // Volledige pull na het inloggen: teller op 0 en de cache moet weer vullen.

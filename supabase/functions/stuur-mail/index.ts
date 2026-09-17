@@ -161,7 +161,14 @@ function platteTekst(b: Brief): string {
 async function verstuur(
   naar: string,
   brief: Brief,
-  meta: { template: string; toUserId?: string },
+  meta: {
+    template: string
+    toUserId?: string
+    /* Waar deze mail vandaan kwam (0112). Daarmee is hij opnieuw op te bouwen
+       uit wat er nog staat, in plaats van uit een kopie die achterloopt. */
+    bron?: string
+    bronId?: string
+  },
 ): Promise<{ ok: boolean; fout: string | null }> {
   const id = 'em_' + crypto.randomUUID().replace(/-/g, '')
   let ok = false
@@ -203,6 +210,8 @@ async function verstuur(
     status: ok ? 'verstuurd' : 'mislukt',
     provider_id: providerId ?? null,
     error: fout ?? null,
+    bron: meta.bron ?? null,
+    bron_id: meta.bronId ?? null,
     at: nu(),
   })
 
@@ -578,7 +587,14 @@ Deno.serve(async (req) => {
         vars.open ? String(vars.open) : null,
         vars.id ? String(vars.id) : null,
       ),
-      { template: 'bericht', toUserId: ontvanger.id },
+      {
+        template: 'bericht',
+        toUserId: ontvanger.id,
+        /* De melding zelf is de bron: zijn tekst staat er nog, dus een
+           mislukte mail is later opnieuw op te bouwen. */
+        bron: 'melding',
+        bronId: String(body.meldingId ?? '') || undefined,
+      },
     )
     return json({ sent: uit.ok ? 1 : 0, reden: uit.fout })
   }

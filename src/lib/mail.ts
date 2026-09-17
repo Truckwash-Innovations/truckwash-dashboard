@@ -46,6 +46,8 @@ export interface MailRequest {
   email?: string
   /** Losse woorden voor in het sjabloon; nooit opmaak */
   vars?: Record<string, string>
+  /** De melding waar deze mail bij hoort; zie mailBericht. */
+  meldingId?: string
 }
 
 export interface MailResult {
@@ -277,6 +279,80 @@ export async function mailVrij(
 export async function mailBericht(
   toUserId: string,
   vars: { titel: string; tekst: string; van?: string; open?: string },
+  /**
+   * De melding waar deze mail bij hoort.
+   *
+   * Wordt vastgelegd bij de verzending (0112). Sneuvelt de mail -- en dat
+   * gebeurde vandaag de hele dag, omdat Resend het afzenderdomein niet
+   * kende -- dan is hij daarmee later opnieuw op te bouwen uit de melding
+   * zelf. Niet uit een kopie: de melding is de bron van waarheid.
+   */
+  meldingId?: string,
 ) {
-  return sendMail({ template: 'bericht', toUserId, vars })
+  return sendMail({ template: 'bericht', toUserId, vars, meldingId })
+}
+
+/* ------------------------------------------------------------------ *
+ *  Wat er sneuvelde, alsnog versturen
+ *
+ *  Casper: "hoe stuur ik die notify's en dingen handmatig alsnog dan? gezien
+ *  ze niet gestuurd zijn door het systeem op de tijden"
+ *
+ *  Een melding is gemaakt en de bel in de app is gegaan; alleen de mail
+ *  erover werd geweigerd. De tekst staat nog in de melding zelf, dus de mail
+ *  is opnieuw op te BOUWEN -- niet na te praten uit een kopie die intussen
+ *  achterloopt.
+ *
+ *  Sinds 0112 draagt elke mail zijn herkomst. Alles van daarvóór niet: die
+ *  regels staan er wel, maar zijn niet opnieuw te maken. Dat zegt het scherm
+ *  er ook bij.
+ * ------------------------------------------------------------------ */
+
+/** Eén mislukte mail die opnieuw op te bouwen is. */
+export interface MisluktEnTeRedden {
+  id: string
+  bron: string
+  bronId: string
+  naar: string
+  onderwerp: string
+  fout: string
+  at: number
+}
+
+/** Wat er mislukt is en opnieuw geprobeerd kan worden. */
+export async function misluktEnTeRedden(): Promise<MisluktEnTeRedden[]> {
+  const { data, error } = await supabase().rpc('mail_opnieuw_te_proberen', { hoeveel: 50 })
+  if (error) throw new Error(error.message)
+
+  return (Array.isArray(data) ? data : []).map((r: Record<string, unknown>) => ({
+    id: String(r.id ?? ''),
+    bron: String(r.bron ?? ''),
+    bronId: String(r.bron_id ?? ''),
+    naar: String(r.naar ?? ''),
+    onderwerp: String(r.onderwerp ?? ''),
+    fout: String(r.fout ?? ''),
+    at: Number(r.at) || 0,
+  }))
+}
+
+/**
+ * Eén mislukte mail opnieuw opbouwen en versturen.
+ *
+ * Geeft terug wat eruit kwam, of null als de melding er niet meer is -- dan
+ * valt er niets meer op te bouwen, en dat is geen fout maar een antwoord.
+ */
+export async function probeerOpnieuw(rij: MisluktEnTeRedden): Promise<MailResult | null> {
+  if (rij.bron !== 'melding') return null
+
+  const melding = await db.notifications.get(rij.bronId)
+  /* Geen melding meer, of een melding zonder ontvanger: dan valt er niets op
+     te bouwen. Dat is geen fout maar een antwoord. */
+  if (!melding?.toUserId) return null
+
+  return mailBericht(melding.toUserId, {
+    titel: melding.title,
+    tekst: melding.body,
+    van: melding.fromName,
+    open: melding.link || 'meldingen',
+  }, melding.id)
 }

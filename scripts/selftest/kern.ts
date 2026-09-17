@@ -84,6 +84,33 @@ export function check(name: string, ok: boolean, extra = '') {
   }
 }
 
+/**
+ * Wachten tot iets waar is, met een grens.
+ *
+ * Nodig omdat `sync()` niets doet als er al een ronde loopt: hij kijkt naar
+ * get().syncing en keert meteen terug. De belofte is dan wel vervuld, maar er
+ * is niets gebeurd -- en een controle die er direct achteraan komt, meet of
+ * die andere ronde toevallig al klaar was.
+ *
+ * Dat leverde een zeldzame rode run op, met vier controles rond de wachtrij
+ * die het de volgende keer weer deden. Zo'n test is erger dan geen test: hij
+ * leert je om rood te negeren.
+ *
+ * Het gedrag van de app zelf is juist: er lóópt een ronde, en die maakt de
+ * wachtrij leeg. Alleen de aanname "één aanroep is genoeg" klopte niet.
+ */
+export async function wachtTot(
+  voorwaarde: () => Promise<boolean>,
+  hoelangMs = 3000,
+): Promise<boolean> {
+  const tot = Date.now() + hoelangMs
+  for (;;) {
+    if (await voorwaarde()) return true
+    if (Date.now() >= tot) return false
+    await new Promise((r) => setTimeout(r, 20))
+  }
+}
+
 /** De eindstand, voor het slot van de test. */
 export function telling(): { passed: number; failed: number } {
   return { passed, failed }

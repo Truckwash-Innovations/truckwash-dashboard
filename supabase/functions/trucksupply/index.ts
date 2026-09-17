@@ -293,12 +293,24 @@ async function direct(): Promise<Response> {
   return json({ ok: true, verstuurd: n, naar })
 }
 
-/** Eén keer per dag, om het ingestelde uur: alles waar niemand naar keek. */
-async function ochtend(): Promise<Response> {
+/**
+ * Eén keer per dag, om het ingestelde uur: alles waar niemand naar keek.
+ *
+ * Met `nu` de twee remmen eronderuit. Dat is er niet voor de wekker maar voor
+ * een mens die achteraf constateert dat er niets is gegaan -- Casper: "hoe
+ * stuur ik die notify's en dingen handmatig alsnog dan? gezien ze niet
+ * gestuurd zijn door het systeem op de tijden."
+ *
+ * Zonder die uitweg is een gemiste ochtend een gemiste ochtend: de uurgrens
+ * laat hem er niet meer door, en de dagstempel ook niet. Dan staat er een
+ * knop die alleen kan zeggen "niet nu", en dat is precies wat het lijkt alsof
+ * er niets werkt.
+ */
+async function ochtend(nu = false): Promise<Response> {
   const uur = parseInt(await instelling('trucksupply_ochtend_uur', '8'), 10)
-  const nu = uurNL()
-  if (nu !== uur) {
-    return json({ ok: true, overgeslagen: `het is ${nu} uur in Nederland; de ochtendmail gaat om ${uur} uur` })
+  const nuUur = uurNL()
+  if (!nu && nuUur !== uur) {
+    return json({ ok: true, overgeslagen: `het is ${nuUur} uur in Nederland; de ochtendmail gaat om ${uur} uur` })
   }
 
   /*
@@ -311,7 +323,7 @@ async function ochtend(): Promise<Response> {
     .select('ochtend_gemaild_at').not('ochtend_gemaild_at', 'is', null)
     .order('ochtend_gemaild_at', { ascending: false }).limit(1).maybeSingle()
   const laatsteAt = Number(laatste?.ochtend_gemaild_at ?? 0)
-  if (laatsteAt && datumNL(laatsteAt) === datumNL()) {
+  if (!nu && laatsteAt && datumNL(laatsteAt) === datumNL()) {
     return json({ ok: true, overgeslagen: 'de ochtendmail van vandaag is al verstuurd' })
   }
 
@@ -455,7 +467,8 @@ Deno.serve(async (req) => {
 
   try {
     /* --- de wekker --- */
-    if (actie === 'direct' || actie === 'ochtend' || actie === 'test') {
+    if (actie === 'direct' || actie === 'ochtend' || actie === 'ochtend-nu'
+        || actie === 'test') {
       if (!CRON_SECRET) {
         return json({ ok: false, reden: 'VOORRAAD_CRON_SECRET staat niet op de server.' }, 500)
       }
@@ -464,6 +477,8 @@ Deno.serve(async (req) => {
       }
       if (actie === 'direct') return await direct()
       if (actie === 'ochtend') return await ochtend()
+      /* Met de hand, achteraf: de uurgrens en de dagstempel eronderuit. */
+      if (actie === 'ochtend-nu') return await ochtend(true)
       return await test()
     }
 

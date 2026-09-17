@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   AlertTriangle, CheckCircle2, Mail, MailX, Search, ShieldCheck, XCircle,
 } from 'lucide-react'
 import { db } from '../../lib/db'
-import { mailVrij } from '../../lib/mail'
+import {
+  mailVrij, misluktEnTeRedden, probeerOpnieuw, type MisluktEnTeRedden,
+} from '../../lib/mail'
 import { useAuth } from '../../store/useAuth'
 import type { EmailLog } from '../../lib/types'
 import { dateTime, relative } from '../../lib/format'
@@ -71,6 +73,57 @@ export default function Post() {
    *  tot morgenochtend.
    * ---------------------------------------------------------------- */
 
+  /* ---------------------------------------------------------------- *
+   *  Wat er sneuvelde, alsnog versturen
+   *
+   *  Casper: "hoe stuur ik die notify's en dingen handmatig alsnog dan?
+   *  gezien ze niet gestuurd zijn door het systeem op de tijden"
+   *
+   *  Een melding is gemaakt en de bel in de app is gegaan; alleen de mail
+   *  erover werd geweigerd. De tekst staat nog in de melding zelf, dus de
+   *  mail is opnieuw op te BOUWEN -- niet na te praten uit een kopie.
+   *
+   *  Alleen wat sinds 0112 is verstuurd draagt zijn herkomst. Alles daarvóór
+   *  staat wel in de lijst hieronder maar is niet opnieuw te maken, en dat
+   *  hoort er eerlijk bij te staan.
+   * ---------------------------------------------------------------- */
+
+  const [teRedden, setTeRedden] = useState<MisluktEnTeRedden[]>([])
+  const [reddenBezig, setReddenBezig] = useState(false)
+  const [reddenUit, setReddenUit] = useState('')
+
+  const haalTeRedden = useCallback(() => {
+    misluktEnTeRedden().then(setTeRedden).catch(() => setTeRedden([]))
+  }, [])
+
+  useEffect(() => { haalTeRedden() }, [haalTeRedden])
+
+  async function stuurAllesOpnieuw() {
+    setReddenBezig(true)
+    setReddenUit('')
+    let goed = 0
+    let mis = 0
+    let laatsteReden = ''
+    try {
+      for (const rij of teRedden) {
+        const uit = await probeerOpnieuw(rij)
+        if (uit && uit.sent > 0) goed++
+        else {
+          mis++
+          laatsteReden = uit?.reden || uit?.skipped || laatsteReden
+        }
+      }
+      setReddenUit(
+        mis === 0
+          ? `${goed} meldingen alsnog verstuurd.`
+          : `${goed} verstuurd, ${mis} nog steeds niet${laatsteReden ? ': ' + laatsteReden : '.'}`,
+      )
+      haalTeRedden()
+    } finally {
+      setReddenBezig(false)
+    }
+  }
+
   const [proefBezig, setProefBezig] = useState(false)
   const [proefUit, setProefUit] = useState('')
 
@@ -134,6 +187,57 @@ export default function Post() {
           </p>
         )}
       </Card>
+
+      {teRedden.length > 0 && (
+        <Card
+          title="Nog te versturen"
+          hint="Meldingen die wel zijn gemaakt, maar waarvan de mail sneuvelde"
+          className="mb"
+          action={
+            <button
+              className="btn sm primary"
+              onClick={() => void stuurAllesOpnieuw()}
+              disabled={reddenBezig}
+            >
+              {reddenBezig ? 'Bezig…' : `Stuur ${teRedden.length} opnieuw`}
+            </button>
+          }
+        >
+          {reddenUit && (
+            <p style={{ marginTop: 0 }}><strong>{reddenUit}</strong></p>
+          )}
+
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Naar</th>
+                  <th>Onderwerp</th>
+                  <th>Waarom het misging</th>
+                  <th style={{ width: 120 }}>Wanneer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teRedden.map((r) => (
+                  <tr key={r.id}>
+                    <td className="afgekapt">{r.naar}</td>
+                    <td className="afgekapt">{r.onderwerp}</td>
+                    <td className="afgekapt" style={{ color: 'var(--warn)' }}>{r.fout}</td>
+                    <td style={{ color: 'var(--text-2)' }}>{relative(r.at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="help" style={{ marginTop: 10 }}>
+            De melding zelf staat er nog — de bel in de app is gegaan, alleen
+            het mailtje erover niet. Hij wordt opnieuw opgebouwd uit die
+            melding, dus je krijgt geen oude kopie maar wat er nú staat.
+            Los eerst op waarom het misging; anders sneuvelt hij opnieuw.
+          </p>
+        </Card>
+      )}
 
       {mislukt.length > 0 && (
         <div className="waarschuwing mb">
