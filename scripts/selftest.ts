@@ -416,7 +416,24 @@ console.log('\n9. Niet synchroniseren zonder sessie')
 // Een echte backend geeft een niet-ingelogde bezoeker niets terug. Zou de app
 // dan toch de teller bijzetten, dan denkt hij na het inloggen dat hij bij is
 // en blijft de cache leeg -- precies de bug die dit voorkomt.
-const { setSyncEnabled, LAST_SYNC } = await import('../src/lib/sync')
+const { annuleerFlush, setSyncEnabled, LAST_SYNC } = await import('../src/lib/sync')
+
+/*
+ * Het rijk alleen.
+ *
+ * Elke wijziging plant een ronde in over ruim een seconde -- zo hoort het in
+ * de app, want dan gaat je werk vanzelf mee. Maar hieronder zetten we de
+ * boel met opzet in een rare stand (geen sessie, push stuk) en tellen dan wat
+ * er gebeurt. Landt die ingeplande ronde daar middenin, dan klopt de telling
+ * niet, en de controle valt om op iets dat niets met de controle te maken
+ * heeft. Dat was precies de flakkering: dezelfde drie controles vielen af en
+ * toe om en deden het bij de volgende keer weer.
+ *
+ * Dus zeggen we hem af voor elke stap die zelf een ronde doet. Dat kan sinds
+ * sync.ts een annuleerFlush() heeft -- die zit daar niet voor de test, maar
+ * omdat een ingeplande ronde ook in de app op een verkeerd moment kan vallen
+ * (uitloggen, wisselen van backend).
+ */
 const { getMeta, setMeta } = await import('../src/lib/db')
 
 setSyncEnabled(false)
@@ -424,6 +441,7 @@ await setMeta(LAST_SYNC, 0)
 
 await jobs.update(created!.id, { notes: 'gemaakt terwijl uitgelogd' })
 const queuedWhileLoggedOut = await db.outbox.count()
+annuleerFlush()
 await sync()
 
 check('sync doet niets zonder sessie', (await db.outbox.count()) === queuedWhileLoggedOut)
@@ -431,6 +449,7 @@ check('de teller blijft op nul staan', (await getMeta(LAST_SYNC, -1)) === 0,
   String(await getMeta(LAST_SYNC, -1)))
 
 setSyncEnabled(true)
+annuleerFlush()
 await sync()
 
 /* Wachten tot hij leeg is, niet aannemen dat één aanroep genoeg was: zie
@@ -461,6 +480,7 @@ check('er staat iets klaar om te versturen', inDeWachtrij > 0)
 const echtePush = api.push.bind(api)
 api.push = async () => { throw new GeenSessie() }
 
+annuleerFlush()
 for (let ronde = 0; ronde < 10; ronde++) await sync()
 
 check('zonder sessie blijft de wachtrij staan',
@@ -471,6 +491,7 @@ check('en kost het geen pogingen -- ook niet na tien rondes',
 check('de app zegt dat je opnieuw moet inloggen', syncStore.getState().sessieWeg)
 
 api.push = echtePush
+annuleerFlush()
 await sync()
 
 check('na opnieuw inloggen gaat het alsnog mee',

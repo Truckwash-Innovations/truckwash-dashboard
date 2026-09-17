@@ -55,18 +55,60 @@ console.log('\n106. Een roosterwijziging die geen mail stuurt, zegt dat ook')
     /shifts = \{[\s\S]*?async update[\s\S]{0,900}meldRooster\(bijgewerkt/.test(repo),
     'een gewijzigde dienst stuurt geen bericht meer')
 
+  /*
+   * Niet op een afstand in tekens meten.
+   *
+   * Hier stond `[\s\S]{0,1400}` tussen de naam van de functie en waar we op
+   * letten. Dat ging stuk zodra de functie een alinea uitleg langer werd --
+   * en de controle zei dan "de melding blijft in de app hangen", terwijl er
+   * niets aan de melding mankeerde. Een test die afgaat op de lengte van een
+   * comment is erger dan geen test: hij stuurt je de verkeerde kant op.
+   *
+   * Dus knippen we de functie er eerst uit en kijken daarbinnen.
+   */
+  const meldRooster = (() => {
+    /*
+     * En zonder de uitleg erbij.
+     *
+     * Want de regel waar we vanaf wilden staat nu in een comment ERBOVEN:
+     * "Hier stond `if (door.id === shift.userId) return`". Zoek je op de
+     * tekst, dan vind je hem dus nog gewoon, en de controle beweert dat de
+     * rem er nog op zit terwijl hij eruit is. Dat is de zoveelste keer dat
+     * mijn eigen toelichting een controle om de tuin leidt; zonderCommentaar()
+     * staat in kern.ts precies daarvoor.
+     */
+    const kaal = zonderCommentaar(repo)
+    const begin = kaal.indexOf('async function meldRooster')
+    if (begin < 0) return ''
+    const rest = kaal.slice(begin)
+    const eind = rest.indexOf('\n}')
+    return eind < 0 ? rest : rest.slice(0, eind)
+  })()
+
+  check('de functie zelf is te vinden', meldRooster.length > 0,
+    'meldRooster heet anders of staat er niet meer')
+
   check('en die melding vraagt om een mail',
-    /async function meldRooster[\s\S]{0,1400}mail: true/.test(repo),
+    /mail: true/.test(meldRooster),
     'de melding blijft in de app hangen')
 
   /*
-   * Twee gevallen waarin er met opzet GEEN mail gaat, en die horen hier te
-   * staan -- anders wordt de volgende die dit leest gek van "hij doet het
-   * soms wel en soms niet".
+   * En je eigen wijziging ook.
+   *
+   * Hier stond het omgekeerde: een controle die vastlegde dat je GEEN mail
+   * kreeg van je eigen wijziging. Dat leek redelijk en was het niet. Casper:
+   * "Maar ook als ik mijn eigen dienst aanpas, ook dan moet ik een mail
+   * krijgen." Een rooster is een afspraak; verandert die, dan hoort daar een
+   * spoor van in je postvak te liggen -- ook als jij het zelf deed.
    */
-  check('wie zijn eigen dienst wijzigt krijgt geen mail van zichzelf',
-    /async function meldRooster[\s\S]{0,400}if \(door\.id === shift\.userId\) return/.test(repo),
-    'je mailt jezelf over je eigen wijziging')
+  check('ook wie zijn eigen dienst wijzigt krijgt bericht',
+    !/if \(door\.id === shift\.userId\) return/.test(meldRooster),
+    'je eigen wijziging gaat nog steeds stilletjes langs je heen')
+
+  check('en dat bericht is dan ook zo geschreven',
+    /const zelf = door\.id === shift\.userId/.test(meldRooster)
+    && /Je hebt je dienst van \$\{dag\} gewijzigd/.test(meldRooster),
+    'het leest alsof iemand anders aan je rooster heeft gezeten')
 
   check('en een bijgestelde opmerking is geen wijziging',
     /const raakt =[\s\S]{0,300}patch\.startAt[\s\S]{0,200}patch\.endAt[\s\S]{0,200}patch\.kind/.test(repo),

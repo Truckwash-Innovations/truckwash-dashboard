@@ -359,7 +359,23 @@ async function meldRooster(
   wat: 'ingepland' | 'gewijzigd' | 'vervallen',
 ) {
   const door = await actor(doorId)
-  if (door.id === shift.userId) return
+
+  /*
+   * Ook als je het zelf doet.
+   *
+   * Hier stond `if (door.id === shift.userId) return` -- geen bericht over je
+   * eigen wijziging. Dat klinkt redelijk en was het niet. Casper: "Maar ook
+   * als ik mijn eigen dienst aanpas, ook dan moet ik een mail krijgen."
+   *
+   * Een rooster is een afspraak, en een afspraak die verandert hoort een
+   * spoor te hebben in je postvak -- ook als jij degene was die hem
+   * verzette. Anders is het enige bewijs van die wijziging het rooster zelf,
+   * en dat laat alleen zien hoe het NU staat.
+   *
+   * De tekst zegt het wel: een bericht over je eigen wijziging hoort niet te
+   * lezen alsof iemand anders aan je rooster heeft gezeten.
+   */
+  const zelf = door.id === shift.userId
 
   const dag = new Date(shift.startAt).toLocaleDateString('nl-NL', {
     weekday: 'long', day: 'numeric', month: 'long',
@@ -369,10 +385,13 @@ async function meldRooster(
       ` tot ${new Date(shift.endAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}`
     : ''
 
-  const kop =
-    wat === 'ingepland' ? `Je staat ingepland op ${dag}` :
-    wat === 'gewijzigd' ? `Je dienst van ${dag} is gewijzigd` :
-    `Je dienst van ${dag} is vervallen`
+  const kop = zelf
+    ? (wat === 'ingepland' ? `Je hebt jezelf ingepland op ${dag}` :
+       wat === 'gewijzigd' ? `Je hebt je dienst van ${dag} gewijzigd` :
+       `Je hebt je dienst van ${dag} laten vervallen`)
+    : (wat === 'ingepland' ? `Je staat ingepland op ${dag}` :
+       wat === 'gewijzigd' ? `Je dienst van ${dag} is gewijzigd` :
+       `Je dienst van ${dag} is vervallen`)
 
   await notifications.send({
     to: { id: shift.userId, name: shift.userName },

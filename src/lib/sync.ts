@@ -39,6 +39,8 @@ let enabled = true
 export function setSyncEnabled(v: boolean) {
   enabled = v
   if (v) scheduleFlush(150)
+  /* Uit is uit: een al ingeplande ronde hoort niet alsnog te vertrekken. */
+  else annuleerFlush()
 }
 
 interface SyncStore extends SyncState {
@@ -799,6 +801,25 @@ export function scheduleFlush(delay = 1200) {
     flushTimer = null
     if (useSync.getState().online) void useSync.getState().sync({ silent: true })
   }, delay)
+}
+
+/**
+ * Die uitgestelde ronde afzeggen.
+ *
+ * Nodig zodra het synchroniseren uitgaat. Zonder dit blijft er een timer van
+ * ruim een seconde lopen die daarna alsnog een ronde start -- bij uitloggen
+ * dus een ronde zonder sessie, en bij het wisselen van backend een ronde
+ * tegen de verkeerde server.
+ *
+ * Het viel op in de zelftest, en daar op de vervelendste manier: een paar
+ * controles rond de wachtrij vielen af en toe om en deden het daarna weer.
+ * Die ronde landde namelijk midden in een opstelling die net deed alsof het
+ * versturen stuk was. Dat is geen testprobleem -- het is dezelfde ronde die
+ * in de app op een verkeerd moment kan vallen.
+ */
+export function annuleerFlush() {
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = null
 }
 
 /* ------------------------------------------------------------------ *
