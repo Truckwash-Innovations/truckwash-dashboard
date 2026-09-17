@@ -979,6 +979,28 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .rooster-shift .t { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .rooster-shift .h { color: var(--text-3); font-size: .68rem; }
 
+/*
+ * De dienst waar de link over ging.
+ *
+ * Een rand en niet alleen een kleur: hoofdstuk 8 van systeem.css -- "geen
+ * informatie die alleen door kleur wordt aangegeven". Hij zwelt een keer aan
+ * zodat je ziet WELKE het is als de week openspringt, en blijft daarna
+ * gewoon omrand staan. Blader je weg, dan valt hij vanzelf.
+ */
+.rooster-shift.aangewezen {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  animation: rooster-aanwijzen 1.4s ease-out 1;
+}
+@keyframes rooster-aanwijzen {
+  0%   { box-shadow: 0 0 0 0 var(--tint-brand); }
+  40%  { box-shadow: 0 0 0 7px var(--tint-brand); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rooster-shift.aangewezen { animation: none; }
+}
+
 .rooster-shift.k-dienst { background: var(--tint-brand); border-color: var(--line-brand); }
 .rooster-shift.k-dienst .k { color: var(--text-brand); }
 .rooster-shift.k-verlof { background: var(--tint-info); border-color: var(--line-info); }

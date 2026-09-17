@@ -132,6 +132,118 @@ console.log('\n106. Een roosterwijziging die geen mail stuurt, zegt dat ook')
     'mail die zonder bereik is opgesteld blijft onzichtbaar wachten')
 }
 
+/* ==================================================================== *
+ *  114. Een link die uitkomt bij het ding, niet bij het begin
+ *
+ *  Casper: "Nu kom ik nog aan bij het begin, maar het is toch fijner dat ik
+ *  in dit geval uit zou komen bij dat specifieke gedeelte van het rooster?"
+ *
+ *  De knop in een mail wees al naar een scherm (?open=rooster). Maar een
+ *  scherm is niet hetzelfde als een ding: je kwam uit op de week van vandaag,
+ *  terwijl het bericht ging over een dienst over twee weken.
+ *
+ *  De serverkant kon dit al -- adressen.ts zet ?id= erachter zodra hij er een
+ *  krijgt. De app gaf hem alleen nooit mee. Dat is de keten die hier vastligt,
+ *  van de melding tot het scherm, want hij loopt door zes bestanden en elke
+ *  schakel is los te breken zonder dat er iets rood wordt.
+ * ==================================================================== */
+
+console.log('\n114. Een link die uitkomt bij het ding, niet bij het begin')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const kaal = (p: string) => zonderCommentaar(readFileSync(p, 'utf8'))
+
+  const types = kaal('src/lib/types.ts')
+  const repo2 = kaal('src/lib/repo.ts')
+  const libmail = kaal('src/lib/mail.ts')
+  const bel = kaal('src/components/NotificationCenter.tsx')
+  const week = kaal('src/components/WeekRooster.tsx')
+  const nav = kaal('src/store/useNav.ts')
+
+  /* ---- de melding weet waarover hij gaat ---- */
+
+  check('een melding kan een ding aanwijzen',
+    /interface AppNotification[\s\S]{0,600}linkId\?: string/.test(types),
+    'er is geen plek om te bewaren waar de melding over ging')
+
+  check('en het versturen neemt dat over',
+    /const note: AppNotification = \{[\s\S]{0,400}linkId: input\.linkId/.test(repo2),
+    'de melding wordt gemaakt zonder het ding waar hij over gaat')
+
+  /* ---- en de mail draagt het mee ---- */
+
+  check('de knop in de mail wijst het ding aan',
+    /open: note\.link \|\| 'meldingen',[\s\S]{0,120}id: note\.linkId/.test(repo2),
+    'de mail opent het scherm maar niet het ding')
+
+  check('ook als die mail opnieuw wordt opgebouwd',
+    /open: melding\.link \|\| 'meldingen',[\s\S]{0,60}id: melding\.linkId/.test(libmail),
+    'een opnieuw verstuurde mail komt alsnog bij het begin uit')
+
+  /* ---- de bel in de app doet hetzelfde ---- */
+
+  check('en de bel in de app ook',
+    /goto\(n\.link, n\.linkId \? \{ id: n\.linkId \} : undefined\)/.test(bel),
+    'in de app kom je nog bij het begin uit, in de mail niet -- dat is erger '
+    + 'dan allebei bij het begin')
+
+  /* ---- een roosterwijziging vult het ---- */
+
+  const meldRooster = (() => {
+    const begin = repo2.indexOf('async function meldRooster')
+    if (begin < 0) return ''
+    const rest = repo2.slice(begin)
+    const eind = rest.indexOf('\n}')
+    return eind < 0 ? rest : rest.slice(0, eind)
+  })()
+
+  check('een roosterbericht wijst de dienst aan',
+    /link: 'rooster',[\s\S]{0,80}linkId: shift\.id/.test(meldRooster),
+    'het bericht zegt "rooster" en verder niets')
+
+  /* ---- en het scherm doet er iets mee ---- */
+
+  check('het rooster springt naar de week van die dienst',
+    /db\.shifts\.get\(richtOp\)[\s\S]{0,300}setOffset\(/.test(week),
+    'het rooster opent nog steeds op vandaag')
+
+  check('en wijst hem aan',
+    /setAangewezen\(s\.id\)/.test(week) && /s\.id === aangewezen \? ' aangewezen'/.test(week),
+    'je komt in de goede week uit zonder te zien welke het was')
+
+  /*
+   * Twee dingen die een link onaangenaam maken als ze ontbreken, en die
+   * allebei makkelijk te vergeten zijn.
+   */
+  check('bladeren laat de aanwijzing vallen',
+    /setOffset\(offset \+ 1\); setAangewezen\(null\)/.test(week),
+    'je bladert weg en er staat nog iets aangewezen in een week waar het niet '
+    + 'over ging')
+
+  check('en een link werkt één keer',
+    /onGericht\?\.\(\)/.test(week),
+    'ga je later via het menu terug, dan springt hij opnieuw naar diezelfde '
+    + 'dienst -- dat heeft dan niemand gevraagd')
+
+  /* ---- de deur waar het binnenkomt stond er al ---- */
+
+  check('de diepe link geeft het id door',
+    /goto\(scherm, id \? \{ id \} : undefined\)/.test(nav),
+    'het adres draagt het ding wel, maar er komt niets doorheen')
+
+  /*
+   * En de kolom. Zonder die kolom weigert de database elke melding met een
+   * linkId erin -- en dat merk je pas als er eentje verstuurd wordt.
+   */
+  const mig = readFileSync(
+    'supabase/migrations/0113_een_bon_die_vastloopt_kun_je_opnieuw_aanbieden.sql', 'utf8')
+  check('en de database kent de kolom',
+    /alter table public\.notifications add column if not exists link_id text/.test(mig),
+    'de app stuurt een kolom mee die de server niet heeft')
+}
+
+
 console.log('\n105. Waarom een mail niet aankwam')
 
 {

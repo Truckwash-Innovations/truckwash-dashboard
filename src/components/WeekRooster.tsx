@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { db } from '../lib/db'
@@ -18,11 +18,38 @@ interface Props {
   person: Pick<User, 'id' | 'name' | 'contractHours'>
   /** Alleen management mag het rooster wijzigen. */
   editable?: boolean
+  /**
+   * Meteen naar déze dienst.
+   *
+   * Casper: "Nu kom ik nog aan bij het begin, maar het is toch fijner dat ik
+   * in dit geval uit zou komen bij dat specifieke gedeelte van het rooster?"
+   *
+   * Komt uit de knop in een roostermail (?open=rooster&id=sh_...). Het
+   * rooster opende altijd op de week van vandaag, ook als het bericht ging
+   * over een dienst over twee weken -- en dan mocht je zelf gaan bladeren.
+   *
+   * Staat er een id in dat we niet terugvinden, dan gebeurt er niets en blijf
+   * je op deze week. Dat is het eerlijkste antwoord: de dienst kan intussen
+   * geschrapt zijn, en dan is de week van vandaag net zo goed een startpunt
+   * als elke andere.
+   */
+  richtOp?: string
+  /**
+   * Gemeld zodra die sprong is gemaakt.
+   *
+   * Zonder dit blijft het doel hangen: ga je later via het menu terug naar
+   * het rooster, dan springt hij opnieuw naar diezelfde dienst -- en dat
+   * heeft dan niemand gevraagd. Een link werkt een keer.
+   */
+  onGericht?: () => void
 }
 
-export default function WeekRooster({ person, editable = false }: Props) {
+export default function WeekRooster({ person, editable = false, richtOp, onGericht }: Props) {
   const me = useAuth((s) => s.user)!
   const [offset, setOffset] = useState(0)
+  /* Welke dienst is aangewezen. Los van richtOp, want het bladeren moet hem
+     kunnen laten vallen: blader je weg, dan wijst er niets meer aan. */
+  const [aangewezen, setAangewezen] = useState<string | null>(null)
   const [editing, setEditing] = useState<Shift | null>(null)
   const [adding, setAdding] = useState<number | null>(null)
 
@@ -38,6 +65,28 @@ export default function WeekRooster({ person, editable = false }: Props) {
     [] as Shift[],
   )
 
+  /*
+   * De sprong naar de week van die dienst.
+   *
+   * In een effect en niet tijdens het renderen, want het antwoord komt uit de
+   * database. En op de dienst gezocht in plaats van op een datum meegestuurd:
+   * de dienst kan sinds het versturen van de mail verschoven zijn, en dan
+   * hoort de link naar waar hij NU staat te wijzen, niet naar waar hij stond.
+   */
+  useEffect(() => {
+    if (!richtOp) return
+    let weg = false
+    void db.shifts.get(richtOp).then((s) => {
+      if (weg || !s) return
+      const hier = weekStart(Date.now())
+      setOffset(Math.round((weekStart(s.startAt) - hier) / (7 * DAY)))
+      setAangewezen(s.id)
+    }).finally(() => { if (!weg) onGericht?.() })
+    return () => { weg = true }
+    // onGericht verandert elke render; alleen op het doel reageren is hier juist
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [richtOp])
+
   const hours = useMemo(() => totalHours(shifts), [shifts])
   const contract = person.contractHours ?? 0
   const diff = contract ? Math.round((hours - contract) * 10) / 10 : 0
@@ -47,13 +96,13 @@ export default function WeekRooster({ person, editable = false }: Props) {
   return (
     <>
       <div className="row" style={{ marginBottom: 12, flexWrap: 'nowrap' }}>
-        <button className="btn ghost sm" onClick={() => setOffset(offset - 1)} aria-label="Vorige week">
+        <button className="btn ghost sm" onClick={() => { setOffset(offset - 1); setAangewezen(null) }} aria-label="Vorige week">
           <ChevronLeft size={15} />
         </button>
-        <button className="btn ghost sm" onClick={() => setOffset(0)} disabled={offset === 0}>
+        <button className="btn ghost sm" onClick={() => { setOffset(0); setAangewezen(null) }} disabled={offset === 0}>
           Deze week
         </button>
-        <button className="btn ghost sm" onClick={() => setOffset(offset + 1)} aria-label="Volgende week">
+        <button className="btn ghost sm" onClick={() => { setOffset(offset + 1); setAangewezen(null) }} aria-label="Volgende week">
           <ChevronRight size={15} />
         </button>
 
@@ -99,7 +148,7 @@ export default function WeekRooster({ person, editable = false }: Props) {
                   return (
                     <button
                       key={s.id}
-                      className={`rooster-shift k-${s.kind}`}
+                      className={`rooster-shift k-${s.kind}${s.id === aangewezen ? ' aangewezen' : ''}`}
                       onClick={() => editable && setEditing(s)}
                       disabled={!editable}
                       title={s.note ?? meta.label}

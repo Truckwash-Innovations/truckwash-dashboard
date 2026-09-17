@@ -12,8 +12,8 @@ import type {
   ExactGrootboek, Expense, ExpenseGebeurtenis, ExpenseRegel, FactuurLezing, Grootboek, KostenTag, Location, MailBericht,
 } from '../../lib/types'
 import {
-  bedragExcl, btwPercentage, heeftIetsTeLezen, leesFactuur, nogNietIngevuld,
-  regelsKloppen, voorstellen, type Voorstel,
+  bedragExcl, bonnenOpnieuwLatenLezen, btwPercentage, heeftIetsTeLezen,
+  leesFactuur, nogNietIngevuld, regelsKloppen, voorstellen, type Voorstel,
 } from '../../lib/facturen'
 import { dateShort, dateTime, datumMisschienTijd, maandNaam, money } from '../../lib/format'
 import {
@@ -1075,12 +1075,65 @@ function LeesStatus({ bon }: { bon: Expense }) {
   }
   if (bon.leesStatus === 'mislukt') {
     return (
-      <div style={{ marginTop: 3 }}>
+      <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
         <Badge tone="danger"><AlertTriangle size={11} /> lezen mislukt</Badge>
+        <NogEenKeer bon={bon} />
       </div>
     )
   }
   return null
+}
+
+/**
+ * Nog een keer proberen.
+ *
+ * Casper: "Vastgelopen facturen weer vrijgeven."
+ *
+ * "mislukt" was de enige stand van de lokale lezer zonder uitweg. Wacht staat
+ * in de rij, bezig wordt na tien minuten opnieuw uitgedeeld, klaar is af --
+ * maar een bon die mislukte bleef staan met een rood bolletje, terwijl de
+ * redenen om daar te belanden (de pc stond uit, het model was aan het laden,
+ * het netwerk hikte) morgen weg kunnen zijn.
+ *
+ * Het scherm liet het al zien. Er zat alleen geen knop bij.
+ *
+ * De vorige lezing blijft staan tot er een nieuwe is. Die is een verslag van
+ * wat er toen gebeurde, en dat wordt niet minder waar doordat we het opnieuw
+ * proberen.
+ */
+function NogEenKeer({ bon }: { bon: Expense }) {
+  const perms = usePerms()
+  const [bezig, setBezig] = useState(false)
+
+  if (!perms.can('expenses.approve')) return null
+
+  const opnieuw = async () => {
+    setBezig(true)
+    try {
+      const hoeveel = await bonnenOpnieuwLatenLezen([bon.id])
+      /* Nul is geen fout maar een antwoord: dan had de lezer hem net zelf al
+         opgepakt. Dat hoort er precies zo te staan. */
+      if (hoeveel > 0) toast.ok('Terug in de rij -- de lezer pakt hem opnieuw op')
+      else toast.info('Deze bon stond al niet meer vast')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Het vrijgeven lukte niet')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <Knop
+      klein
+      soort="bij"
+      bezig={bezig}
+      ikoon={<RotateCcw size={12} />}
+      onClick={(e) => { e.stopPropagation(); void opnieuw() }}
+      title="De bon terug in de leesrij zetten, zodat de lokale lezer hem opnieuw oppakt"
+    >
+      nog een keer
+    </Knop>
+  )
 }
 
 /**

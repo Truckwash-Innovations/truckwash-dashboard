@@ -22,8 +22,9 @@
  * =========================================================================== */
 
 import { useEffect, useState } from 'react'
-import { Cpu, Loader2, RefreshCw, Save, TriangleAlert } from 'lucide-react'
+import { Cpu, Loader2, RefreshCw, RotateCcw, Save, TriangleAlert } from 'lucide-react'
 import { SLEUTELS, leesInstellingen, zetInstelling } from '../../lib/instellingen'
+import { bonnenOpnieuwLatenLezen, bonnenVastgelopen } from '../../lib/facturen'
 import { relative } from '../../lib/format'
 import { Card, Field } from '../../components/ui'
 import { toast } from '../../store/useToasts'
@@ -123,6 +124,23 @@ export default function EigenAI() {
   const [geladen, setGeladen] = useState(false)
   const [bezig, setBezig] = useState(false)
 
+  /*
+   * Hoeveel bonnen er vastzitten bij de lezer.
+   *
+   * Casper: "Vastgelopen facturen weer vrijgeven."
+   *
+   * Dit hoort hier en niet alleen bij de kostenposten, want het is een vraag
+   * over de machine en niet over een bon: staat de pc een uur uit, dan lopen
+   * ze met tientallen tegelijk vast, en dan wil je ze ook met tientallen
+   * tegelijk terug kunnen zetten.
+   *
+   * Het getal komt uit de database en niet uit een telling hier: de knop en
+   * het getal gebruiken zo dezelfde voorwaarde (0113), en kunnen dus niet
+   * iets anders beweren dan er gebeurt.
+   */
+  const [vast, setVast] = useState(0)
+  const [vrijgeven, setVrijgeven] = useState(false)
+
   async function laad() {
     const alle = await leesInstellingen()
     setWaarden(Object.fromEntries(PLEKKEN.map((p) => [p.sleutel, alle[p.sleutel] || 'claude'])))
@@ -132,6 +150,9 @@ export default function EigenAI() {
     setGezien(Number.isFinite(t) && t > 0 ? t : null)
     setLezerModel(alle[SLEUTELS.lezerModel] || '')
     setStand(leesStand(alle[SLEUTELS.lezerStand]))
+    /* Mag mislukken zonder de rest mee te nemen: wie hier mag kijken hoeft
+       niet per se bonnen te mogen vrijgeven. */
+    try { setVast(await bonnenVastgelopen()) } catch { setVast(0) }
     setGeladen(true)
   }
 
@@ -156,6 +177,25 @@ export default function EigenAI() {
    * dan hoeft de machine ook niet te draaien en is stilte geen probleem.
    */
   const stil = ietsLokaal && (gezien === null || Date.now() - gezien > 5 * 60_000)
+
+  async function geefVrij() {
+    setVrijgeven(true)
+    try {
+      const hoeveel = await bonnenOpnieuwLatenLezen()
+      if (hoeveel > 0) {
+        toast.ok(hoeveel === 1
+          ? 'Eén bon staat weer in de rij'
+          : `${hoeveel} bonnen staan weer in de rij`)
+      } else {
+        toast.info('Er stond niets vast')
+      }
+      await laad()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Het vrijgeven lukte niet')
+    } finally {
+      setVrijgeven(false)
+    }
+  }
 
   async function bewaar() {
     setBezig(true)
@@ -239,6 +279,39 @@ export default function EigenAI() {
           <p className="help" style={{ margin: '6px 0 0', color: 'var(--text-warn)' }}>
             Laatste fout: {stand.laatsteFout}
           </p>
+        )}
+
+        {/*
+          * Wat er is blijven liggen.
+          *
+          * "mislukt" was de enige stand zonder uitweg -- de andere drie komen
+          * vanzelf weer in beweging. Stond de machine een tijd uit, dan is dit
+          * precies de stapel die daarvan over is.
+          */}
+        {vast > 0 && (
+          <div
+            className="row"
+            style={{ gap: 8, alignItems: 'center', margin: '10px 0 0' }}
+          >
+            <TriangleAlert size={14} />
+            <span className="help" style={{ flex: 1, margin: 0 }}>
+              {vast === 1
+                ? 'Eén bon zit vast bij de lezer'
+                : `${vast} bonnen zitten vast bij de lezer`}
+              {' '}— het lezen mislukte, en daar komen ze niet vanzelf uit.
+              De vorige lezing blijft staan tot er een nieuwe is.
+            </span>
+            <button
+              className="btn ghost sm"
+              disabled={vrijgeven}
+              onClick={() => void geefVrij()}
+            >
+              {vrijgeven
+                ? <Loader2 size={13} className="spin" />
+                : <RotateCcw size={13} />}
+              {' '}Allemaal opnieuw
+            </button>
+          </div>
         )}
       </div>
 

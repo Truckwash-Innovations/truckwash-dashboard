@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   BriefcaseBusiness, CalendarDays, CheckCircle2, ClipboardList, Clock, DoorOpen, FolderOpen, GraduationCap, LayoutGrid, ListTodo, Mail, MessageSquare, Send, Sparkles, Square, Timer, TriangleAlert, Truck, Users,
@@ -113,7 +113,21 @@ export default function SupervisorDashboard() {
 
   const items = menuVan(paginas, (r) => perms.can(r))
 
-  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
+  /*
+   * Waar de link over ging.
+   *
+   * Casper: "Nu kom ik nog aan bij het begin, maar het is toch fijner dat ik
+   * in dit geval uit zou komen bij dat specifieke gedeelte van het rooster?"
+   *
+   * useNavTarget gaf het id al door -- er was alleen niemand die er iets mee
+   * deed. Hier blijft hij staan tot het scherm hem heeft gebruikt.
+   */
+  const [richtOp, setRichtOp] = useState<string | undefined>()
+
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p, id) => {
+    setPage(p)
+    setRichtOp(id)
+  })
 
   const meta = kopVan(paginas, page, 'start')
 
@@ -229,7 +243,9 @@ export default function SupervisorDashboard() {
       {page === 'werving' && <Werving />}
       {page === 'documenten' && <Documenten />}
       {page === 'team' && <TeamVandaag team={team} onMessage={() => setMessaging(true)} />}
-      {page === 'rooster' && <TeamRooster team={team} />}
+      {page === 'rooster' && (
+        <TeamRooster team={team} richtOp={richtOp} onGericht={() => setRichtOp(undefined)} />
+      )}
       {page === 'smart' && <SmartRosterPanel team={team} />}
       {page === 'uren' && <TeamUren team={team} />}
       {page === 'opleiding' && <OpleidingOverzicht team={team} />}
@@ -458,10 +474,32 @@ function TeamVandaag({ team, onMessage }: { team: User[]; onMessage: () => void 
  *  Rooster van het team
  * ================================================================== */
 
-function TeamRooster({ team }: { team: User[] }) {
+function TeamRooster(
+  { team, richtOp, onGericht }:
+  { team: User[]; richtOp?: string; onGericht?: () => void },
+) {
   const perms = usePerms()
   const [selected, setSelected] = useState<string | null>(team[0]?.id ?? null)
   const person = team.find((u) => u.id === selected) ?? team[0]
+
+  /*
+   * Bij het team gaat er één stap aan vooraf.
+   *
+   * Dit scherm toont één persoon tegelijk, dus een link naar een dienst moet
+   * eerst de juiste persoon aanklikken -- anders opent het de goede week van
+   * de verkeerde. Staat die persoon niet in dit team (overgeplaatst, uit
+   * dienst), dan blijft de keuze staan zoals hij stond en gebeurt er niets.
+   */
+  useEffect(() => {
+    if (!richtOp) return
+    let weg = false
+    void db.shifts.get(richtOp).then((s) => {
+      if (weg || !s) return
+      if (team.some((u) => u.id === s.userId)) setSelected(s.userId)
+    })
+    return () => { weg = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [richtOp])
 
   const shifts = useLiveQuery(() => db.shifts.toArray(), [], [] as Shift[])
   const start = weekStart(Date.now())
@@ -509,7 +547,12 @@ function TeamRooster({ team }: { team: User[] }) {
       </Card>
 
       <Card title={`Rooster van ${person.name}`} hint={perms.can('roster.edit') ? 'Klik op een dag om te plannen' : 'Alleen lezen'}>
-        <WeekRooster person={person} editable={perms.can('roster.edit')} />
+        <WeekRooster
+          person={person}
+          editable={perms.can('roster.edit')}
+          richtOp={richtOp}
+          onGericht={onGericht}
+        />
       </Card>
     </>
   )

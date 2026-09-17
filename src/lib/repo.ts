@@ -403,6 +403,9 @@ async function meldRooster(
       : `${SHIFT_KINDS[shift.kind].label}${tijd}.` +
         (shift.note ? ` ${shift.note}` : ''),
     link: 'rooster',
+    /* Niet "het rooster" maar déze dienst: de app springt naar de week waar
+       het over ging en wijst hem aan. */
+    linkId: shift.id,
     mail: true,
   })
 }
@@ -478,6 +481,8 @@ export const notifications = {
     title: string
     body: string
     link?: string
+    /** Waarover precies -- zie AppNotification.linkId. */
+    linkId?: string
     mail?: boolean
     /**
      * Een vast id, voor berichten die maar één keer horen te bestaan --
@@ -497,6 +502,7 @@ export const notifications = {
       fromName: input.from.name,
       createdAt: Date.now(),
       link: input.link,
+      linkId: input.linkId,
       updatedAt: Date.now(),
     }
     const saved = await put('notifications', db.notifications, note)
@@ -510,6 +516,11 @@ export const notifications = {
         /* Wijst de melding ergens heen, dan wijst de knop in de mail daar ook
            heen. Zo niet, dan naar de bel -- daar staat hij hoe dan ook. */
         open: note.link || 'meldingen',
+        /* En weten we waaróver, dan gaat dat mee. Casper: "het is toch fijner
+           dat ik uit zou komen bij dat specifieke gedeelte van het rooster".
+           De server laat alleen letters, cijfers, - en _ door (adressen.ts),
+           en de app kijkt na of het ding nog bestaat. */
+        id: note.linkId,
       }, note.id)
     }
 
@@ -524,6 +535,7 @@ export const notifications = {
     title: string
     body: string
     link?: string
+    linkId?: string
   }) {
     const note: AppNotification = {
       id: uid('nt'),
@@ -535,6 +547,7 @@ export const notifications = {
       fromName: input.from.name,
       createdAt: Date.now(),
       link: input.link,
+      linkId: input.linkId,
       updatedAt: Date.now(),
     }
     return put('notifications', db.notifications, note)

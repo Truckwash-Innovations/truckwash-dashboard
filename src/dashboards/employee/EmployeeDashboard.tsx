@@ -134,7 +134,21 @@ export default function EmployeeDashboard() {
 
   const items = menuVan(paginas, (r) => perms.can(r))
 
-  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p) => setPage(p))
+  /*
+   * Waar de link over ging.
+   *
+   * Casper: "Nu kom ik nog aan bij het begin, maar het is toch fijner dat ik
+   * in dit geval uit zou komen bij dat specifieke gedeelte van het rooster?"
+   *
+   * useNavTarget gaf het id al door -- er was alleen niemand die er iets mee
+   * deed. Hier blijft hij staan tot het scherm hem heeft gebruikt.
+   */
+  const [richtOp, setRichtOp] = useState<string | undefined>()
+
+  useNavTarget(sleutelsVan(paginas, (r) => perms.can(r)), (p, id) => {
+    setPage(p)
+    setRichtOp(id)
+  })
 
   const meta = kopVan(paginas, page, 'start')
 
@@ -246,7 +260,9 @@ export default function EmployeeDashboard() {
         </>
       )}
       {page === 'vandaag' && <Vandaag />}
-      {page === 'rooster' && <MijnRooster />}
+      {page === 'rooster' && (
+        <MijnRooster richtOp={richtOp} onGericht={() => setRichtOp(undefined)} />
+      )}
       {page === 'uren' && <Uren />}
       {page === 'materiaal' && <Materiaal />}
       {page === 'kosten' && <MijnZaken bonnen={<KostenIndienen />} />}

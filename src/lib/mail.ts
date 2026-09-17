@@ -278,7 +278,7 @@ export async function mailVrij(
  */
 export async function mailBericht(
   toUserId: string,
-  vars: { titel: string; tekst: string; van?: string; open?: string },
+  vars: { titel: string; tekst: string; van?: string; open?: string; id?: string },
   /**
    * De melding waar deze mail bij hoort.
    *
@@ -354,5 +354,6 @@ export async function probeerOpnieuw(rij: MisluktEnTeRedden): Promise<MailResult
     tekst: melding.body,
     van: melding.fromName,
     open: melding.link || 'meldingen',
+    id: melding.linkId,
   }, melding.id)
 }

@@ -1181,6 +1181,21 @@ export interface AppNotification {
   readAt?: number
   /** Waar de melding naartoe verwijst, bijv. 'rooster' of 'opleiding' */
   link?: string
+  /**
+   * Waarover precies.
+   *
+   * Casper: "Nu kom ik nog aan bij het begin, maar het is toch fijner dat ik
+   * in dit geval uit zou komen bij dat specifieke gedeelte van het rooster?"
+   *
+   * link zegt wélk scherm; dit zegt welk ding op dat scherm. Bij een
+   * roosterwijziging het id van de dienst -- dan opent de app niet de week
+   * van vandaag maar de week waar het over ging, met die dienst aangewezen.
+   *
+   * Los van link gehouden omdat ze niet hetzelfde waard zijn: een scherm
+   * bestaat altijd, een ding kan intussen weg zijn. Vindt de app hem niet,
+   * dan blijft het scherm over, en dat is nog steeds beter dan de startpagina.
+   */
+  linkId?: string
   updatedAt: number
 }
 

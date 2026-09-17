@@ -136,7 +136,10 @@ export default function NotificationCenter() {
 
   async function openItem(n: AppNotification) {
     await notifyRepo.markRead(n.id)
-    if (n.link) goto(n.link)
+    /* En ook hier waaróver het ging, niet alleen welk scherm. Dezelfde reis
+       als de knop in de mail: bij een roosterwijziging opent het rooster op
+       de week van die dienst, met hem aangewezen. */
+    if (n.link) goto(n.link, n.linkId ? { id: n.linkId } : undefined)
     setOpen(false)
   }
 

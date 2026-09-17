@@ -9,7 +9,9 @@ import { shiftHours, shiftRange, weekStart } from '../../lib/roster'
 
 const DAY = 86_400_000
 
-export default function MijnRooster() {
+export default function MijnRooster(
+  { richtOp, onGericht }: { richtOp?: string; onGericht?: () => void },
+) {
   const me = useAuth((s) => s.user)!
 
   const shifts = useLiveQuery(
@@ -63,7 +65,7 @@ export default function MijnRooster() {
       </div>
 
       <Card title="Mijn rooster" hint="Ingepland door het management">
-        <WeekRooster person={me} editable={false} />
+        <WeekRooster person={me} editable={false} richtOp={richtOp} onGericht={onGericht} />
       </Card>
 
       <Card title="Komende diensten" flush className="mt">

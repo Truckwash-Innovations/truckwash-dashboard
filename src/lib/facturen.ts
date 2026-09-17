@@ -216,3 +216,48 @@ export function nogNietIngevuld(bon: Expense): boolean {
 export function heeftIetsTeLezen(bon: Expense): boolean {
   return !!bon.attachmentPath || !!bon.mailboxId
 }
+
+/* ------------------------------------------------------------------ *
+ *  Vastgelopen bij de lokale lezer
+ *
+ *  Casper: "Vastgelopen facturen weer vrijgeven."
+ *
+ *  De lokale lezer (0049) kent vier standen, en drie daarvan komen vanzelf
+ *  weer in beweging: wacht staat in de rij, bezig wordt na tien minuten
+ *  opnieuw uitgedeeld, klaar is af. "mislukt" was de enige zonder uitweg --
+ *  terwijl de redenen om daar te belanden (de pc stond uit, het model was
+ *  aan het laden, het netwerk hikte) morgen weg kunnen zijn.
+ *
+ *  Het scherm liet het wél zien: rood bolletje, "lezen mislukt". Er zat
+ *  alleen geen knop bij. Dat is het vervelende soort fout, want alles wees
+ *  erop dat het systeem het wist.
+ *
+ *  Het zetten gebeurt in de database (0113) en niet hier. lees_status staat
+ *  sinds 0105 in kolom_van_de_server -- de app mag hem niet schrijven, en
+ *  dat is terecht: "het lukte" is geen bewering die een scherm hoort te
+ *  doen. "Zet hem terug in de rij" is iets anders, en die ene beweging staat
+ *  daar in code vast.
+ * ------------------------------------------------------------------ */
+
+/** Hoeveel bonnen er bij de lokale lezer vastzitten. */
+export async function bonnenVastgelopen(): Promise<number> {
+  if (!supabaseConfigured) return 0
+  const { data, error } = await supabase().rpc('bonnen_vastgelopen')
+  if (error) throw new Error(error.message)
+  return Number(data) || 0
+}
+
+/**
+ * Vastgelopen bonnen terug in de leesrij.
+ *
+ * Zonder lijst gaat alles wat vastzit. Geeft terug hoeveel er daadwerkelijk
+ * zijn vrijgegeven -- en dat kan minder zijn dan je aanklikte: een bon die
+ * de lezer intussen zelf heeft opgepakt telt niet mee. Dat is geen fout maar
+ * het antwoord, en het scherm mag het zeggen zoals het is.
+ */
+export async function bonnenOpnieuwLatenLezen(ids?: string[]): Promise<number> {
+  const { data, error } = await supabase().rpc('bonnen_opnieuw_laten_lezen',
+    ids && ids.length > 0 ? { welke: ids } : {})
+  if (error) throw new Error(error.message)
+  return Number(data) || 0
+}
