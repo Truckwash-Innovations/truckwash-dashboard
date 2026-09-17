@@ -128,22 +128,26 @@ export function vergelijkVersie(a: string, b: string): number | null {
 }
 
 /**
- * Welke functies ECHT achterlopen op deze app.
+ * Welke functies zich sinds de laatste uitrol niet meer hebben gemeld.
  *
- * Hier stond `f.versie !== appVersie`, en dat is niet hetzelfde. Casper zag
- * zes functies op 1.91.2 met "oud" erachter terwijl er één op 1.91.1 zonder
- * badge stond -- precies omgekeerd. Hij keek naar de app van vóór de laatste
- * uitrol; alles wat nieuwer was dan zijn tabblad heette daarmee "oud".
+ * Let op wat dit NIET is: "welke functies draaien oude code". Dat is van hier
+ * niet te weten, en het scherm deed twee keer alsof van wel.
  *
- * Vooruitlopen is geen storing maar de goede volgorde: de functies worden
- * uitgerold en daarna vernieuwt de app. Bij schemaLooptAchter() stond die
- * regel al, met een controle eronder -- hier was hij vergeten.
+ * Eerst stond er `f.versie !== appVersie`, waardoor alles wat NIEUWER was dan
+ * het geopende tabblad "oud" heette. Dat is gerepareerd. Maar toen bleef er
+ * een tweede bewering staan die de gegevens ook niet dragen: vijf functies
+ * met "verouderd" erachter, terwijl ze allemaal net waren uitgerold.
  *
- * Een functie die hier niet in staat is niet per se bij: hij kan ook nog
- * nooit zijn aangeroepen sinds de uitrol, en meldt dan nog de vorige versie.
- * Daarom geeft het scherm er ook bij wanneer hij zich voor het laatst meldde.
+ * Een functie meldt zich namelijk bij zijn KOUDE START, niet bij elke uitrol.
+ * Rol je uit en wordt hij daarna niet aangeroepen, dan blijft hij de vorige
+ * versie melden -- terwijl er allang nieuwe code klaarstaat. Wat we weten is
+ * dus: "hij heeft zich sinds de uitrol niet meer gemeld". Niet: "hij is oud".
+ *
+ * Die twee zien er van hieraf hetzelfde uit, en er is geen manier om ze uit
+ * elkaar te houden zonder de functie aan te roepen. Dan hoort er ook niet te
+ * staan dat het het ene is.
  */
-export function functiesAchter(stand: ServerStand | null, appVersie: string): FunctieStand[] {
+export function functiesStil(stand: ServerStand | null, appVersie: string): FunctieStand[] {
   if (!stand) return []
   return stand.functies.filter((f) => vergelijkVersie(f.versie, appVersie) === -1)
 }

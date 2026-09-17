@@ -24,7 +24,7 @@ import { useSync } from '../../lib/sync'
 import { useUpdates } from '../../lib/updates'
 import { activeBackend } from '../../lib/api'
 import {
-  SCHEMA_VERWACHT, functiesAchter, schemaLooptAchter, serverStand,
+  SCHEMA_VERWACHT, functiesStil, schemaLooptAchter, serverStand,
   vergelijkVersie, wekkerAntwoord, wekkerNu, wekkers,
   type ServerStand, type Wekker,
 } from '../../lib/serverstand'
@@ -839,7 +839,7 @@ function ServerStandKaart() {
 
   const achter = schemaLooptAchter(stand)
   const versie = __APP_VERSION__
-  const oudeFuncties = functiesAchter(stand, versie)
+  const stilleFuncties = functiesStil(stand, versie)
 
   return (
     <Card
@@ -901,10 +901,10 @@ function ServerStandKaart() {
             <span style={{ fontSize: '.84rem', color: 'var(--text-2)' }}>Edge functions</span>
             <span>
               <span className="mono">{stand.functies.length}</span>{' '}
-              {oudeFuncties.length > 0
-                ? <Badge tone="warn">{oudeFuncties.length} verouderd</Badge>
+              {stilleFuncties.length > 0
+                ? <Badge>{stilleFuncties.length} nog niet gemeld</Badge>
                 : stand.functies.length > 0
-                  ? <Badge tone="ok">niets verouderd</Badge>
+                  ? <Badge tone="ok">allemaal op {versie}</Badge>
                   : <Badge>nog niets gemeld</Badge>}
             </span>
           </div>
@@ -932,13 +932,17 @@ function ServerStandKaart() {
                       <td>
                         {f.versie || '—'}{' '}
                         {/*
-                          Oud is ouder, niet anders. Hier stond `!==`, en dat
-                          zette "oud" achter alles wat NIEUWER was dan het
-                          tabblad waar je naar kijkt -- de functies worden
-                          namelijk eerst uitgerold en daarna vernieuwt de app.
+                          Niet "oud" maar "nog niet gemeld".
+
+                          Een functie meldt zich bij zijn koude start, niet bij
+                          elke uitrol. Rol je uit en wordt hij daarna niet
+                          aangeroepen, dan blijft hij de vorige versie melden
+                          terwijl er allang nieuwe code klaarstaat. Van hieraf
+                          zijn "stil" en "oud" niet uit elkaar te houden -- en
+                          dan hoort er niet te staan dat het het ene is.
                         */}
                         {vergelijkVersie(f.versie, versie) === -1 && (
-                          <Badge tone="warn">oud</Badge>
+                          <Badge>nog niet gemeld</Badge>
                         )}
                         {vergelijkVersie(f.versie, versie) === 1 && (
                           <Badge>nieuwer dan deze app</Badge>
@@ -953,12 +957,14 @@ function ServerStandKaart() {
           )}
 
           <p className="help" style={{ marginTop: 10, color: 'var(--text-3)' }}>
-            Een functie meldt zich bij elke koude start, niet bij elk verzoek.
-            Wat hier staat is dus de versie van zijn laatste start — is dat
-            vóór de laatste uitrol, dan draait er inmiddels nieuwere code die
-            zich nog niet heeft gemeld. Een functie die hier ontbreekt kan
-            gewoon niet zijn aangeroepen. En dit zegt niets over of het schema
-            klópt, alleen over wat er is gedraaid.
+            Een functie meldt zich bij zijn koude start, niet bij elke uitrol.
+            Staat hier een lagere versie, dan betekent dat dus dat hij sinds de
+            uitrol niet meer is aangeroepen — niet dat hij oude code draait.
+            Die twee zijn van hieraf niet uit elkaar te houden; roep hem één
+            keer aan en hij meldt zich met wat er werkelijk draait. Een functie
+            die hier helemaal ontbreekt is sinds 0103 nog nooit gestart. En dit
+            zegt niets over of het schema klópt, alleen over wat er is
+            gedraaid.
           </p>
         </>
       )}

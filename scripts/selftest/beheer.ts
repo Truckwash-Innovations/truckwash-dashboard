@@ -1447,7 +1447,7 @@ console.log('\n101. De server zegt welke versie hij draait')
   ;(globalThis as any).__SCHEMA_VERWACHT__ = hoogste
 
   const stand = await import('../../src/lib/serverstand')
-  const { SCHEMA_VERWACHT, schemaLooptAchter, functiesAchter } = stand
+  const { SCHEMA_VERWACHT, schemaLooptAchter, functiesStil } = stand
 
   check('het verwachte schemanummer is het hoogste in de map',
     SCHEMA_VERWACHT === hoogste, `${SCHEMA_VERWACHT} tegenover ${hoogste}`)
@@ -1487,15 +1487,15 @@ console.log('\n101. De server zegt welke versie hij draait')
       { naam: 'trucky', versie: '', gebouwd: '', gezienAt: 1 },
     ],
   }
-  const oud = functiesAchter(metFuncties, '1.90.0')
-  check('een functie op een oudere versie valt op',
+  const oud = functiesStil(metFuncties, '1.90.0')
+  check('een functie die zich sinds de uitrol niet meldde valt op',
     oud.length === 1 && oud[0].naam === 'lezer', JSON.stringify(oud.map((f) => f.naam)))
   /*
    * Een functie zonder versie heeft zich gemeld van vóór dit alles, of de
    * stempel ontbrak. "Onbekend" is geen "verouderd": dat zou een waarschuwing
    * geven waar niemand iets mee kan.
    */
-  check('en een zonder versie wordt niet als verouderd geteld',
+  check('en een zonder versie wordt niet meegeteld',
     !oud.some((f) => f.naam === 'trucky'), JSON.stringify(oud.map((f) => f.naam)))
 
   /* ---- 4. elke migratie schrijft zichzelf in, precies een keer ---- */
@@ -1617,7 +1617,7 @@ console.log('\n101. De server zegt welke versie hij draait')
 console.log('\n103. Oud is ouder, niet anders')
 
 {
-  const { functiesAchter, vergelijkVersie } = await import('../../src/lib/serverstand.ts')
+  const { functiesStil, vergelijkVersie } = await import('../../src/lib/serverstand.ts')
 
   check('een lagere versie is ouder', vergelijkVersie('1.91.1', '1.91.2') === -1)
   check('een hogere versie is nieuwer', vergelijkVersie('1.91.2', '1.91.1') === 1)
@@ -1644,13 +1644,33 @@ console.log('\n103. Oud is ouder, niet anders')
     ],
   }
 
-  const achter = functiesAchter(stand, '1.91.2').map((f) => f.naam)
-  check('alleen wat echt ouder is telt als verouderd',
+  const achter = functiesStil(stand, '1.91.2').map((f) => f.naam)
+  check('alleen wat een lagere versie meldt telt mee',
     achter.join(',') === 'oud', JSON.stringify(achter))
 
   /* Dit was de fout zelf: een functie die vooruitloopt kreeg "oud". */
-  check('een functie die vooruitloopt is niet verouderd',
+  check('een functie die vooruitloopt telt niet mee',
     !achter.includes('nieuwer'), JSON.stringify(achter))
+
+  /*
+   * En het scherm noemt het geen "oud".
+   *
+   * Dat was de tweede keer dat dit scherm iets beweerde wat de gegevens niet
+   * dragen: vijf functies met "verouderd" erachter terwijl ze allemaal net
+   * waren uitgerold. Een functie meldt zich bij zijn koude start, niet bij
+   * elke uitrol -- dus "stil" en "oud" zien er van hieraf hetzelfde uit.
+   */
+  const { readFileSync: lees } = await import('node:fs')
+  const systeem = lees('src/dashboards/developer/DeveloperDashboard.tsx', 'utf8')
+  /* Alleen in de kaart over de server. Verderop staat ook "verouderd", en
+     dáár klopt het: dat gaat over de app-versies waarop mensen echt draaien,
+     en die melden zich bij elke melding en elke logregel. */
+  const kaart = systeem.slice(
+    systeem.indexOf('function ServerStandKaart'),
+    systeem.indexOf('function Wekkers'))
+  check('het scherm noemt een stille functie niet verouderd',
+    kaart.includes('nog niet gemeld') && !zonderCommentaar(kaart).includes('verouderd'),
+    'er staat nog een bewering die van hieraf niet te doen is')
 
   /* ---- en wat een wekker terugstuurde ---- */
 
