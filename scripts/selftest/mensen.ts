@@ -683,7 +683,7 @@ console.log('\n65. Waar de foto van een paspoort heen mag')
     client.includes('staat NAAST scannen.ts'))
 }
 /* ==================================================================== *
- *  Wat er op een afgemeld toestel achterblijft (0114)
+ *  Wat er op een afgemeld toestel achterblijft
  *
  *  In personeelsdossier.md stond: "Uitloggen wist ze (dat is getest)."
  *  Allebei niet waar. forgetEverything() bestond wel, maar werd nergens
@@ -698,7 +698,7 @@ console.log('\n65. Waar de foto van een paspoort heen mag')
  *  de helften: wat weg moet gaat weg, wat blijven moet blijft staan.
  * ==================================================================== */
 
-console.log('\n77. Wat er op een afgemeld toestel achterblijft')
+console.log('\n115. Wat er op een afgemeld toestel achterblijft')
 
 {
   const { readFileSync } = await import('node:fs')

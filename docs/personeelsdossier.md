@@ -54,9 +54,10 @@ vervanging voor uitloggen.
 > geen test. Het besluit hierboven — BSN's mogen naar het toestel — is dus
 > genomen op een aanname die niet gold.
 >
-> Sinds 0114 wist uitloggen het dossier écht, en alleen het dossier: de rest
-> van de cache blijft staan, want daar draait offline inloggen op. Groep 77 in
-> de zelftest bewaakt allebei die helften.
+> Sinds september 2026 wist uitloggen het dossier écht, en alleen het dossier:
+> de rest van de cache blijft staan, want daar draait offline inloggen op. Het
+> zit in `vergeetDossiergegevens()` in `src/lib/offlineAuth.ts`, en groep 115
+> in de zelftest bewaakt allebei die helften.
 
 Wil je dat liever anders — bijvoorbeeld dat een leidinggevende het BSN alleen
 online kan opvragen en het nooit op zijn toestel staat — dan is dat te bouwen,

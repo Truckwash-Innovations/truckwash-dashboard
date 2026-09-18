@@ -516,7 +516,7 @@ await db.exec(`
   on conflict (id) do nothing;
 
   update public.profiles set location_id = 'loc_utr'
-   where email = 'wasser@truckwash1group.nl';
+   where email in ('wasser@truckwash1group.nl', 'voorman@truckwash1group.nl');
 
   insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at) values
     ('ch_algemeen', 'algemeen', 'Algemeen', 'kanaal', false, '{}', '${voormanRow.id}', 0),
@@ -4890,8 +4890,11 @@ check('RLS staat aan op allebei',
        and c.relname in ('exact_personeel', 'exact_medewerker')
        and c.relrowsecurity`)).rows[0].n === 2)
 
+/* Sinds 0115 staat die grens in mag_dossiers_beheren() -- management,
+   leidinggevende of staff.view -- met dossier_in_bereik() eromheen. De
+   naam is_management staat daardoor niet meer los in de regel. */
 check('en dat is dezelfde grens als het dossier zelf',
-  /is_management/.test((await db.query(`
+  /mag_dossiers_beheren/.test((await db.query(`
     select coalesce(qual, '') as qual from pg_policies
      where schemaname = 'public' and tablename = 'personnel_private'
        and cmd = 'SELECT'`)).rows[0].qual))
@@ -10126,6 +10129,223 @@ console.log('\n76. Een wagen is meer dan een tekstveld')
     (await wagenVeld('werkgever_id')) === 'w76_ander')
 
   await wg.close()
+}
+
+console.log('\n77. Een BSN uit Groenlo hoort niet in Venlo')
+
+{
+  /*
+   * Sinds 0056 mag een leidinggevende de identiteitskant van het dossier
+   * zien en wijzigen. De regel die dat toestond kreeg als enige in dit
+   * schema geen vestigingsfilter, dus kon een leidinggevende in Venlo het
+   * BSN van iemand in Groenlo opvragen en aanpassen.
+   *
+   * Dit hoofdstuk bewaakt beide kanten: dat de eigen vestiging open blijft
+   * (anders kan niemand meer iemand aannemen) en dat de rest dicht zit.
+   */
+  const bs = await fresh()
+  await bs.exec(sqlFile('supabase/setup.sql'))
+  await asServer(bs)
+
+  const BAAS   = '77000000-0000-0000-0000-000000000001'
+  const LEIDER = '77000000-0000-0000-0000-000000000002'
+  const HIER   = '77000000-0000-0000-0000-000000000003'
+  const DAAR   = '77000000-0000-0000-0000-000000000004'
+  const ZWEVER = '77000000-0000-0000-0000-000000000005'
+  const ALLES  = '77000000-0000-0000-0000-000000000006'
+
+  await bs.exec(`
+    insert into public.locations (id, code, name) values
+      ('loc77_venlo', 'VEN77', 'Venlo'), ('loc77_groenlo', 'GRO77', 'Groenlo')
+    on conflict (id) do nothing;
+
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',   'baas77@tw1.nl',   '{"name":"Baas"}'::jsonb),
+      ('${LEIDER}', 'leider77@tw1.nl', '{"name":"Leider Venlo"}'::jsonb),
+      ('${HIER}',   'hier77@tw1.nl',   '{"name":"Wasser Venlo"}'::jsonb),
+      ('${DAAR}',   'daar77@tw1.nl',   '{"name":"Wasser Groenlo"}'::jsonb),
+      ('${ZWEVER}', 'zwever77@tw1.nl', '{"name":"Zonder vestiging"}'::jsonb),
+      ('${ALLES}',  'alles77@tw1.nl',  '{"name":"Ziet alles"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+
+    update public.profiles
+       set roles = array['employee','supervisor'], active = true,
+           location_id = 'loc77_venlo'
+     where auth_id = '${LEIDER}';
+
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc77_venlo'
+     where auth_id = '${HIER}';
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc77_groenlo'
+     where auth_id = '${DAAR}';
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = null
+     where auth_id = '${ZWEVER}';
+
+    /* Een leidinggevende die wel alles mag zien; die hoort niets te merken. */
+    update public.profiles
+       set roles = array['employee','supervisor'], active = true,
+           location_id = 'loc77_venlo', all_locations = true
+     where auth_id = '${ALLES}';
+  `)
+
+  const pid = async (mail) => (await bs.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const idHier   = await pid('hier77@tw1.nl')
+  const idDaar   = await pid('daar77@tw1.nl')
+  const idZwever = await pid('zwever77@tw1.nl')
+
+  await bs.exec(`
+    insert into public.personnel_private (id, user_id, bsn) values
+      ('pp77_hier',   '${idHier}',   '111222333'),
+      ('pp77_daar',   '${idDaar}',   '444555666'),
+      ('pp77_zwever', '${idZwever}', '777888999')
+    on conflict (id) do nothing;
+
+    alter table public.personnel_private force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  async function als(uid, fn) {
+    await asUser(bs, uid)
+    await bs.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await bs.exec('reset role;')
+      await asServer(bs)
+    }
+  }
+
+  const zichtbaar = (uid) => als(uid,
+    async () => (await bs.query('select count(*)::int n from public.personnel_private')).rows[0].n)
+
+  check('een leidinggevende ziet het dossier van zijn eigen vestiging',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idHier}'`
+    )).rows[0].n) === 1)
+
+  check('maar niet dat van een andere vestiging',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idDaar}'`
+    )).rows[0].n) === 0)
+
+  /*
+   * Iemand zonder vestiging valt er wél binnen, net als bij profiles zelf.
+   * Dat staat hier expliciet omdat het een keuze is en geen toeval: strenger
+   * maken brak "een leidinggevende ziet het dossier van zijn team", want in
+   * dit systeem ís een team een vestiging. Zolang er profielen zonder
+   * vestiging rondlopen is dát het gat, niet deze regel.
+   */
+  check('iemand zonder vestiging valt er nog binnen (bekende grens)',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idZwever}'`
+    )).rows[0].n) === 1)
+
+  check('het management ziet alles gewoon', (await zichtbaar(BAAS)) === 3)
+  check('en wie alle vestigingen mag zien ook', (await zichtbaar(ALLES)) === 3)
+
+  /* --- en wijzigen volgt dezelfde grens --- */
+
+  await als(LEIDER, () => bs.exec(
+    `update public.personnel_private set bsn = '000000000' where user_id = '${idDaar}'`))
+  check('een leidinggevende kan een BSN van elders niet wijzigen',
+    (await bs.query(
+      `select bsn from public.personnel_private where user_id = '${idDaar}'`
+    )).rows[0].bsn === '444555666')
+
+  await als(LEIDER, () => bs.exec(
+    `update public.personnel_private set bsn = '999999999' where user_id = '${idHier}'`))
+  check('maar dat van zijn eigen vestiging wel',
+    (await bs.query(
+      `select bsn from public.personnel_private where user_id = '${idHier}'`
+    )).rows[0].bsn === '999999999')
+
+  await bs.close()
+}
+
+console.log('\n78. Een wisverzoek dat echt wist')
+
+{
+  /*
+   * De knop "wissen" haalde het inlogaccount en de rij in profiles weg, en
+   * verder niets. user_id in de dossiertabellen is een gewone tekstkolom
+   * zonder foreign key, dus er cascadeerde niets: het BSN, het
+   * rekeningnummer en de regels van de paspoortscan bleven staan.
+   *
+   * Iemand die om verwijdering vroeg en dat bevestigd kreeg, hield zijn
+   * paspoort bij ons in het systeem.
+   */
+  const ws = await fresh()
+  await ws.exec(sqlFile('supabase/setup.sql'))
+  await asServer(ws)
+
+  const WEG = '78000000-0000-0000-0000-000000000001'
+
+  await ws.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${WEG}', 'weg78@tw1.nl', '{"name":"Vertrokken"}'::jsonb)
+    on conflict (id) do nothing;
+    update public.profiles set roles = array['employee'], active = true
+     where auth_id = '${WEG}';
+  `)
+
+  const idWeg = (await ws.query(
+    "select id from public.profiles where email = 'weg78@tw1.nl'")).rows[0].id
+
+  await ws.exec(`
+    insert into public.personnel_private (id, user_id, bsn)
+      values ('pp78', '${idWeg}', '123456782');
+    insert into public.personnel_loon (id, user_id, iban)
+      values ('pl78', '${idWeg}', 'NL00BANK0123456789');
+    insert into public.documents (id, user_id, kind, title, storage_path)
+      values ('doc78', '${idWeg}', 'identiteitsbewijs', 'Paspoort', '${idWeg}/doc78.jpg');
+    insert into public.change_requests (id, user_id, status)
+      values ('cr78', '${idWeg}', 'open');
+  `)
+
+  const staatEr = async () => (await ws.query(`
+    select
+      (select count(*) from public.personnel_private where user_id = '${idWeg}')
+    + (select count(*) from public.personnel_loon    where user_id = '${idWeg}')
+    + (select count(*) from public.documents         where user_id = '${idWeg}')
+    + (select count(*) from public.change_requests   where user_id = '${idWeg}') as n
+  `)).rows[0].n
+
+  check('het dossier staat er voor het wissen', Number(await staatEr()) === 4)
+
+  await ws.exec(`delete from public.profiles where id = '${idWeg}'`)
+
+  check('en is weg zodra het profiel weg is', Number(await staatEr()) === 0)
+
+  /*
+   * En elk toestel hoort het te horen, anders staat het dossier centraal
+   * gewist en lokaal nog op vijf tablets.
+   */
+  const gemeld = (await ws.query(`
+    select tabel from public.deletion_log
+     where record_id in ('pp78','pl78','doc78','cr78') order by tabel`)).rows.map((r) => r.tabel)
+  check('de toestellen krijgen alle vier de verwijderingen door',
+    gemeld.length === 4, JSON.stringify(gemeld))
+
+  /* --- en wat er van vroeger is blijven staan, is op te vragen --- */
+
+  await ws.exec(`
+    insert into public.personnel_private (id, user_id, bsn)
+      values ('pp78_wees', 'p_bestaat_niet', '987654321');
+  `)
+  const wezen = (await ws.query('select * from public.dossier_wezen()')).rows
+  check('losse dossierrijen van verdwenen profielen zijn te tellen',
+    wezen.find((r) => r.tabel === 'personnel_private')?.hoeveel === 1n
+    || Number(wezen.find((r) => r.tabel === 'personnel_private')?.hoeveel) === 1,
+    JSON.stringify(wezen.map((r) => [r.tabel, String(r.hoeveel)])))
+
+  await ws.close()
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)

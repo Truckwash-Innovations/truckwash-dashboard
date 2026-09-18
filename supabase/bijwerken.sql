@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0114
+--  Bijwerken: migratie 0017 tot en met 0116
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -110,6 +110,8 @@
 --    0112  Een mail die sneuvelt is niet verloren
 --    0113  0113 -- Een bon die vastloopt, kun je opnieuw aanbieden
 --    0114  Een wagen is meer dan een tekstveld
+--    0115  Een BSN uit Groenlo hoort niet in Venlo
+--    0116  Een wisverzoek dat echt wist
 -- ===========================================================================
 
 -- ===========================================================================
@@ -22660,5 +22662,270 @@ create policy wagen_delete on public.wagen for delete to authenticated
 do $stand$ begin
   if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
     perform public.migratie_gedaan(114, 'Een wagen is meer dan een tekstveld');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een BSN uit Groenlo hoort niet in Venlo
+--
+--  Draai dit ná 0114. Opnieuw draaien mag.
+--
+--  Wat er stond
+--  ------------
+--
+--  Sinds 0056 mag een leidinggevende de identiteitskant van het dossier zien
+--  en wijzigen -- terecht, want die maakt nieuwe medewerkers aan en heeft
+--  daar het BSN voor nodig. Maar de regel die dat toestaat kreeg als enige
+--  in dit schema géén vestigingsfilter:
+--
+--      using (user_id = public.my_id()
+--             or public.is_management()
+--             or public.is_supervisor()
+--             or public.heeft_recht('staff.view'));
+--
+--  Vrijwel elke andere regel op personeelsgegevens eindigt op
+--  `in_my_locations(location_id)`. Deze niet. Een leidinggevende in Venlo kan
+--  daardoor het BSN, de geboortedatum en het documentnummer van iemand in
+--  Groenlo opvragen en aanpassen, terwijl hij die persoon niet in het
+--  rooster ziet staan en er niets mee te maken heeft.
+--
+--  Dat is geen theoretisch gat. Het gaat om ongeveer 250 mensen, en het
+--  documentnummer plus de geboortedatum plus het BSN is precies het pakket
+--  waarmee identiteitsfraude wordt gepleegd.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Dezelfde toegang, maar begrensd tot de vestigingen waar je over gaat. Het
+--  management en iedereen met `locations.all` merken er niets van -- die
+--  zien alles, zoals eerst.
+--
+--  WAT HIER BEWUST NIET IS DICHTGEZET
+--  ----------------------------------
+--
+--  Iemand zónder vestiging blijft zichtbaar voor elke leidinggevende. Dat is
+--  wat `in_my_locations()` doet: een lege vestiging geeft `true`.
+--
+--  Bij het schrijven van deze migratie stond dat eerst dicht. Dat brak het
+--  bestaande geval "een leidinggevende ziet het dossier van zijn team" --
+--  terecht, want in dit systeem is een team een vestiging, en zonder
+--  vestiging is er geen team om buiten te vallen. Belangrijker: `profiles`
+--  zelf werkt al zo. Iemand zonder vestiging is daar voor elke leidinggevende
+--  zichtbaar. Het dossier strenger maken dan het profiel eromheen levert
+--  inconsistentie op, en sluit in het ergste geval leidinggevenden af van hun
+--  eigen mensen zodra een vestiging niet is ingevuld.
+--
+--  Blijft staan als open punt: hoeveel profielen hebben er geen vestiging?
+--  Zolang dat er meer dan een handvol zijn, is dit het echte gat en niet de
+--  regel hierboven.
+-- ===========================================================================
+
+/*
+ * Mag ik het dossier van deze persoon inzien, gelet op vestiging?
+ *
+ * Alleen de vestigingsvraag. Of je er überhaupt bij mag staat in de regel
+ * zelf; deze functie snijdt daar de vestiging af.
+ */
+create or replace function public.dossier_in_bereik(persoon text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_management()
+      or exists (
+           select 1 from public.profiles p
+            where p.id = persoon
+              and public.in_my_locations(p.location_id)
+         );
+$$;
+
+grant execute on function public.dossier_in_bereik(text) to authenticated;
+
+/* Staat alleen in regels die voor ingelogde gebruikers gelden. Zie 0034. */
+revoke execute on function public.dossier_in_bereik(text) from public, anon;
+
+comment on function public.dossier_in_bereik(text) is
+  'Of het dossier van deze persoon binnen jouw vestigingen valt (0115). '
+  'Iemand zonder vestiging valt er binnen, net als bij profiles zelf.';
+
+-- ---------------------------------------------------------------------------
+--  De identiteitskant
+-- ---------------------------------------------------------------------------
+
+/*
+ * mag_dossiers_beheren() komt uit 0074 en is precies de drie rollen uit de
+ * oude regel: management, leidinggevende, of wie staff.view heeft. Daar komt
+ * nu de vestiging bij.
+ *
+ * `user_id = my_id()` blijft er in allebei staan. In prive_write is dat geen
+ * detail maar de hele reden dat 0074 bestaat: je eigen woonadres invullen
+ * gaat via die rij, en de trigger eigen_rij_alleen_adres() zorgt dat je er
+ * verder niets in kunt zetten. Wie die clausule weghaalt, breekt dat -- en
+ * dat is precies wat er bij het schrijven van deze migratie eerst gebeurde.
+ */
+
+drop policy if exists prive_select on public.personnel_private;
+create policy prive_select on public.personnel_private for select to authenticated
+  using (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  );
+
+drop policy if exists prive_write on public.personnel_private;
+create policy prive_write on public.personnel_private for all to authenticated
+  using (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  )
+  with check (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  );
+
+-- ---------------------------------------------------------------------------
+--  De geldkant blijft zoals hij was
+--
+--  loon_select en loon_write staan al op alleen het management en de persoon
+--  zelf; daar zit geen leidinggevende tussen en dus ook geen gat. Bewust niet
+--  aangeraakt: een regel die klopt hoef je niet te herschrijven.
+-- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(115, 'Een BSN uit Groenlo hoort niet in Venlo');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een wisverzoek dat echt wist
+--
+--  Draai dit ná 0115. Opnieuw draaien mag.
+--
+--  Wat er stond
+--  ------------
+--
+--  De knop "wissen" in het medewerkerscherm is bedoeld voor het zwaarste
+--  geval: iemand wil dat zijn gegevens weg zijn. De serverfunctie schrijft
+--  een regel in het verwijderlogboek, haalt het inlogaccount weg en
+--  verwijdert de rij in profiles.
+--
+--  Daar houdt het op. En `user_id` in de dossiertabellen is een gewone
+--  tekstkolom zonder foreign key, dus er cascadeert niets:
+--
+--      personnel_private   geboortedatum, nationaliteit, documentnummer, BSN
+--      personnel_loon      rekeningnummer, uurloon, interne notities
+--      documents           de dossierstukken, waaronder de scan van het
+--                          identiteitsbewijs -- voor- én achterkant
+--      change_requests     de wijzigingsverzoeken op dat dossier
+--
+--  Die vier blijven staan. Iemand die om verwijdering vraagt en dat
+--  bevestigd krijgt, houdt zijn paspoort bij ons in het systeem. Er is geen
+--  scherm waarop dat nog te zien is, dus het valt ook niet op.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Een trigger op profiles die de vier meeneemt. Bewust hier en niet in de
+--  serverfunctie: dit moet ook gelden als iemand ooit een rij rechtstreeks
+--  weghaalt, en een regel die je kunt omzeilen door een andere deur te
+--  nemen is geen regel.
+--
+--  De vier tabellen krijgen er ook een verwijdermelding bij. Zonder die
+--  melding blijven de rijen in de lokale kopie op elk toestel staan -- dan
+--  heb je ze centraal gewist en staan ze nog op vijf tablets. Dat is dezelfde
+--  fout die 0038 voor de andere tabellen rechtzette.
+--
+--  WAT DEZE MIGRATIE NIET KAN
+--  --------------------------
+--
+--  De bestanden zelf. Een scan van een identiteitsbewijs staat in de
+--  opslagemmer `dossiers`, en daar komt de database niet bij. Die moeten weg
+--  via de serverfunctie; zie supabase/functions/medewerker/index.ts. Blijft
+--  dat achterwege, dan is de databaserij weg en het plaatje niet.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Het dossier gaat mee
+-- ---------------------------------------------------------------------------
+
+create or replace function public.dossier_mee_verwijderen()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.change_requests   where user_id = old.id;
+  delete from public.documents         where user_id = old.id;
+  delete from public.personnel_loon    where user_id = old.id;
+  delete from public.personnel_private where user_id = old.id;
+  return old;
+end;
+$$;
+
+comment on function public.dossier_mee_verwijderen() is
+  'Haalt het dossier weg zodra het profiel weggaat (0116). De bestanden in de '
+  'emmer dossiers vallen hierbuiten; die doet de serverfunctie.';
+
+drop trigger if exists profiel_neemt_dossier_mee on public.profiles;
+create trigger profiel_neemt_dossier_mee after delete on public.profiles
+  for each row execute function public.dossier_mee_verwijderen();
+
+-- ---------------------------------------------------------------------------
+--  2. En elk toestel hoort het
+--
+--  De vier tabellen hadden geen verwijdermelding. Zonder die melding weet een
+--  tablet niet dat er iets weg is en blijft de rij in de lokale kopie staan.
+-- ---------------------------------------------------------------------------
+
+do $$
+declare t text;
+begin
+  foreach t in array array['personnel_private', 'personnel_loon',
+                           'documents', 'change_requests'] loop
+    execute format('drop trigger if exists %1$s_verwijderd on public.%1$I', t);
+    execute format(
+      'create trigger %1$s_verwijderd after delete on public.%1$I
+       for each row execute function public.meld_verwijdering()', t);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+--  3. Wat er nu nog staat van mensen die al weg zijn
+--
+--  Deze migratie repareert de regel voor de toekomst. Wat er in het verleden
+--  is blijven staan gaat niet vanzelf weg -- dat zijn dossierrijen van
+--  profielen die niet meer bestaan.
+--
+--  Bewust GEEN automatische opruiming hier. Een migratie die ongevraagd
+--  persoonsgegevens verwijdert is precies het soort ding dat je niet wilt
+--  als de aanname eronder niet klopt. Kijk eerst wat er staat:
+--
+--      select * from public.dossier_wezen();
+--
+--  en ruim daarna gericht op, met de uitkomst erbij in het dossier van het
+--  AVG-verzoek waar het bij hoort.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.dossier_wezen()
+returns table (tabel text, hoeveel bigint)
+language sql stable security definer set search_path = public as $$
+  select 'personnel_private', count(*) from public.personnel_private x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'personnel_loon', count(*) from public.personnel_loon x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'documents', count(*) from public.documents x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'change_requests', count(*) from public.change_requests x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id);
+$$;
+
+revoke execute on function public.dossier_wezen() from public, anon, authenticated;
+
+comment on function public.dossier_wezen() is
+  'Hoeveel dossierrijen er nog staan van profielen die niet meer bestaan '
+  '(0116). Alleen voor de server; draai hem voordat je opruimt.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(116, 'Een wisverzoek dat echt wist');
   end if;
 end $stand$;

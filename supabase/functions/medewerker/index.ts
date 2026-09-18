@@ -480,6 +480,23 @@ Deno.serve(async (req) => {
       at: nu(),
     })
 
+    /*
+     * De bestanden eerst opzoeken, want zo meteen zijn de rijen weg.
+     *
+     * Sinds 0116 neemt een trigger op profiles het dossier mee -- inclusief
+     * de regels in documents. Bij de bestanden in de emmer komt de database
+     * niet, dus die paden moeten hiervoor uit de database gehaald zijn.
+     * Daarna is niet meer te achterhalen welke scans bij deze persoon hoorden.
+     */
+    const { data: stukken } = await admin
+      .from('documents')
+      .select('storage_path')
+      .eq('user_id', dossier.id)
+
+    const paden = (stukken ?? [])
+      .map((d: { storage_path: string | null }) => d.storage_path)
+      .filter((p: string | null): p is string => typeof p === 'string' && p.length > 0)
+
     if (dossier.auth_id) {
       const { error } = await admin.auth.admin.deleteUser(String(dossier.auth_id))
       if (error) console.warn('[medewerker] inlogaccount weghalen: ' + error.message)
@@ -488,8 +505,35 @@ Deno.serve(async (req) => {
     const { error: weg } = await admin.from('profiles').delete().eq('id', dossier.id)
     if (weg) return json({ ok: false, reden: `Weghalen mislukte: ${weg.message}` })
 
-    console.log(`[medewerker] ${beller.naam} wiste ${dossier.name}: ${reden}`)
-    return json({ ok: true, soort: 'gewist' })
+    /*
+     * En dan de scans. Dit gebeurt ná het weghalen van het profiel: lukt het
+     * niet, dan is het dossier in de database hoe dan ook weg en blijft er
+     * hooguit een bestand achter waar geen enkele regel meer naar verwijst.
+     * Andersom -- bestanden weg, rijen blijven staan -- is erger, want dan
+     * denkt het scherm dat er nog een identiteitsbewijs ligt.
+     */
+    let bestandenWeg = paden.length
+    if (paden.length) {
+      const { error: opslag } = await admin.storage.from('dossiers').remove(paden)
+      if (opslag) {
+        bestandenWeg = 0
+        console.warn(
+          `[medewerker] ${paden.length} dossierbestand(en) van ${dossier.name} ` +
+          `konden niet weg: ${opslag.message}`,
+        )
+      }
+    }
+
+    console.log(
+      `[medewerker] ${beller.naam} wiste ${dossier.name}: ${reden} ` +
+      `(${bestandenWeg}/${paden.length} bestanden opgeruimd)`,
+    )
+    return json({
+      ok: true,
+      soort: 'gewist',
+      bestanden: paden.length,
+      bestanden_weg: bestandenWeg,
+    })
   }
 
   return json({ error: `Onbekende actie: ${actie}` }, 400)
