@@ -10082,10 +10082,30 @@ console.log('\n76. Een wagen is meer dan een tekstveld')
     (await wg.query("select count(*)::int n from public.wagen where id = 'wg76_1'"))
       .rows[0].n === 1)
 
-  check('het factuuradres mag kijken maar niet schrijven',
+  /* Er staat nog geen enkele klant in het systeem, dus is nog niet uitgemaakt
+     of ze als werkgever of als facturatieklant worden ingevoerd. Beide routes
+     moeten daarom werken -- ook een wagen die alleen aan een bedrijf hangt. */
+
+  await als(KLANT, () => wg.exec(
+    "insert into public.wagen (id, company_id, kenteken)" +
+    " values ('wg76_kees', 'c76_vervoer', '22-BBB-2')"))
+  check('het facturatieaccount mag zijn eigen wagens beheren',
+    (await wg.query("select count(*)::int n from public.wagen where id = 'wg76_kees'"))
+      .rows[0].n === 1)
+
+  check('maar niet die van een ander bedrijf',
+    await geweigerd(VREEMDE,
+      "insert into public.wagen (id, company_id, kenteken)" +
+      " values ('wg76_vera', 'c76_vervoer', '33-CCC-3')"))
+
+  check('een wagen zonder eigenaar wordt geweigerd',
+    await geweigerd(BAAS,
+      "insert into public.wagen (id, kenteken) values ('wg76_zwevend', '44-DDD-4')"))
+
+  check('dezelfde wagen kan ook bij een bedrijf niet twee keer in',
     await geweigerd(KLANT,
-      "insert into public.wagen (id, werkgever_id, kenteken)" +
-      " values ('wg76_kees', 'w76_vervoer', '22-BBB-2')"))
+      "insert into public.wagen (id, company_id, kenteken)" +
+      " values ('wg76_kees2', 'c76_vervoer', '22BBB2')"))
 
   await als(BEHEERDER, () => wg.exec(
     "update public.wagen set omschrijving = 'trekker voor de lange rit'" +

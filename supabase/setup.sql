@@ -26293,10 +26293,16 @@ comment on function public.kenteken_kaal(text) is
 create table if not exists public.wagen (
   id                text primary key,
 
-  -- Van wie hij is. De werkgever is leidend; het factuuradres komt mee zodat
-  -- een klantaccount zonder werkgeversrol zijn eigen wagens ook ziet.
-  werkgever_id      text not null references public.employers(id) on delete cascade,
+  -- Van wie hij is. Allebei mag, en minstens één moet -- want op dit moment
+  -- staat er nog geen enkele klant in het systeem en is nog niet uitgemaakt
+  -- of ze als werkgever of als facturatieklant worden ingevoerd. In dit
+  -- bedrijf is dat dezelfde partij; het schema houdt beide deuren open tot
+  -- de eerste klanten erin staan.
+  werkgever_id      text references public.employers(id) on delete cascade,
   company_id        text references public.companies(id) on delete set null,
+
+  constraint wagen_heeft_eigenaar
+    check (werkgever_id is not null or company_id is not null),
 
   -- Zoals ingetikt, en zoals vergeleken. De kale vorm zet de trigger.
   kenteken          text not null,
@@ -26332,10 +26338,19 @@ create index if not exists wagen_company_idx   on public.wagen (company_id);
 create index if not exists wagen_kenteken_idx  on public.wagen (kenteken_kaal);
 create index if not exists wagen_updated_idx   on public.wagen (updated_at);
 
--- Eén wagen per bedrijf. Op de kale vorm, anders staat dezelfde wagen er
+-- Eén wagen per bedrijf, op de kale vorm -- anders staat dezelfde wagen er
 -- twee keer in omdat iemand de streepjes anders zette.
-create unique index if not exists wagen_uniek
-  on public.wagen (werkgever_id, kenteken_kaal);
+--
+-- Twee indexen, want een wagen hangt aan een werkgever of aan een
+-- facturatieklant. Postgres laat NULL's in een unieke index ongemoeid, dus
+-- één index over beide kolommen zou de tweede soort niet afdekken.
+create unique index if not exists wagen_uniek_werkgever
+  on public.wagen (werkgever_id, kenteken_kaal)
+  where werkgever_id is not null;
+
+create unique index if not exists wagen_uniek_company
+  on public.wagen (company_id, kenteken_kaal)
+  where werkgever_id is null and company_id is not null;
 
 -- ---------------------------------------------------------------------------
 --  3. De kale vorm zet zichzelf
@@ -26406,10 +26421,39 @@ create trigger wagen_verwijderd after delete on public.wagen
 --  Lezen: Truckwash1, het factuuradres, en iedereen die bij de werkgever
 --  hoort -- beheerder of gekoppelde chauffeur. Dat is jobs_select, letterlijk.
 --
---  Schrijven: het management, of een beheerder van dát bedrijf. Bewust NIET
---  mijn_werkgevers(), want daar zitten ook de gekoppelde chauffeurs in; die
---  zouden dan het hele wagenpark van hun werkgever kunnen wissen.
+--  Schrijven: het management, een beheerder van dát bedrijf, of het
+--  facturatieaccount van dát bedrijf. Bewust NIET mijn_werkgevers(), want daar
+--  zitten ook de gekoppelde chauffeurs in; die zouden dan het hele wagenpark
+--  van hun werkgever kunnen wissen.
 -- ---------------------------------------------------------------------------
+
+/*
+ * Mag ik deze wagen beheren?
+ *
+ * Staat apart omdat insert, update en delete hem alle drie nodig hebben, en
+ * drie keer hetzelfde exists-blok overschrijven is precies hoe zulke regels
+ * uit elkaar gaan lopen.
+ */
+create or replace function public.wagen_beheerder(wg_id text, co_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_management()
+      or (wg_id is not null and exists (
+            select 1 from public.employers e
+             where e.id = wg_id
+               and public.my_id() = any(e.beheerders)))
+      or (co_id is not null and co_id = public.my_company());
+$$;
+
+grant execute on function public.wagen_beheerder(text, text) to authenticated;
+
+/* De regels hierboven gelden alleen voor ingelogde gebruikers, dus anon heeft
+   deze functie nooit nodig. Supabase deelt execute standaard uit aan iedereen;
+   dat halen we er hier weer af. Zie 0034. */
+revoke execute on function public.wagen_beheerder(text, text) from public, anon;
+
+comment on function public.wagen_beheerder(text, text) is
+  'Wie het wagenpark van een bedrijf mag wijzigen (0114): het management, een '
+  'beheerder van de werkgever, of het facturatieaccount van dat bedrijf.';
 
 alter table public.wagen enable row level security;
 
@@ -26425,45 +26469,17 @@ drop policy if exists wagen_insert on public.wagen;
 create policy wagen_insert on public.wagen for insert to authenticated
   with check (
     not public.rij_bestaat('public.wagen'::regclass, id)
-    and (
-      public.is_management()
-      or exists (
-        select 1 from public.employers e
-         where e.id = werkgever_id
-           and public.my_id() = any(e.beheerders)
-      )
-    )
+    and public.wagen_beheerder(werkgever_id, company_id)
   );
 
 drop policy if exists wagen_update on public.wagen;
 create policy wagen_update on public.wagen for update to authenticated
-  using (
-    public.is_management()
-    or exists (
-      select 1 from public.employers e
-       where e.id = werkgever_id
-         and public.my_id() = any(e.beheerders)
-    )
-  )
-  with check (
-    public.is_management()
-    or exists (
-      select 1 from public.employers e
-       where e.id = werkgever_id
-         and public.my_id() = any(e.beheerders)
-    )
-  );
+  using      (public.wagen_beheerder(werkgever_id, company_id))
+  with check (public.wagen_beheerder(werkgever_id, company_id));
 
 drop policy if exists wagen_delete on public.wagen;
 create policy wagen_delete on public.wagen for delete to authenticated
-  using (
-    public.is_management()
-    or exists (
-      select 1 from public.employers e
-       where e.id = werkgever_id
-         and public.my_id() = any(e.beheerders)
-    )
-  );
+  using (public.wagen_beheerder(werkgever_id, company_id));
 
 -- --- ingeschreven door scripts/migratie-stand.cjs ---
 do $stand$ begin
