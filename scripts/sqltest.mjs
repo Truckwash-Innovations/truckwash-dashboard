@@ -9922,5 +9922,191 @@ console.log('\n75. Een werkadres op het verkeerde domein')
   await wa.close()
 }
 
+console.log('\n76. Een wagen is meer dan een tekstveld')
+
+{
+  /*
+   * Johannes: "controleren of er voor elk kenteken wel een order gemaakt is
+   * of dat er een vergeten is."
+   *
+   * Dat kan alleen als een kenteken van iemand is. Hier staan de twee dingen
+   * die daarbij mis kunnen gaan: de schrijfwijze (BX-JT-42 en BXJT42 moeten
+   * dezelfde wagen zijn) en wie eraan mag komen. Een chauffeur die aan het
+   * bedrijf gekoppeld is hoort te kijken, niet te wijzigen -- mijn_werkgevers()
+   * telt hem wel mee, en daarom staat het schrijfrecht op beheerders.
+   */
+  const wg = await fresh()
+  await wg.exec(sqlFile('supabase/setup.sql'))
+  await asServer(wg)
+
+  const BAAS      = '76000000-0000-0000-0000-000000000001'
+  const BEHEERDER = '76000000-0000-0000-0000-000000000002'
+  const CHAUFFEUR = '76000000-0000-0000-0000-000000000003'
+  const KLANT     = '76000000-0000-0000-0000-000000000004'
+  const VREEMDE   = '76000000-0000-0000-0000-000000000005'
+
+  await wg.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',      'baas76@truckwash1group.nl', '{"name":"Baas"}'::jsonb),
+      ('${BEHEERDER}', 'beheer76@vervoer.nl',       '{"name":"Bea"}'::jsonb),
+      ('${CHAUFFEUR}', 'chauffeur76@vervoer.nl',    '{"name":"Chris"}'::jsonb),
+      ('${KLANT}',     'klant76@vervoer.nl',        '{"name":"Kees"}'::jsonb),
+      ('${VREEMDE}',   'vreemde76@elders.nl',       '{"name":"Vera"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employer'], active = true
+     where auth_id in ('${BEHEERDER}', '${CHAUFFEUR}');
+    update public.profiles set roles = array['customer'], active = true
+     where auth_id in ('${KLANT}', '${VREEMDE}');
+
+    insert into public.companies (id, name) values
+      ('c76_vervoer', 'Vervoer BV'),
+      ('c76_elders',  'Elders BV')
+    on conflict (id) do nothing;
+  `)
+
+  const pid = async (mail) => (await wg.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const beheerderId = await pid('beheer76@vervoer.nl')
+  const chauffeurId = await pid('chauffeur76@vervoer.nl')
+
+  await wg.exec(`
+    /* Het transportbedrijf en het factuuradres zijn hier dezelfde partij;
+       employers.company_id is de koppeling die dat vastlegt. */
+    insert into public.employers (id, naam, company_id, status, beheerders) values
+      ('w76_vervoer', 'Vervoer BV', 'c76_vervoer', 'actief', array['${beheerderId}']),
+      ('w76_ander',   'Ander Vervoer', null,       'actief', array[]::text[])
+    on conflict (id) do nothing;
+
+    insert into public.employer_links
+      (id, werkgever_id, werkgever_naam, user_id, naam, email, status) values
+      ('l76_chris', 'w76_vervoer', 'Vervoer BV', '${chauffeurId}',
+       'Chris', 'chauffeur76@vervoer.nl', 'actief')
+    on conflict (id) do nothing;
+
+    update public.profiles set company_id = 'c76_vervoer' where auth_id = '${KLANT}';
+    update public.profiles set company_id = 'c76_elders'  where auth_id = '${VREEMDE}';
+  `)
+
+  /* PGlite draait als superuser en die negeert RLS -- zonder dit test je
+     niets. Zie de opmerking bij blok 3. */
+  await wg.exec(`
+    alter table public.wagen force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  /** Iets doen als een ingelogde gebruiker, met de beveiligingsregels aan. */
+  async function als(uid, fn) {
+    await asUser(wg, uid)
+    await wg.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await wg.exec('reset role;')
+      await asServer(wg)
+    }
+  }
+
+  /** True als de opdracht werd geweigerd. */
+  async function geweigerd(uid, sql) {
+    try {
+      await als(uid, () => wg.exec(sql))
+      return false
+    } catch {
+      return true
+    }
+  }
+
+  const wagenVeld = async (veld) => (await wg.query(
+    `select ${veld} from public.wagen where id = 'wg76_1'`)).rows[0]?.[veld]
+
+  const aantalVoor = (uid) => als(uid,
+    async () => (await wg.query('select count(*)::int n from public.wagen')).rows[0].n)
+
+  /* --- de schrijfwijze wordt door de database gezet --- */
+
+  await als(BEHEERDER, () => wg.exec(
+    "insert into public.wagen (id, werkgever_id, company_id, kenteken)" +
+    " values ('wg76_1', 'w76_vervoer', 'c76_vervoer', ' bx-jt-42 ')"))
+
+  check('het kenteken wordt opgeschoond zoals ingevoerd',
+    (await wagenVeld('kenteken')) === 'BX-JT-42')
+  check('en krijgt er een kale vorm bij om op te vergelijken',
+    (await wagenVeld('kenteken_kaal')) === 'BXJT42')
+
+  const vormen = (await wg.query(
+    "select public.kenteken_kaal('bx jt 42') a, public.kenteken_kaal('BX.JT.42') b")).rows[0]
+  check('verschillende schrijfwijzen geven dezelfde kale vorm',
+    vormen.a === 'BXJT42' && vormen.b === 'BXJT42', JSON.stringify(vormen))
+
+  /* Zonder dit staat dezelfde wagen er twee keer in omdat iemand de
+     streepjes anders zette. */
+  check('dezelfde wagen kan er niet twee keer in',
+    await geweigerd(BEHEERDER,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_dubbel', 'w76_vervoer', 'BXJT42')"))
+
+  check('een kenteken zonder letters of cijfers wordt geweigerd',
+    await geweigerd(BEHEERDER,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_leeg', 'w76_vervoer', '---')"))
+
+  /* --- wie mag kijken --- */
+
+  check('een gekoppelde chauffeur ziet het wagenpark',
+    (await aantalVoor(CHAUFFEUR)) === 1)
+  check('het factuuradres ziet hetzelfde wagenpark',
+    (await aantalVoor(KLANT)) === 1)
+  check('een ander bedrijf ziet er niets van',
+    (await aantalVoor(VREEMDE)) === 0)
+
+  /* --- wijzigen mag alleen een beheerder van dat bedrijf --- */
+
+  check('een chauffeur kan er geen wagen bij zetten',
+    await geweigerd(CHAUFFEUR,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_chris', 'w76_vervoer', '11-AAA-1')"))
+
+  /* Een update die niemand mag raakt geen rijen; dat geeft geen fout, dus
+     kijken we naar wat er staat. */
+  await als(CHAUFFEUR, () => wg.exec(
+    "update public.wagen set omschrijving = 'van mij' where id = 'wg76_1'"))
+  check('en kan een bestaande wagen niet wijzigen',
+    (await wagenVeld('omschrijving')) === null)
+
+  await als(CHAUFFEUR, () => wg.exec("delete from public.wagen where id = 'wg76_1'"))
+  check('en kan hem niet verwijderen',
+    (await wg.query("select count(*)::int n from public.wagen where id = 'wg76_1'"))
+      .rows[0].n === 1)
+
+  check('het factuuradres mag kijken maar niet schrijven',
+    await geweigerd(KLANT,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_kees', 'w76_vervoer', '22-BBB-2')"))
+
+  await als(BEHEERDER, () => wg.exec(
+    "update public.wagen set omschrijving = 'trekker voor de lange rit'" +
+    " where id = 'wg76_1'"))
+  check('de beheerder van het bedrijf mag wel wijzigen',
+    (await wagenVeld('omschrijving')) === 'trekker voor de lange rit')
+
+  /* --- een bedrijf verzet zijn wagens niet naar een ander bedrijf --- */
+
+  await als(BEHEERDER, () => wg.exec(
+    "update public.wagen set werkgever_id = 'w76_ander' where id = 'wg76_1'"))
+  check('een beheerder kan zijn wagen niet aan een ander bedrijf hangen',
+    (await wagenVeld('werkgever_id')) === 'w76_vervoer')
+
+  await als(BAAS, () => wg.exec(
+    "update public.wagen set werkgever_id = 'w76_ander' where id = 'wg76_1'"))
+  check('het management wel',
+    (await wagenVeld('werkgever_id')) === 'w76_ander')
+
+  await wg.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)
