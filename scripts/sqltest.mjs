@@ -9039,13 +9039,36 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
       .map((m) => ({ op: m.index, entiteit: m[1] ?? m[2] ?? m[3] }))
       .filter((x) => perEntiteit[x.entiteit])
 
+    /*
+     * En niet verder terugkijken dan de functie waar het veld in staat.
+     *
+     * Een bestand van vijftienhonderd regels leest boven in zijn tabellen en
+     * schrijft onderin naar een heel andere. In EmployerDashboard.tsx stond
+     * db.wagens op regel 50 en een afspraak met kenteken: x || undefined op
+     * regel 1022 -- vier functies verderop -- en daarmee wees deze controle
+     * naar wagen.kenteken, dat verplicht is. Dat is geen botsing maar de
+     * laatste naam die toevallig nog vooraan stond.
+     *
+     * Een functiegrens is waar een lezer ook stopt. Top-level function staat
+     * in de eerste kolom; een geneste staat ingesprongen en telt dus niet.
+     */
+    const functies = [...tekst.matchAll(/(?:^|[\r\n])(?:export\s+)?(?:async\s+)?function\s/g)]
+      .map((m) => m.index)
+
     for (const m of tekst.matchAll(LEEG)) {
       const veld = m[1] ?? m[2]
       const kolom = anders[veld] ?? naarSnake(veld)
 
+      let grens = 0
+      for (const op of functies) {
+        if (op > m.index) break
+        grens = op
+      }
+
       let dichtstbij = null
       for (const n of noemt) {
         if (n.op > m.index) break
+        if (n.op < grens) continue
         dichtstbij = n.entiteit
       }
       if (!dichtstbij) continue
@@ -10346,6 +10369,200 @@ console.log('\n78. Een wisverzoek dat echt wist')
     JSON.stringify(wezen.map((r) => [r.tabel, String(r.hoeveel)])))
 
   await ws.close()
+}
+
+console.log('\n79. Van een kenteken naar de klant')
+
+{
+  /*
+   * Johannes: "waardoor we die later kunnen zien in het systeem, op naam van
+   * die klant."
+   *
+   * 0114 maakte de schrijfwijze eenduidig; hier wordt die vraag
+   * beantwoordbaar. Twee dingen die daarbij mis kunnen gaan, en ze zijn
+   * allebei stil:
+   *
+   *   de koppeling gaat op de KALE vorm, dus een beurt die als "BX JT 42" is
+   *   ingetikt hoort bij dezelfde wagen als "BX-JT-42". Gaat dat mis, dan
+   *   komt er een lege historie uit -- geen fout, geen melding, alleen een
+   *   wagen die nooit gewassen lijkt.
+   *
+   *   en de brug LEEST alleen. Een kenteken dat een camera opvangt blijft een
+   *   suggestie; wash_jobs.plate is waar de facturatie op draait, en daar mag
+   *   niets vanzelf in geschreven worden.
+   */
+  const kb = await fresh()
+  await kb.exec(sqlFile('supabase/setup.sql'))
+  await asServer(kb)
+
+  const BAAS    = '79000000-0000-0000-0000-000000000001'
+  const BEHEER  = '79000000-0000-0000-0000-000000000002'
+  const VREEMDE = '79000000-0000-0000-0000-000000000003'
+
+  await kb.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',    'baas79@truckwash1group.nl', '{"name":"Baas"}'::jsonb),
+      ('${BEHEER}',  'beheer79@vervoer.nl',       '{"name":"Bea"}'::jsonb),
+      ('${VREEMDE}', 'vreemde79@elders.nl',       '{"name":"Vera"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employer'], active = true
+     where auth_id = '${BEHEER}';
+    update public.profiles set roles = array['customer'], active = true
+     where auth_id = '${VREEMDE}';
+
+    insert into public.companies (id, name) values
+      ('c79_vervoer', 'Vervoer BV'),
+      ('c79_elders',  'Elders BV')
+    on conflict (id) do nothing;
+  `)
+
+  const beheerId = (await kb.query(
+    "select id from public.profiles where email = 'beheer79@vervoer.nl'")).rows[0].id
+
+  await kb.exec(`
+    insert into public.employers (id, naam, company_id, status, beheerders) values
+      ('w79_vervoer', 'Vervoer BV', 'c79_vervoer', 'actief', array['${beheerId}'])
+    on conflict (id) do nothing;
+
+    update public.profiles set company_id = 'c79_elders' where auth_id = '${VREEMDE}';
+
+    /* De wagen hangt alleen aan de werkgever. Het factuuradres hoort er via
+       employers.company_id alsnog uit te komen -- in dit bedrijf is dat
+       dezelfde partij. */
+    insert into public.wagen (id, werkgever_id, kenteken, soort, chauffeur_naam)
+      values ('wg79_1', 'w79_vervoer', 'BX-JT-42', 'trekker', 'Chris');
+
+    /* Drie beurten op hetzelfde kenteken, met drie schrijfwijzen. En een
+       vierde op een wagen die in geen enkel park staat. */
+    insert into public.wash_jobs
+      (id, company_id, company_name, plate, service, status, scheduled_at,
+       completed_at, price_excl) values
+      ('j79_a',   'c79_vervoer', 'Vervoer BV', 'BX-JT-42', 'buitenwas', 'gereed',
+       1000, 1100, 85),
+      ('j79_b',   'c79_vervoer', 'Vervoer BV', 'bx jt 42', 'combi',     'gereed',
+       2000, 2100, 120),
+      ('j79_c',   'c79_vervoer', 'Vervoer BV', 'BXJT42',   'buitenwas', 'gepland',
+       3000, null, 85),
+      ('j79_los', 'c79_vervoer', 'Vervoer BV', 'ZZ-99-ZZ', 'buitenwas', 'gereed',
+       2500, 2600, 85);
+  `)
+
+  /* PGlite draait als superuser en die negeert RLS -- zonder dit test je
+     niets. Zie de opmerking bij blok 3. */
+  await kb.exec(`
+    alter table public.wagen force row level security;
+    alter table public.wash_jobs force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  async function als(uid, fn) {
+    await asUser(kb, uid)
+    await kb.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await kb.exec('reset role;')
+      await asServer(kb)
+    }
+  }
+
+  /* --- van een kenteken naar de klant --- */
+
+  const zoek = (uid, wat) => als(uid, async () => (await kb.query(
+    `select * from public.wagen_zoeken('${wat}')`)).rows)
+
+  const gevonden = await zoek(BAAS, 'BX-JT-42')
+  check('een kenteken wijst naar zijn wagen', gevonden.length === 1)
+  check('met het bedrijf erbij, ook al hangt de wagen aan de werkgever',
+    gevonden[0]?.company_id === 'c79_vervoer' && gevonden[0]?.company_naam === 'Vervoer BV',
+    JSON.stringify(gevonden[0]))
+  check('en met de chauffeur die erop rijdt', gevonden[0]?.chauffeur_naam === 'Chris')
+
+  /* Dit is waar het om begonnen was: wat een camera leest heeft geen
+     streepjes, en wat de balie intikt soms wel. */
+  for (const vorm of ['bx jt 42', 'BXJT42', 'bx-jt-42']) {
+    check(`"${vorm}" vindt dezelfde wagen`,
+      (await zoek(BAAS, vorm))[0]?.wagen_id === 'wg79_1')
+  }
+
+  check('een onbekend kenteken levert niets op',
+    (await zoek(BAAS, 'ZZ-99-ZZ')).length === 0)
+
+  /*
+   * security invoker, niet definer: de functie leest public.wagen met de
+   * rechten van wie hem aanroept, dus wagen_select bepaalt wat je ziet. Zou
+   * hij definer zijn, dan kon elk klantaccount het wagenpark van elke
+   * concurrent uitlezen door kentekens te proberen.
+   */
+  check('de eigen beheerder ziet zijn wagen', (await zoek(BEHEER, 'BXJT42')).length === 1)
+  check('een ander bedrijf ziet hem niet', (await zoek(VREEMDE, 'BXJT42')).length === 0)
+
+  /* --- en wat er met die wagen is gedaan --- */
+
+  const historie = await als(BAAS, async () => (await kb.query(
+    "select * from public.wagen_historie('bx-jt-42')")).rows)
+  check('de historie pakt alle drie de schrijfwijzen', historie.length === 3,
+    JSON.stringify(historie.map((r) => r.plate)))
+  check('nieuwste eerst', historie[0]?.job_id === 'j79_c')
+  check('en de losse beurt hoort er niet bij',
+    !historie.some((r) => r.job_id === 'j79_los'))
+
+  check('een ander bedrijf ziet de historie niet',
+    (await als(VREEMDE, async () => (await kb.query(
+      "select count(*)::int n from public.wagen_historie('BXJT42')")).rows[0].n)) === 0)
+
+  /* --- welke kentekens we nog niet kennen --- */
+
+  const onbekend = await als(BAAS, async () => (await kb.query(
+    'select * from public.kentekens_zonder_wagen()')).rows)
+  check('een gewassen kenteken zonder wagen staat op de aanvullijst',
+    onbekend.length === 1 && onbekend[0].kenteken_kaal === 'ZZ99ZZ',
+    JSON.stringify(onbekend.map((r) => r.kenteken_kaal)))
+  check('en het kenteken dat wel in een park staat niet',
+    !onbekend.some((r) => r.kenteken_kaal === 'BXJT42'))
+
+  /* --- de brug leest, en schrijft nooit --- */
+
+  /*
+   * Een kenteken dat een camera opvangt is een suggestie, nooit een
+   * factuurregel -- dat is de grens die het hele cameraproject draagt, en
+   * wash_jobs.plate is waar de facturatie op draait.
+   *
+   * Een functie die als stable is aangemerkt KAN niet schrijven: Postgres
+   * weigert dat bij het uitvoeren. Dit is dus niet "er is nu niets
+   * geschreven" maar "schrijven kan hier niet".
+   */
+  const schrijvend = (await kb.query(`
+    select p.proname from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('wagen_zoeken', 'wagen_historie', 'kentekens_zonder_wagen')
+       and p.provolatile = 'v'`)).rows.map((r) => r.proname)
+  check('geen van de brugfuncties kan schrijven', schrijvend.length === 0,
+    JSON.stringify(schrijvend))
+
+  /* En er hangt niets aan de wasbeurt dat er ongevraagd een wagen bij zoekt. */
+  const triggers = (await kb.query(`
+    select t.tgname from pg_trigger t
+     where t.tgrelid = 'public.wash_jobs'::regclass
+       and not t.tgisinternal
+       and t.tgname ilike '%wagen%'`)).rows.map((r) => r.tgname)
+  check('en er staat geen trigger op de wasbeurt die een wagen invult',
+    triggers.length === 0, JSON.stringify(triggers))
+
+  /* --- de indexen, want zonder die leest elke vraag de hele tabel --- */
+
+  const idx = (await kb.query(`
+    select indexname from pg_indexes
+     where schemaname = 'public'
+       and indexname in ('wash_jobs_kenteken_idx', 'pos_sales_kenteken_idx',
+                         'pos_subscriptions_kenteken_idx')`)).rows.map((r) => r.indexname)
+  check('de drie kentekenindexen staan er', idx.length === 3, JSON.stringify(idx))
+
+  await kb.close()
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
