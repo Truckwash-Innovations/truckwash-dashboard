@@ -6,7 +6,7 @@ import type {
   Asset, Fault, MaintenancePlan, WorkOrder, Ticket, TicketMessage, LogEvent,
   Signup, Channel, ChatMessage, ChannelRead, EmailLog,
   PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel, PersonnelDocument, MailBericht, WerkMail, WerkMailMap, Postbus, PostbusLid, DossierWijziging, AgendaItem,
-  Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
+  Wagen, Werkgever, WerkgeverKoppeling, WerkgeverRegel, DevPlan, HourRequest, Trip,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
   DocMap, DocBestand, DocToegang, TaakDocument,
   PosRegister, PosDevice, PosPairing, PosSafe, PosSafeMove, LocationPhoto,
@@ -79,6 +79,7 @@ class MockServerDB extends Dexie {
   employers!: Table<Werkgever, string>
   employerLinks!: Table<WerkgeverKoppeling, string>
   employerRules!: Table<WerkgeverRegel, string>
+  wagens!: Table<Wagen, string>
   taken!: Table<Taak, string>
   taakProjecten!: Table<TaakProject, string>
   taakReacties!: Table<TaakReactie, string>
@@ -150,6 +151,7 @@ class MockServerDB extends Dexie {
       employers: 'id, updatedAt',
       employerLinks: 'id, updatedAt',
       employerRules: 'id, updatedAt',
+      wagens: 'id, updatedAt',
       taken: 'id, updatedAt',
       taakProjecten: 'id, updatedAt',
       taakReacties: 'id, updatedAt',
@@ -227,6 +229,7 @@ const ENTITY_TABLES: Record<EntityName, () => Table<any, string>> = {
   employers: () => server.employers,
   employerLinks: () => server.employerLinks,
   employerRules: () => server.employerRules,
+  wagens: () => server.wagens,
   taken: () => server.taken,
   taakProjecten: () => server.taakProjecten,
   taakReacties: () => server.taakReacties,

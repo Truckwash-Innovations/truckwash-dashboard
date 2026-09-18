@@ -15,7 +15,7 @@ AppNotification, Asset, Channel, ChannelRead, ChatMessage, Company, Course,
   AgendaItem, DossierWijziging, Instelling, MailBericht, MaintenancePlan, OutboxRecord, Postbus, PostbusLid, WerkMail, WerkMailMap,
   TruckyContact, TruckyVraag, Grootboek, ExactGrootboek, KostenTag, InkoopAdres,
   VoorraadAlarm, Bestelling, Bestelregel,
-  Werkgever, WerkgeverKoppeling, WerkgeverRegel,
+  Wagen, Werkgever, WerkgeverKoppeling, WerkgeverRegel,
   Taak, TaakProject, TaakReactie, Vacature, Sollicitatie,
   DocMap, DocBestand, DocToegang, TaakDocument,
   PersonnelDocument, PersonnelPrivate, PersonnelLoon, ExpenseGebeurtenis, ExpenseRegel,
@@ -88,6 +88,7 @@ class TruckwashDB extends Dexie {
   employers!: Table<Werkgever, string>
   employerLinks!: Table<WerkgeverKoppeling, string>
   employerRules!: Table<WerkgeverRegel, string>
+  wagens!: Table<Wagen, string>
   taken!: Table<Taak, string>
   taakProjecten!: Table<TaakProject, string>
   taakReacties!: Table<TaakReactie, string>
@@ -326,6 +327,13 @@ class TruckwashDB extends Dexie {
        4031 ook alweer. */
     this.version(26).stores({
       exactGrootboek: 'id, division, code, updatedAt',
+    })
+
+    // v27: het wagenpark van een bedrijf (0114). Op kentekenKaal kun je
+    // zoeken met wat de kassa intikte of wat een camera leest; op kenteken
+    // niet, want dat is de schrijfwijze van degene die hem invoerde.
+    this.version(27).stores({
+      wagens: 'id, werkgeverId, companyId, kentekenKaal, actief, updatedAt',
     })
   }
 }

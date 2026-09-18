@@ -2252,6 +2252,62 @@ export interface Werkgever {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Het wagenpark van een bedrijf
+ *
+ *  Een kenteken lag tot 0114 op vijf plekken als vrije tekst, met drie
+ *  schrijfwijzen: de kassa maakt er hoofdletters van, het zoeken haalt de
+ *  streepjes weg. BX-JT-42 en BXJT42 waren daarmee twee wagens.
+ *
+ *  Daarom staat het kenteken hier twee keer. `kenteken` is wat iemand intikt
+ *  en wat je op het scherm ziet; `kentekenKaal` is waarop vergeleken wordt --
+ *  met de kassabon, en straks met wat een camera leest. De database zet die
+ *  kale vorm zelf via een trigger, dus de app hoeft hem nooit te vullen en
+ *  kan er ook niet mee afwijken.
+ *
+ *  Een wagen hangt aan de werkgever of aan de facturatieklant; minstens één
+ *  van de twee. In dit bedrijf is dat dezelfde partij, maar welke van de twee
+ *  gebruikt gaat worden stond nog niet vast toen dit gebouwd werd.
+ * ------------------------------------------------------------------ */
+
+export type WagenSoort = 'trekker' | 'oplegger' | 'bakwagen' | 'bus' | 'tank' | 'anders'
+
+export const WAGEN_SOORTEN: Record<WagenSoort, string> = {
+  trekker:  'Trekker',
+  oplegger: 'Oplegger',
+  bakwagen: 'Bakwagen',
+  bus:      'Bus',
+  tank:     'Tankwagen',
+  anders:   'Anders',
+}
+
+export interface Wagen {
+  id: string
+  /** Het transportbedrijf. Leeg als de wagen alleen aan een klant hangt. */
+  werkgeverId?: string
+  /** De facturatieklant. Leeg als de wagen alleen aan een werkgever hangt. */
+  companyId?: string
+
+  /** Zoals ingevoerd, bijvoorbeeld BX-JT-42. */
+  kenteken: string
+  /** Door de database gezet: hoofdletters, alleen letters en cijfers. */
+  kentekenKaal: string
+
+  soort?: WagenSoort
+  omschrijving?: string
+
+  /** De chauffeur die er vast op rijdt, als koppeling of als losse naam. */
+  chauffeurLinkId?: string
+  chauffeurNaam: string
+
+  actief: boolean
+  notitie?: string
+
+  door?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* ------------------------------------------------------------------ *
  *  Werknemers van een werkgever
  *
  *  Een koppeling, geen bezit. Een chauffeur kan bij twee bedrijven rijden,
@@ -2751,7 +2807,7 @@ export type EntityName =
   | 'signups' | 'channels' | 'chatMessages' | 'channelReads' | 'emailLog'
   | 'personnelPrivate' | 'personnelLoon' | 'documents' | 'mailbox' | 'changeRequests'
   | 'expenseGebeurtenissen' | 'expenseRegels'
-  | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules'
+  | 'agendaItems' | 'employers' | 'employerLinks' | 'employerRules' | 'wagens'
   | 'posRegisters' | 'posDevices' | 'posPairings' | 'posSafes' | 'posSafeMoves'
   | 'locationPhotos'
   | 'truckyVragen' | 'truckyContact' | 'instellingen'

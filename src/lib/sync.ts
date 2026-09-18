@@ -320,7 +320,9 @@ export const PUSH_ORDER: EntityName[] = [
   // Een lid hangt aan een postvak, een map ook, en een bericht aan allebei.
   'postbussen', 'postbusLeden', 'werkmailMappen', 'werkmail',
   'expenseGebeurtenissen', 'expenseRegels',
-  'agendaItems', 'employerLinks', 'employerRules',
+  // Een wagen hangt aan een werkgever (staat hoger) of aan een bedrijf, en
+  // kan naar een koppeling verwijzen voor de vaste chauffeur.
+  'agendaItems', 'employerLinks', 'employerRules', 'wagens',
   'truckyVragen', 'truckyContact', 'instellingen',
   'grootboek', 'kostenTags', 'inkoopAdressen',
   // Een regel hangt aan een bestelling; een alarm aan een artikel (dat staat
@@ -664,6 +666,7 @@ const TABLE_OF: Record<EntityName, () => any> = {
   employers: () => db.employers,
   employerLinks: () => db.employerLinks,
   employerRules: () => db.employerRules,
+  wagens: () => db.wagens,
   taken: () => db.taken,
   taakProjecten: () => db.taakProjecten,
   taakReacties: () => db.taakReacties,

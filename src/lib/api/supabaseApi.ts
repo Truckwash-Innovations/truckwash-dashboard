@@ -158,6 +158,7 @@ export const TABLES: Record<EntityName, string> = {
   employers: 'employers',
   employerLinks: 'employer_links',
   employerRules: 'employer_rules',
+  wagens: 'wagen',
   taken: 'taak',
   taakProjecten: 'taak_project',
   taakReacties: 'taak_reactie',
