@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, Briefcase, Bug, Building2, CalendarDays, CalendarRange, ClipboardList, Cpu, DoorOpen, FolderLock,
+  AlertTriangle, Briefcase, Bug, Building2, Camera, CalendarDays, CalendarRange, ClipboardList, Cpu, DoorOpen, FolderLock,
   GraduationCap, Inbox, LayoutDashboard, LayoutGrid, Link2, Mail, MessageSquare, Package,
   PackageCheck, Radio, Receipt, ScrollText, Server, Settings, ShieldAlert,
   BriefcaseBusiness, FolderOpen, ListTodo, Sparkles, Timer, Truck, Users, Wallet, Wrench,
@@ -108,6 +108,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   beheer:       ['management'],
   kassas:       ['management'],
   vestigingen:  ['management', 'trucksupply'],
+  cameras:      ['management'],
   voorraad:     ['management', 'trucksupply'],
   werkgevers:   ['management'],
   klanten:      ['management'],
@@ -308,6 +309,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'dossiers',    label: 'Personeelsdossiers', hint: 'Contracten, documenten en gegevens', icon: FolderLock, rol: 'administratie', recht: 'staff.view', ook: ['dossier', 'contract', 'loonstrook', 'personeel'] },
 
   { page: 'vestigingen', label: 'Vestigingen',    hint: 'Adressen, openingstijden, foto\u2019s en wat er op de website staat', icon: Building2, recht: 'locations.manage', ook: ['locatie', 'locaties', 'filiaal', 'adres', 'openingstijden', 'website'] },
+  { page: 'cameras',     label: "Camera's",      hint: 'Meekijken met de camera’s van de vestigingen waar je bij mag', icon: Camera, recht: 'camera.view', ook: ['camera', 'beeld', 'meekijken', 'bewaking', 'live', 'meldkamer', 'portaal'] },
   { page: 'voorraad',    label: 'Voorraad',       hint: 'Standen, minima en wat er bijbesteld moet', icon: Package,  recht: 'inventory.view', ook: ['materiaal', 'chemie', 'bestellen', 'minimum', 'alarm'] },
   { page: 'kassas',      label: 'Kassa\u2019s',       hint: 'Apparaten koppelen, lades en kluizen', icon: Cpu,       recht: 'pos.manage', ook: ['kassa', 'pos', 'lade', 'kluis', 'apparaat', 'koppelen', 'pin'] },
   { page: 'trucky',      label: 'Trucky',         hint: 'De chatbot op de website: vragen, antwoorden en contactverzoeken', icon: MessageSquare, recht: 'admin.desk', ook: ['chatbot', 'bot', 'website', 'vragen', 'contact'] },

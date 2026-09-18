@@ -49,6 +49,8 @@ const TECHNICIAN: Permission[] = [
   'faults.report', 'faults.view', 'faults.triage',
   'workorders.view', 'workorders.create', 'workorders.assign', 'workorders.complete',
   'maintenance.view', 'maintenance.manage',
+  // De technische dienst kijkt of een installatie nog beeld geeft.
+  'camera.view',
 ]
 
 const DEVELOPER: Permission[] = [
@@ -56,6 +58,9 @@ const DEVELOPER: Permission[] = [
   'chat.use',
   'mail.read', 'mail.send',
   'dev.report', 'dev.tickets', 'dev.respond', 'dev.logs',
+  // Meekijken met een installatie die het niet doet; zonder beeld is een
+  // storingsmelding een verhaal uit de tweede hand.
+  'camera.view',
   'admin.audit',
 ]
 

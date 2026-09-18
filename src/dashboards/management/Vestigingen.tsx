@@ -729,6 +729,27 @@ function Gegevens({
         />
       </Field>
 
+      {/*
+        Het nummer van de camera-installatie. Over te tikken uit het
+        camerportaal zelf -- daar verzint elke installatie er bij de eerste
+        start een, en het is een uuid en geen naam.
+
+        Dat overtikken is eenmalig en niet te vermijden: de twee systemen
+        hebben verder niets gemeenschappelijks, en koppelen op naam zou
+        betekenen dat iemand vroeg of laat bij de camera's van de verkeerde
+        vestiging uitkomt.
+      */}
+      <Field
+        label="Camera-installatie"
+        help="Het nummer van deze vestiging in het camerportaal. Leeg = hier komt via het dashboard niemand bij de camera's."
+      >
+        <input
+          value={vorm.cameraSiteId ?? ''} disabled={!mag}
+          placeholder="bijv. a3f91c2b04de"
+          onChange={(e) => zet('cameraSiteId', e.target.value.trim())}
+        />
+      </Field>
+
       <p className="hint" style={{ marginTop: 10 }}>
         Deze notitie blijft binnen. Wat er naar buiten gaat staat onder “Website”.
       </p>

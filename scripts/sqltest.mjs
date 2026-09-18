@@ -10619,5 +10619,185 @@ console.log('\n79. Van een kenteken naar de klant')
   await kb.close()
 }
 
+console.log('\n80. Wie bij welke camera mag')
+
+{
+  /*
+   * Casper: "zorg dat iemand enkel bij eigen camera komt als degene vast op
+   * vestiging staat."
+   *
+   * Aan de camerakant stond één wachtwoord voor alles: wie binnen was, zag
+   * elke camera van elke vestiging. Het briefje dat het dashboard tekent
+   * bepaalt straks wat iemand daar te zien krijgt, en wat erin komt te staan
+   * wordt hier uitgerekend. Zit hier een fout in, dan kijkt iemand mee op een
+   * vestiging waar hij niets te zoeken heeft -- en dat merkt niemand, want er
+   * gaat niets stuk.
+   */
+  const cm = await fresh()
+  await cm.exec(sqlFile('supabase/setup.sql'))
+  await asServer(cm)
+
+  const BAAS   = '80000000-0000-0000-0000-000000000001'
+  const WASSER = '80000000-0000-0000-0000-000000000002'
+  const LEIDER = '80000000-0000-0000-0000-000000000003'
+  const WEG    = '80000000-0000-0000-0000-000000000004'
+  const MONTEUR = '80000000-0000-0000-0000-000000000005'
+
+  await cm.exec(`
+    insert into public.locations (id, code, name, city, kind, active, camera_site_id) values
+      ('loc80_ven', 'VEN80', 'Truckwash Venlo',   'Venlo',   'vestiging', true,  'cam_venlo'),
+      ('loc80_gro', 'GRO80', 'Truckwash Groenlo', 'Groenlo', 'vestiging', true,  'cam_groenlo'),
+      ('loc80_hk',  'HK80',  'Hoofdkantoor',      'Utrecht', 'hoofdkantoor', true, 'cam_hk'),
+      /* Geen camera gekoppeld: hier hoort niemand binnen te komen. */
+      ('loc80_ast', 'AST80', 'Truckwash Asten',   'Asten',   'vestiging', true,  null),
+      /* Dicht. Dat de camera's daar misschien nog draaien maakt het erger,
+         niet beter. */
+      ('loc80_dicht', 'DIC80', 'Oude vestiging',  'Ede',     'vestiging', false, 'cam_dicht')
+    on conflict (id) do nothing;
+
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',    'baas80@truckwash1group.nl',    '{"name":"Baas"}'::jsonb),
+      ('${WASSER}',  'wasser80@truckwash1group.nl',  '{"name":"Wim"}'::jsonb),
+      ('${LEIDER}',  'leider80@truckwash1group.nl',  '{"name":"Lia"}'::jsonb),
+      ('${WEG}',     'weg80@truckwash1group.nl',     '{"name":"Wouter"}'::jsonb),
+      ('${MONTEUR}', 'monteur80@truckwash1group.nl', '{"name":"Mo"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc80_ven'
+     where auth_id = '${WASSER}';
+    /* Leidinggevende in Venlo, met Groenlo erbij onder zijn hoede. */
+    update public.profiles set roles = array['supervisor'], active = true,
+           location_id = 'loc80_ven', manages = array['loc80_gro']
+     where auth_id = '${LEIDER}';
+    update public.profiles set roles = array['technician'], active = true,
+           location_id = 'loc80_ven'
+     where auth_id = '${MONTEUR}';
+    /* Uitgeschreven, maar het dossier staat er nog. */
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc80_ven', archived_at = public.now_ms()
+     where auth_id = '${WEG}';
+  `)
+
+  const pid = async (mail) => (await cm.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const baasId    = await pid('baas80@truckwash1group.nl')
+  const wasserId  = await pid('wasser80@truckwash1group.nl')
+  const leiderId  = await pid('leider80@truckwash1group.nl')
+  const wegId     = await pid('weg80@truckwash1group.nl')
+  const monteurId = await pid('monteur80@truckwash1group.nl')
+
+  const sites = async (wie) => (await cm.query(
+    `select site_id from public.camera_sites_voor('${wie}') order by site_id`
+  )).rows.map((r) => r.site_id)
+
+  const overal = async (wie) => (await cm.query(
+    `select public.mag_alle_vestigingen('${wie}') mag`)).rows[0].mag
+
+  /* --- wie mag overal komen --- */
+
+  check('het management mag overal', (await overal(baasId)) === true)
+  check('een wasser niet', (await overal(wasserId)) === false)
+  check('een leidinggevende ook niet', (await overal(leiderId)) === false)
+
+  /*
+   * Dit is de regel die 0078 met zoveel woorden vastlegt en die hier niet
+   * mag sneuvelen: een intrekking wint van alles. Ook van de vlag op het
+   * dossier zelf.
+   */
+  await cm.exec(`
+    update public.profiles set all_locations = true, revokes = array['locations.all']
+     where id = '${wasserId}'`)
+  check('en intrekken wint van de vlag op het dossier', (await overal(wasserId)) === false)
+  await cm.exec(`
+    update public.profiles set all_locations = false, revokes = '{}'
+     where id = '${wasserId}'`)
+
+  /* --- en waar je dan bij mag --- */
+
+  check('een wasser komt alleen bij zijn eigen vestiging',
+    JSON.stringify(await sites(wasserId)) === JSON.stringify(['cam_venlo']),
+    JSON.stringify(await sites(wasserId)))
+
+  check('een leidinggevende ook bij wat hij onder zich heeft',
+    JSON.stringify(await sites(leiderId)) === JSON.stringify(['cam_groenlo', 'cam_venlo']),
+    JSON.stringify(await sites(leiderId)))
+
+  const vanBaas = await sites(baasId)
+  check('het management komt overal waar een camera hangt',
+    JSON.stringify(vanBaas) === JSON.stringify(['cam_groenlo', 'cam_hk', 'cam_venlo']),
+    JSON.stringify(vanBaas))
+
+  check('maar niet bij een vestiging die dicht staat',
+    !vanBaas.includes('cam_dicht'), JSON.stringify(vanBaas))
+
+  /* Asten heeft geen camera_site_id. Zonder die controle zou er een lege
+     waarde in het briefje komen, en het portaal vergelijkt daarop. */
+  check('een vestiging zonder gekoppelde installatie levert niets op',
+    !vanBaas.some((s) => !s), JSON.stringify(vanBaas))
+
+  /* --- wie er niets meer mag --- */
+
+  check('iemand die is uitgeschreven komt nergens meer bij',
+    (await sites(wegId)).length === 0)
+
+  await cm.exec(`update public.profiles set active = false where id = '${wasserId}'`)
+  check('en iemand die op non-actief staat ook niet',
+    (await sites(wasserId)).length === 0)
+  await cm.exec(`update public.profiles set active = true where id = '${wasserId}'`)
+
+  check('en een dossier dat niet bestaat levert niets op',
+    (await sites('u_bestaat_niet')).length === 0)
+
+  /* --- het recht om überhaupt te kijken --- */
+
+  const metRecht = (await cm.query(
+    `select rol from public.rol_recht where recht = 'camera.view' order by rol`
+  )).rows.map((r) => r.rol)
+  check('management, ontwikkeling en techniek mogen kijken',
+    JSON.stringify(metRecht) === JSON.stringify(['developer', 'management', 'technician']),
+    JSON.stringify(metRecht))
+
+  /*
+   * Dat de monteur het recht heeft betekent niet dat hij overal komt: dat
+   * zijn twee verschillende vragen, en ze horen niet door elkaar te lopen.
+   */
+  check('maar de monteur komt nog steeds alleen bij zijn eigen vestiging',
+    JSON.stringify(await sites(monteurId)) === JSON.stringify(['cam_venlo']),
+    JSON.stringify(await sites(monteurId)))
+
+  /* --- één installatie hoort bij één vestiging --- */
+
+  let dubbel = false
+  try {
+    await cm.exec(
+      "update public.locations set camera_site_id = 'cam_venlo' where id = 'loc80_ast'")
+  } catch {
+    dubbel = true
+  }
+  check('dezelfde installatie kan niet aan twee vestigingen hangen', dubbel)
+
+  /* --- en wat er nog te koppelen valt --- */
+
+  await asUser(cm, BAAS)
+  const open = (await cm.query(
+    'select location_id from public.vestigingen_zonder_camera()')).rows.map((r) => r.location_id)
+  await asServer(cm)
+  /* De achttien echte vestigingen staan er ook in -- die hebben nog geen
+     camera gekoppeld, en dat is precies wat deze lijst hoort te zeggen. Wat
+     hier telt is wat er WEL en NIET op staat. */
+  check('een vestiging zonder installatie staat op de lijst',
+    open.includes('loc80_ast'), JSON.stringify(open))
+  check('en een die wel gekoppeld is niet',
+    !open.includes('loc80_ven') && !open.includes('loc80_gro'), JSON.stringify(open))
+  check('een vestiging die dicht staat ook niet',
+    !open.includes('loc80_dicht'), JSON.stringify(open))
+
+  await cm.close()
+}
+
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
 process.exit(failed === 0 ? 0 : 1)

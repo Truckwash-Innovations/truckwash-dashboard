@@ -144,6 +144,7 @@ export const CATEGORIEEN: Categorie[] = [
       'werkgevers',
       'klanten',
       'vestigingen',
+      'cameras',
     ],
   },
   {

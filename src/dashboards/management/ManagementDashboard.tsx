@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
-  Bot, Briefcase, BriefcaseBusiness, Building2, CalendarDays, CalendarRange, DoorOpen, FolderOpen, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, ListTodo, Mail, MessageSquare, Monitor, Package, Receipt, Send, Settings, Users, Wrench,
+  Bot, Briefcase, BriefcaseBusiness, Building2, Camera, CalendarDays, CalendarRange, DoorOpen, FolderOpen, GraduationCap, Inbox, LayoutDashboard, LayoutGrid, ListTodo, Mail, MessageSquare, Monitor, Package, Receipt, Send, Settings, Users, Wrench,
 } from 'lucide-react'
 import Shell from '../../components/Shell'
 import { kopVan, menuVan, sleutelsVan, type Pagina } from '../../components/paginas'
@@ -30,6 +30,7 @@ import Planning from './Planning'
 import Beheer from './Beheer'
 import Techniek from './Techniek'
 import Aanmeldingen from '../../components/Aanmeldingen'
+import Cameras from '../../components/Cameras'
 import Werkgevers from './Werkgevers'
 import Klanten from './Klanten'
 import Kassas from './Kassas'
@@ -63,7 +64,7 @@ const PERIODS = [
 
 const ZONDER_PERIODE = [
   'start', 'planning', 'beheer', 'opleiding', 'aanmeldingen', 'overleg', 'postbus',
-  'agenda', 'werkgevers', 'kassas', 'vestigingen', 'trucky',
+  'agenda', 'werkgevers', 'kassas', 'vestigingen', 'trucky', 'cameras',
 ]
 
 export default function ManagementDashboard() {
@@ -199,6 +200,8 @@ export default function ManagementDashboard() {
       sub: "Adressen, foto's en openingstijden" },
     { key: 'kassas', label: "Kassa's", icon: Monitor, recht: 'pos.manage',
       sub: 'Apparaten, koppelcodes en de kluis' },
+    { key: 'cameras', label: "Camera's", icon: Camera, recht: 'camera.view',
+      sub: 'Meekijken op de vestigingen waar je bij mag' },
     { key: 'trucky', label: 'Trucky', icon: Bot, badge: cijfers.viaWebsite,
       sub: 'Vragen via de website, en wat de chatbot zelf beantwoordt' },
     { key: 'agenda', label: 'Agenda', icon: CalendarDays, recht: 'agenda.view',
@@ -477,6 +480,7 @@ export default function ManagementDashboard() {
       {page === 'klanten' && <Klanten openId={openKlant} />}
       {page === 'kassas' && <Kassas />}
       {page === 'vestigingen' && <Vestigingen />}
+      {page === 'cameras' && <Cameras />}
       {page === 'trucky' && <TruckyScherm />}
       {page === 'beheer' && <Beheer />}
 

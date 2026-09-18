@@ -191,6 +191,18 @@ export interface Location {
   /** Interne notitie: sleutelkastje, oprit, wat de chauffeur moet weten. */
   notes?: string
   /**
+   * Het site_id van de camera-installatie op deze vestiging.
+   *
+   * Over te tikken uit het camerportaal; daar verzint elke installatie er bij
+   * de eerste start zelf een (een uuid, geen naam). De twee systemen hebben
+   * verder niets gemeenschappelijks, en op naam koppelen zou betekenen dat je
+   * vroeg of laat bij de camera's van de verkeerde vestiging uitkomt.
+   *
+   * Leeg = deze vestiging heeft geen camera's in het portaal, en niemand komt
+   * er via het dashboard binnen. Zie migratie 0118.
+   */
+  cameraSiteId?: string
+  /**
    * Wat de kaartendienst van het adres maakte.
    *
    * geoLabel staat los van het ingetikte adres, met opzet. Lopen die twee
@@ -1015,6 +1027,8 @@ export type Permission =
   | 'maintenance.view' | 'maintenance.manage'
   /* locaties */
   | 'locations.view' | 'locations.manage' | 'locations.all'
+  /* de camera's op de vestiging */
+  | 'camera.view'
   /* meldingen aan de ontwikkelaar */
   | 'dev.report' | 'dev.tickets' | 'dev.respond' | 'dev.logs'
   | 'dev.plan' | 'dev.approve'
@@ -1113,6 +1127,11 @@ export const PERMISSIONS: PermissionMeta[] = [
   { key: 'locations.view',    group: 'Locaties',   label: 'Locaties zien',        hint: 'De vestigingen en hun gegevens bekijken.' },
   { key: 'locations.manage',  group: 'Locaties',   label: 'Locaties beheren',     hint: 'Vestigingen toevoegen en wijzigen.', sensitive: true },
   { key: 'locations.all',     group: 'Locaties',   label: 'Alle vestigingen',     hint: 'Niet beperkt tot de eigen vestiging, maar overal bij.', sensitive: true },
+
+  /* Gevoelig, want op een camerabeeld staan klanten, chauffeurs en collega's.
+     Welke vestigingen iemand te zien krijgt volgt uit locations.all: zonder
+     dat recht komt hij alleen bij de camera's van zijn eigen vestiging. */
+  { key: 'camera.view',       group: 'Locaties',   label: "Camera's bekijken",    hint: "Meekijken met de camera's van de vestigingen waar je bij mag.", sensitive: true },
 
   { key: 'dev.report',        group: 'Ontwikkeling', label: 'Melding maken',      hint: 'Een probleem of wens doorgeven aan de ontwikkelaar.' },
   { key: 'dev.tickets',       group: 'Ontwikkeling', label: 'Alle meldingen zien', hint: 'Het volledige ticketoverzicht van iedereen.', sensitive: true },
