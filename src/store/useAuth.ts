@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { api, backendError, supabaseSignOut, usingSupabase } from '../lib/api'
 import { db, getMeta, setMeta } from '../lib/db'
-import { rememberOfflineLogin, verifyOfflineLogin } from '../lib/offlineAuth'
+import { rememberOfflineLogin, vergeetDossiergegevens, verifyOfflineLogin } from '../lib/offlineAuth'
 import { storageGet, storageRemove, storageSet } from '../lib/storage'
 import { ensureBackendMatches, LAST_SYNC, setSyncEnabled, useSync } from '../lib/sync'
 import type { Role, User } from '../lib/types'
@@ -52,6 +52,10 @@ async function prepareCacheFor(userId: string) {
       db.inventory.clear(), db.stockMovements.clear(),
       db.expenses.clear(), db.timeEntries.clear(),
     ])
+    /* En het dossier van de vorige gebruiker. Dat stond hier niet tussen,
+       waardoor het BSN en de paspoortscan van zijn collega's op het toestel
+       bleven staan zodra iemand anders inlogde. */
+    await vergeetDossiergegevens()
   }
 
   await setMeta(CACHE_OWNER, userId)
@@ -215,6 +219,10 @@ export const useAuth = create<AuthStore>((set, get) => ({
     setSyncEnabled(false)
     await storageRemove(SESSION_KEY)
     await supabaseSignOut()
+    /* De cache blijft staan -- daar draait offline inloggen op. Het dossier
+       niet: dat zijn gegevens van anderen en die horen niet op een toestel
+       waar niemand op ingelogd is. */
+    await vergeetDossiergegevens()
     set({ user: null, role: null, error: null })
   },
 

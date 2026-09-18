@@ -682,4 +682,69 @@ console.log('\n65. Waar de foto van een paspoort heen mag')
   check('en de nieuwe weg zegt zelf dat hij ernaast staat',
     client.includes('staat NAAST scannen.ts'))
 }
+/* ==================================================================== *
+ *  Wat er op een afgemeld toestel achterblijft (0114)
+ *
+ *  In personeelsdossier.md stond: "Uitloggen wist ze (dat is getest)."
+ *  Allebei niet waar. forgetEverything() bestond wel, maar werd nergens
+ *  aangeroepen -- nul verwijzingen in de hele src. En er was geen test.
+ *
+ *  Het besluit om BSN's naar het toestel te laten synchroniseren is dus
+ *  genomen op een aanname die niet klopte.
+ *
+ *  Uitloggen wist nu het dossier, en alleen het dossier. De rest van de
+ *  cache blijft staan, want daar draait offline inloggen op en dat is wat
+ *  een tablet in de wasstraat nodig heeft. Dit hoofdstuk bewaakt allebei
+ *  de helften: wat weg moet gaat weg, wat blijven moet blijft staan.
+ * ==================================================================== */
+
+console.log('\n77. Wat er op een afgemeld toestel achterblijft')
+
+{
+  const { readFileSync } = await import('node:fs')
+  const { vergeetDossiergegevens } = await import('../../src/lib/offlineAuth.ts')
+
+  await db.personnelPrivate.put({ id: 'pp_77', userId: 'u_77', bsn: '123456782' } as never)
+  await db.personnelLoon.put({ id: 'pl_77', userId: 'u_77', iban: 'NL00BANK0123456789' } as never)
+  await db.documents.put({ id: 'doc_77', userId: 'u_77', kind: 'identiteitsbewijs' } as never)
+  await db.changeRequests.put({ id: 'cr_77', userId: 'u_77', status: 'open' } as never)
+  await db.sollicitaties.put({ id: 'so_77', status: 'nieuw' } as never)
+
+  /* Iets wat juist NIET weg mag: daar hangt offline werken aan. */
+  await db.washJobs.put({ id: 'wj_77', plate: 'BX-JT-42', status: 'open' } as never)
+
+  await vergeetDossiergegevens()
+
+  check('het afgeschermde dossier is weg', (await db.personnelPrivate.count()) === 0)
+  check('het rekeningnummer ook',          (await db.personnelLoon.count()) === 0)
+  check('de dossierstukken ook',           (await db.documents.count()) === 0)
+  check('de wijzigingsverzoeken ook',      (await db.changeRequests.count()) === 0)
+  check('en de sollicitaties ook',         (await db.sollicitaties.count()) === 0)
+
+  /*
+   * Dit is de andere helft. Zou hier ooit forgetEverything() komen te staan,
+   * dan werkt offline inloggen niet meer en merkt niemand dat tot er een
+   * tablet in een wasstraat zonder bereik staat.
+   */
+  check('maar de wasbeurten blijven staan, anders werkt offline niet meer',
+    (await db.washJobs.get('wj_77')) !== undefined)
+
+  /* --- en het wordt ook echt aangeroepen --- */
+
+  const auth = readFileSync('src/store/useAuth.ts', 'utf8')
+  /* Vanaf de implementatie, niet vanaf de regel in de interface erboven. */
+  const vanaf = auth.indexOf('logout: async')
+  const uitloggen = auth.slice(vanaf, auth.indexOf('chooseRole:', vanaf))
+  check('uitloggen roept het aan', uitloggen.includes('vergeetDossiergegevens()'))
+
+  /*
+   * En bij het wisselen van gebruiker op hetzelfde toestel. Zonder dit bleef
+   * het dossier van de vorige staan zodra iemand anders inlogde -- dezelfde
+   * fout, maar dan zonder dat er ook maar iemand uitgelogd was.
+   */
+  const wisselen = auth.slice(auth.indexOf('async function prepareCacheFor'),
+    auth.indexOf('export const useAuth'))
+  check('en inloggen als iemand anders ook', wisselen.includes('vergeetDossiergegevens()'))
+}
+
 }

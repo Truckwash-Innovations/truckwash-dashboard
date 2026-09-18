@@ -45,7 +45,18 @@ zodat het een besluit blijft.
 
 Wat dat praktisch betekent: een tablet die in een wasstraat blijft liggen en
 waarop een leidinggevende ingelogd blijft, draagt die gegevens. Uitloggen wist
-ze (dat is getest), maar het scherm op slot is geen vervanging voor uitloggen.
+ze, en inloggen als iemand anders ook — maar het scherm op slot is geen
+vervanging voor uitloggen.
+
+> **Dit klopte tot september 2026 niet.** Hier stond "Uitloggen wist ze (dat is
+> getest)", en allebei was onwaar. De functie die alles zou wissen bestond wel,
+> maar werd nergens aangeroepen: nul verwijzingen in de hele `src`. Er was ook
+> geen test. Het besluit hierboven — BSN's mogen naar het toestel — is dus
+> genomen op een aanname die niet gold.
+>
+> Sinds 0114 wist uitloggen het dossier écht, en alleen het dossier: de rest
+> van de cache blijft staan, want daar draait offline inloggen op. Groep 77 in
+> de zelftest bewaakt allebei die helften.
 
 Wil je dat liever anders — bijvoorbeeld dat een leidinggevende het BSN alleen
 online kan opvragen en het nooit op zijn toestel staat — dan is dat te bouwen,
