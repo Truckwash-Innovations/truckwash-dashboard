@@ -193,6 +193,34 @@ const LOKAAL: Partial<Record<EntityName, string[]>> = {
   users: ['password'],
 }
 
+/**
+ * Velden die nooit als "leeg" de deur uit mogen.
+ *
+ * toRow() hieronder maakt van undefined een expliciete null -- met opzet,
+ * want anders kun je een veld niet leegmaken. Maar een EXPLICIETE null gaat
+ * dwars langs de standaardwaarde van een kolom heen: `not null default false`
+ * redt je alleen als je de kolom WEGLAAT.
+ *
+ * Dat liep in productie vast:
+ *
+ *   opslaan in profiles: null value in column "all_locations" of relation
+ *   "profiles" violates not-null constraint
+ *
+ * De oorzaak zat in de schermen (`loc.allLocations || undefined` op een
+ * boolean -- false werd undefined werd null) en is daar rechtgezet. Maar een
+ * record dat op dat moment al in de wachtrij stond, draagt die undefined nog
+ * steeds met zich mee, en die wordt pas hier omgezet. Zonder deze lijst
+ * blijft zo'n rij dus eeuwig hangen op een fout die in de code allang weg is.
+ *
+ * Kort gehouden en niet automatisch afgeleid: de app kent het schema niet.
+ * Wat deze lijst structureel bewaakt is de controle in scripts/sqltest.mjs --
+ * die legt alles wat de app leegmaakt naast de not-null-kolommen. Dit is het
+ * vangnet voor wat al onderweg was.
+ */
+const NOOIT_LEEG: Partial<Record<EntityName, string[]>> = {
+  users: ['allLocations'],
+}
+
 /* ------------------------------------------------------------------ *
  *  camelCase <-> snake_case
  * ------------------------------------------------------------------ */
@@ -246,9 +274,14 @@ const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUppe
 export function toRow(entity: EntityName, obj: Record<string, unknown>) {
   const over = OVERRIDES[entity] ?? {}
   const lokaal = LOKAAL[entity] ?? []
+  const nooitLeeg = NOOIT_LEEG[entity] ?? []
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(obj)) {
     if (lokaal.includes(k)) continue
+    /* Een kolom die niet leeg mág laten we weg in plaats van hem op null te
+       zetten -- dan springt de standaardwaarde van de server in. Zie
+       NOOIT_LEEG hierboven voor waarom dat verschil telt. */
+    if ((v === undefined || v === null) && nooitLeeg.includes(k)) continue
     out[over[k] ?? toSnake(k)] = v === undefined ? null : v
   }
   // updated_at wordt serverzijdig gezet

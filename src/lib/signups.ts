@@ -168,7 +168,11 @@ export const signups = {
       phone: signup.phone,
       locationId: input.locationId,
       manages: input.manages?.length ? input.manages : undefined,
-      allLocations: input.allLocations || undefined,
+      /* Een boolean kent geen "leeg": false || undefined wordt undefined,
+         en toPayload maakt daar een expliciete null van -- die gebruikt de
+         standaardwaarde van de kolom NIET, en all_locations is not null.
+         Dat liep in productie vast op de synchronisatie. */
+      allLocations: !!input.allLocations,
       personnelNumber: input.personnelNumber?.trim() || undefined,
       function: input.function?.trim() || undefined,
       contractHours: input.contractHours,

@@ -9094,7 +9094,20 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
        where table_schema = 'public'
          and table_name = any($1)
          and is_nullable = 'NO'
-         and column_default is null
+         /*
+          * Een standaardwaarde redt je hier NIET, en daar stond deze
+          * controle blind voor: hier stond 'and column_default is null'.
+          *
+          * Dat klopt zolang een veld wordt WEGGELATEN -- dan springt de
+          * standaardwaarde in. Maar toPayload laat niets weg: hij maakt van
+          * undefined een expliciete null (zie supabaseApi.ts), en een
+          * expliciete null gaat dwars langs de standaardwaarde heen.
+          *
+          * Dat kostte een vastgelopen synchronisatie in productie:
+          * allLocations: loc.allLocations || undefined op een boolean die
+          * not null default false is. Uit de foutmelding bleek precies dit,
+          * en deze controle had er niets van gezegd.
+          */
          and is_generated = 'NEVER'
     `, [tabellen])).rows.map((r) => r.sleutel))
 
@@ -9104,6 +9117,47 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
 
   check('geen enkel leeggemaakt veld is een verplichte kolom',
     botsing.length === 0, [...new Set(botsing)].join('; '))
+
+  /* ---- 5. en NOOIT_LEEG noemt alleen kolommen die echt niet leeg mogen ---- */
+
+  /*
+   * toRow() laat de velden uit NOOIT_LEEG weg in plaats van er null van te
+   * maken, zodat de standaardwaarde van de server erin springt. Dat is een
+   * vangnet voor records die al in een wachtrij stonden toen het scherm
+   * werd gerepareerd -- zie de uitleg bij die lijst.
+   *
+   * Een naam die daar per ongeluk in staat, wordt dus NOOIT meegestuurd.
+   * Voor een kolom die wél leeg mag betekent dat: leegmaken werkt niet meer,
+   * en er komt geen foutmelding. Precies het soort stilte waar deze hele
+   * controle voor bestaat, dus hij kijkt de lijst na.
+   */
+  const nooitBlok = adapter.slice(
+    adapter.indexOf('const NOOIT_LEEG'),
+    adapter.indexOf('const toSnake'))
+
+  const genoemd = [...nooitBlok.matchAll(/([a-zA-Z][a-zA-Z0-9]*):\s*\[([^\]]*)\]/g)]
+    .flatMap(([, entiteit, velden]) =>
+      [...velden.matchAll(/'([a-zA-Z][a-zA-Z0-9]*)'/g)].map((v) => ({
+        entiteit,
+        kolom: anders[v[1]] ?? naarSnake(v[1]),
+      })))
+
+  check('NOOIT_LEEG is te lezen', genoemd.length > 0, String(genoemd.length))
+
+  const nietVerplicht = []
+  for (const g of genoemd) {
+    const tabel = perEntiteit[g.entiteit]
+    if (!tabel) { nietVerplicht.push(`${g.entiteit} is geen entiteit`); continue }
+    const rij = (await vn.query(`
+      select is_nullable from information_schema.columns
+       where table_schema = 'public' and table_name = $1 and column_name = $2
+    `, [tabel, g.kolom])).rows[0]
+    if (!rij) nietVerplicht.push(`${tabel}.${g.kolom} bestaat niet`)
+    else if (rij.is_nullable !== 'NO') nietVerplicht.push(`${tabel}.${g.kolom} mag wel leeg`)
+  }
+
+  check('alles in NOOIT_LEEG is een kolom die echt niet leeg mag',
+    nietVerplicht.length === 0, nietVerplicht.join('; '))
 
   await vn.close()
 }

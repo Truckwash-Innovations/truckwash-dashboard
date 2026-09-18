@@ -1761,4 +1761,72 @@ console.log('\n102. Ophalen tot er niets meer is')
     'de oude grens van tweeduizend staat er nog')
 }
 
+
+console.log('\n116. Een boolean die leeg werd verstuurd')
+
+{
+  /*
+   * Gemeld uit productie:
+   *
+   *   opslaan in profiles: null value in column "all_locations" of relation
+   *   "profiles" violates not-null constraint
+   *
+   * Drie schermen deden `allLocations: loc.allLocations || undefined` op een
+   * boolean. Staat de schakelaar uit, dan is dat `false || undefined`, dus
+   * undefined -- en toRow() maakt daar een EXPLICIETE null van.
+   *
+   * Dat laatste is met opzet: anders kun je een veld niet leegmaken. Maar een
+   * expliciete null gaat langs de standaardwaarde van de kolom heen. `not null
+   * default false` redt je alleen als je de kolom WEGLAAT.
+   *
+   * Er zitten dus twee dingen fout, en ze moeten allebei gerepareerd:
+   *
+   *   de schermen        een boolean kent geen "leeg"
+   *   toRow              wat al in een wachtrij stond draagt die undefined nog
+   *                      steeds mee; alleen de schermen repareren laat die
+   *                      records eeuwig hangen op een fout die weg is
+   */
+  const { toRow } = await import('../../src/lib/api/supabaseApi')
+  const { readFileSync } = await import('node:fs')
+
+  /* --- wat de wachtrij nog kan bevatten --- */
+
+  const uit = toRow('users', { id: 'u_1', name: 'Bea', allLocations: undefined })
+  check('een uitgezette vlag gaat niet als null de deur uit',
+    !('all_locations' in uit), JSON.stringify(uit))
+
+  const leeg = toRow('users', { id: 'u_1', allLocations: null })
+  check('en een expliciete null ook niet',
+    !('all_locations' in leeg), JSON.stringify(leeg))
+
+  /* --- maar een echte waarde gaat gewoon mee --- */
+
+  check('false gaat wel mee, want dat is een antwoord',
+    toRow('users', { id: 'u_1', allLocations: false }).all_locations === false)
+
+  check('en true natuurlijk ook',
+    toRow('users', { id: 'u_1', allLocations: true }).all_locations === true)
+
+  /*
+   * En de rest blijft werken zoals hij werkte. Dit is de reden dat toRow van
+   * undefined een null maakt, en die mag niet sneuvelen: een veld leegmaken
+   * moet aankomen. Zie de uitleg boven toRow.
+   */
+  const gewist = toRow('users', { id: 'u_1', personnelNumber: undefined })
+  check('een veld dat wél leeg mag, gaat nog steeds als null mee',
+    gewist.personnel_number === null, JSON.stringify(gewist))
+
+  /* --- en de schermen sturen het niet meer als leeg op --- */
+
+  for (const bestand of [
+    'src/components/Personeel.tsx',
+    'src/components/NieuweMedewerker.tsx',
+    'src/lib/signups.ts',
+  ]) {
+    const tekst = readFileSync(bestand, 'utf8')
+    check(`${bestand} maakt van de vlag geen leegte meer`,
+      !/allLocations:\s*[a-zA-Z.]+\s*\|\|\s*undefined/.test(tekst))
+  }
+}
+
 }
