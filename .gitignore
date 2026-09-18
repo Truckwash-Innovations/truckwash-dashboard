@@ -59,3 +59,8 @@ testfacturen/
 
 # De meetset voor de factuurlezer: gemaakt met "npm run proefset".
 proeffacturen/
+
+# Een deel-uitdraai van de migraties, gemaakt met
+# "node scripts/build-bijwerken-sql.cjs <nummer>". Wegwerpwerk voor één keer
+# plakken: de bron zijn de migraties, en bijwerken.sql is het geheel.
+supabase/bijwerken-vanaf-*.sql

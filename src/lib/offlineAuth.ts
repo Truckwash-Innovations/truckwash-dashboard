@@ -49,3 +49,39 @@ export async function verifyOfflineLogin(email: string, password: string): Promi
 export async function forgetEverything() {
   await Promise.all(db.tables.map((t) => t.clear()))
 }
+
+/* ------------------------------------------------------------------ *
+ *  Wat er niet op een afgemeld apparaat hoort te blijven staan
+ *
+ *  De cache blijft met opzet staan als je uitlogt -- daar draait offline
+ *  inloggen op, en dat is precies wat een tablet in de wasstraat nodig
+ *  heeft. Maar dat gold ook voor het dossier, en dat hoort er niet bij.
+ *
+ *  Deze tabellen bevatten gegevens van ANDEREN: een leidinggevende die
+ *  inlogt trekt het BSN, het rekeningnummer en de paspoortscan van zijn
+ *  collega's naar zijn toestel. Raakt dat toestel kwijt terwijl er niemand
+ *  is ingelogd, dan is dat een datalek dat binnen 72 uur gemeld moet worden.
+ *
+ *  Wat iemand van zichzelf bij zich draagt (zijn eigen post, zijn eigen
+ *  rooster) staat hier bewust niet tussen. Dat is een aparte afweging.
+ * ------------------------------------------------------------------ */
+
+const GEVOELIG = () => [
+  db.personnelPrivate,  // geboortedatum, nationaliteit, documentnummer, BSN
+  db.personnelLoon,     // rekeningnummer, uurloon, interne notities
+  db.documents,         // dossierstukken, waaronder de scan van een ID-bewijs
+  db.changeRequests,    // wijzigingsverzoeken op een dossier
+  db.sollicitaties,     // van mensen die hier nog niet eens werken
+]
+
+/**
+ * Wist de dossiergegevens uit de lokale kopie.
+ *
+ * Bij uitloggen, en bij het inloggen van iemand anders op hetzelfde toestel.
+ * De rest van de cache blijft staan zodat offline werken blijft werken; deze
+ * tabellen worden bij de eerstvolgende synchronisatie vanzelf weer gevuld
+ * voor wie ze mag zien.
+ */
+export async function vergeetDossiergegevens() {
+  await Promise.all(GEVOELIG().map((t) => t.clear()))
+}

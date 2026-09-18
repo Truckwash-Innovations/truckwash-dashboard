@@ -11,10 +11,11 @@ import { db } from '../../lib/db'
 import {
   beurtenVan, chauffeursVan, koppelingen, magAfnemen, mijnWerkgevers, regels,
 } from '../../lib/werkgevers'
+import { netjes, wagens } from '../../lib/wagens'
 import {
-  KOPPELING_STATUS, REGEL_SOORTEN, SERVICES, WERKGEVER_STATUS,
-  type RegelSoort, type ServiceKind, type WashJob, type Werkgever,
-  type WerkgeverKoppeling, type WerkgeverRegel,
+  KOPPELING_STATUS, REGEL_SOORTEN, SERVICES, WAGEN_SOORTEN, WERKGEVER_STATUS,
+  type RegelSoort, type ServiceKind, type Wagen, type WagenSoort, type WashJob,
+  type Werkgever, type WerkgeverKoppeling, type WerkgeverRegel,
 } from '../../lib/types'
 import { dateTime, initials, money, relative, time } from '../../lib/format'
 import { Badge, Card, Empty, Field, Modal, Stat } from '../../components/ui'
@@ -46,6 +47,7 @@ export default function EmployerDashboard() {
   const alleLinks = useLiveQuery(() => db.employerLinks.toArray(), [], [] as WerkgeverKoppeling[])
   const alleRegels = useLiveQuery(() => db.employerRules.toArray(), [], [] as WerkgeverRegel[])
   const alleJobs = useLiveQuery(() => db.washJobs.toArray(), [], [] as WashJob[])
+  const alleWagens = useLiveQuery(() => db.wagens.toArray(), [], [] as Wagen[])
   const ongelezen = useOverlegTeller()
 
   const mijne = useMemo(
@@ -64,6 +66,17 @@ export default function EmployerDashboard() {
     () => werkgever ? beurtenVan(alleJobs, werkgever.id) : [],
     [alleJobs, werkgever],
   )
+  /* Een wagen hangt aan de werkgever of aan het factuuradres; in dit bedrijf
+     is dat dezelfde partij, dus allebei tellen mee. */
+  const park = useMemo(
+    () => werkgever
+      ? alleWagens.filter((w) =>
+          w.werkgeverId === werkgever.id
+          || (!!werkgever.companyId && w.companyId === werkgever.companyId))
+      : [],
+    [alleWagens, werkgever],
+  )
+
   const mijnRegels = useMemo(
     () => werkgever ? alleRegels.filter((r) => r.werkgeverId === werkgever.id) : [],
     [alleRegels, werkgever],
@@ -78,6 +91,8 @@ export default function EmployerDashboard() {
       sub: 'Wie er namens jou mag komen wassen' },
     { key: 'beurten', label: 'Wasbeurten', icon: Truck,
       sub: 'Wat er op jouw naam is gedaan' },
+    { key: 'wagenpark', label: 'Wagenpark', icon: Truck,
+      sub: 'Welke wagens er op jouw naam rijden' },
     { key: 'afspraken', label: 'Afspraken', icon: ClipboardList, als: magBeheren,
       sub: 'Wat er per wagen wel en niet mag' },
     { key: 'overleg', label: 'Overleg', icon: MessageSquare, badge: ongelezen,
@@ -211,6 +226,14 @@ export default function EmployerDashboard() {
         <Chauffeurs werkgever={werkgever} chauffeurs={chauffeurs} beurten={beurten} />
       )}
       {page === 'beurten' && <Beurten beurten={beurten} chauffeurs={chauffeurs} />}
+      {page === 'wagenpark' && (
+        <Wagenpark
+          werkgever={werkgever}
+          park={park}
+          chauffeurs={chauffeurs}
+          magBeheren={magBeheren}
+        />
+      )}
       {page === 'afspraken' && (
         <Afspraken werkgever={werkgever} regels={mijnRegels} beurten={beurten} />
       )}
@@ -610,6 +633,227 @@ function Beurten({
 /* ================================================================== *
  *  Afspraken
  * ================================================================== */
+
+/* ------------------------------------------------------------------ *
+ *  Het wagenpark
+ *
+ *  Tot nu toe bestond een wagen pas nadat hij een keer gewassen was: de
+ *  lijst werd afgeleid uit de historie. Hier zet een bedrijf zijn eigen
+ *  wagens neer, met het kenteken zoals het op de plaat staat.
+ *
+ *  De schrijfwijze doet ertoe. Wat hier ingetikt wordt moet straks matchen
+ *  met wat de kassa noteert en met wat een camera leest, en dat waren tot
+ *  0114 drie verschillende dingen. De database maakt er één kale vorm van;
+ *  op het scherm blijft staan wat iemand intikte.
+ * ------------------------------------------------------------------ */
+
+function Wagenpark({
+  werkgever, park, chauffeurs, magBeheren,
+}: {
+  werkgever: Werkgever
+  park: Wagen[]
+  chauffeurs: WerkgeverKoppeling[]
+  magBeheren: boolean
+}) {
+  const me = useAuth((s) => s.user)!
+  const [nieuw, setNieuw] = useState(false)
+  const [bezig, setBezig] = useState(false)
+
+  const [kenteken, setKenteken] = useState('')
+  const [soort, setSoort] = useState<WagenSoort>('trekker')
+  const [chauffeurLinkId, setChauffeurLinkId] = useState('')
+  const [chauffeurNaam, setChauffeurNaam] = useState('')
+  const [omschrijving, setOmschrijving] = useState('')
+
+  const actief = park.filter((w) => w.actief)
+  const opzij = park.filter((w) => !w.actief)
+
+  function leeg() {
+    setKenteken(''); setSoort('trekker')
+    setChauffeurLinkId(''); setChauffeurNaam(''); setOmschrijving('')
+  }
+
+  async function bewaren() {
+    if (bezig) return
+    setBezig(true)
+    try {
+      /* Een gekozen chauffeur wint van een ingetikte naam: die koppeling
+         verdwijnt vanzelf als iemand bij dit bedrijf weggaat. */
+      const gekozen = chauffeurs.find((c) => c.id === chauffeurLinkId)
+      await wagens.toevoegen({
+        werkgeverId: werkgever.id,
+        companyId: werkgever.companyId,
+        kenteken,
+        soort,
+        omschrijving,
+        chauffeurLinkId: gekozen?.id,
+        chauffeurNaam: gekozen ? gekozen.naam : chauffeurNaam,
+        door: me,
+      })
+      toast.ok(`${netjes(kenteken)} staat in het wagenpark`)
+      leeg()
+      setNieuw(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Opslaan mislukt')
+    } finally {
+      setBezig(false)
+    }
+  }
+
+  return (
+    <>
+      <Card className="mb">
+        <div className="row tussen">
+          <div>
+            <h3 className="kop">Wagenpark</h3>
+            <p className="dim sm">
+              De wagens die namens {werkgever.naam} gewassen worden. Het kenteken
+              dat je hier invult is waarop we straks herkennen wie er voorrijdt.
+            </p>
+          </div>
+          {magBeheren && (
+            <button className="btn" onClick={() => setNieuw(true)}>
+              <Plus size={15} /> Wagen toevoegen
+            </button>
+          )}
+        </div>
+      </Card>
+
+      {actief.length === 0 ? (
+        <Empty
+          icon={<Truck size={30} />}
+          text={magBeheren
+            ? 'Nog geen wagens. Zet ze erin, dan herkennen we ze bij binnenkomst.'
+            : 'Nog geen wagens. De beheerder van dit bedrijf kan ze toevoegen.'}
+        />
+      ) : (
+        <Card className="mb">
+          <div className="regel-lijst">
+            {actief.map((w) => (
+              <div key={w.id} className="regel">
+                <span className="wat">
+                  <span className="kenteken">{w.kenteken}</span>
+                  {w.soort && <Badge tone="default">{WAGEN_SOORTEN[w.soort]}</Badge>}
+                </span>
+                <span className="waar">
+                  {w.chauffeurNaam
+                    ? w.chauffeurNaam
+                    : <span className="alles">geen vaste chauffeur</span>}
+                </span>
+                {w.omschrijving && <span className="reden">{w.omschrijving}</span>}
+                {magBeheren && (
+                  <button
+                    className="btn ghost sm"
+                    title="Uit dienst halen"
+                    onClick={() => void wagens.opZijSchuiven(w.id).then(
+                      () => toast.info(`${w.kenteken} staat niet meer in dienst`))}
+                  >
+                    <UserMinus size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Uit dienst, maar niet weg: de historie hangt eraan. */}
+      {opzij.length > 0 && (
+        <Card className="mb">
+          <h4 className="kop sm">Niet meer in dienst</h4>
+          <div className="regel-lijst">
+            {opzij.map((w) => (
+              <div key={w.id} className="regel t-default">
+                <span className="wat"><span className="kenteken">{w.kenteken}</span></span>
+                {magBeheren && (
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => void wagens.bijwerken(w.id, { actief: true }).then(
+                      () => toast.ok(`${w.kenteken} is weer in dienst`))}
+                  >
+                    Terug in dienst
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Modal
+        open={nieuw}
+        onClose={() => { leeg(); setNieuw(false) }}
+        title="Wagen toevoegen"
+      >
+        <Field label="Kenteken">
+          <input
+            className="in"
+            value={kenteken}
+            onChange={(e) => setKenteken(e.target.value)}
+            placeholder="BX-JT-42"
+            autoFocus
+          />
+        </Field>
+
+        <Field label="Soort">
+          <select
+            className="in"
+            value={soort}
+            onChange={(e) => setSoort(e.target.value as WagenSoort)}
+          >
+            {Object.entries(WAGEN_SOORTEN).map(([k, label]) => (
+              <option key={k} value={k}>{label}</option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Vaste chauffeur" help="Mag leeg blijven.">
+          <select
+            className="in"
+            value={chauffeurLinkId}
+            onChange={(e) => { setChauffeurLinkId(e.target.value); setChauffeurNaam('') }}
+          >
+            <option value="">— geen vaste chauffeur —</option>
+            {chauffeurs.filter((c) => c.status === 'actief').map((c) => (
+              <option key={c.id} value={c.id}>{c.naam || c.email}</option>
+            ))}
+          </select>
+        </Field>
+
+        {/* Niet elke chauffeur heeft een account bij ons. */}
+        {!chauffeurLinkId && (
+          <Field label="…of een naam" help="Voor wie geen inlog heeft.">
+            <input
+              className="in"
+              value={chauffeurNaam}
+              onChange={(e) => setChauffeurNaam(e.target.value)}
+              placeholder="Naam van de chauffeur"
+            />
+          </Field>
+        )}
+
+        <Field label="Omschrijving" help="Mag leeg blijven.">
+          <input
+            className="in"
+            value={omschrijving}
+            onChange={(e) => setOmschrijving(e.target.value)}
+            placeholder="Bijv. koeltrailer"
+          />
+        </Field>
+
+        <div className="row tussen" style={{ marginTop: 14 }}>
+          <button className="btn ghost" onClick={() => { leeg(); setNieuw(false) }}>
+            Annuleren
+          </button>
+          <button className="btn" disabled={bezig || !kenteken.trim()} onClick={() => void bewaren()}>
+            {bezig ? <Loader2 size={15} className="spin" /> : <Plus size={15} />} Toevoegen
+          </button>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
 
 function Afspraken({
   werkgever, regels: mijnRegels, beurten,

@@ -84,6 +84,7 @@ export const DASHBOARDS_MET: Record<string, Role[]> = {
   beurten:      ['employer'],
   chauffeurs:   ['employer'],
   afspraken:    ['employer'],
+  wagenpark:    ['employer'],
 
   // Alleen bij de administratie
   //
@@ -275,6 +276,7 @@ export const SCHERMEN: Scherm[] = [
   { page: 'beurten',    label: 'Wasbeurten',   hint: 'Wat er op naam van je bedrijf staat', icon: Truck,      rol: 'employer' },
   { page: 'chauffeurs', label: 'Chauffeurs',   hint: 'Wie er namens je bedrijf komt wassen', icon: Users,     rol: 'employer', recht: 'employer.staff' },
   { page: 'afspraken',  label: 'Afspraken',    hint: 'Wat er per wagen wel en niet mag',  icon: ClipboardList, rol: 'employer', recht: 'employer.rules' },
+  { page: 'wagenpark',  label: 'Wagenpark',    hint: 'Welke wagens er op naam van je bedrijf rijden', icon: Truck, rol: 'employer', ook: ['wagens', 'kenteken', 'kentekens', 'vloot', 'trucks', 'voertuigen'] },
   // Met rol: management heeft alle rechten, maar deze pagina's bestaan alleen
   // in het dashboard van Trucksshop; zonder rol was het een treffer die
   // nergens heen leidde (kiesDashboard geeft dan null).

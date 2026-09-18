@@ -514,7 +514,11 @@ function EditPersonDialog({
       locationId: loc.locationId,
       // Leeg opslaan als niets: een lege lijst leest als "nergens leiding".
       manages: loc.manages.length ? loc.manages : undefined,
-      allLocations: loc.allLocations || undefined,
+      /* Een boolean kent geen "leeg": false || undefined wordt undefined,
+         en toPayload maakt daar een expliciete null van -- die gebruikt de
+         standaardwaarde van de kolom NIET, en all_locations is not null.
+         Dat liep in productie vast op de synchronisatie. */
+      allLocations: !!loc.allLocations,
     })
     toast.ok('Gegevens bijgewerkt')
     onClose()

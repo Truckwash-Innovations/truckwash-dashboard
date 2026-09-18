@@ -73,6 +73,7 @@ export const CATEGORIEEN: Categorie[] = [
       'opleiding',
       'dossier',
       'beurten',
+      'wagenpark',
       'afspraken',
       'historie',
       'facturen',

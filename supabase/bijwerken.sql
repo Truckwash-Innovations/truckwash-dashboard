@@ -1,5 +1,5 @@
 -- ===========================================================================
---  Bijwerken: migratie 0017 tot en met 0113
+--  Bijwerken: migratie 0017 tot en met 0117
 --
 --  Plak dit in de SQL-editor van Supabase en druk op Run. Opnieuw draaien mag.
 --
@@ -109,6 +109,10 @@
 --    0111  Een wekker die je ook buiten zijn uur kunt laten afgaan
 --    0112  Een mail die sneuvelt is niet verloren
 --    0113  0113 -- Een bon die vastloopt, kun je opnieuw aanbieden
+--    0114  Een wagen is meer dan een tekstveld
+--    0115  Een BSN uit Groenlo hoort niet in Venlo
+--    0116  Een wisverzoek dat echt wist
+--    0117  Van een kenteken naar de klant
 -- ===========================================================================
 
 -- ===========================================================================
@@ -22386,5 +22390,748 @@ comment on column public.notifications.link_id is
 do $stand$ begin
   if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
     perform public.migratie_gedaan(113, '0113 -- Een bon die vastloopt, kun je opnieuw aanbieden');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een wagen is meer dan een tekstveld
+--
+--  Johannes, over de kentekencamera's: "controleren of er voor elk kenteken
+--  wel een order gemaakt is of dat er een vergeten is."
+--
+--  Dat kan niet zolang een kenteken nergens van iemand is.
+--
+--  Wat er stond
+--  ------------
+--
+--  Kentekens liggen op vijf plekken, allemaal als vrije tekst:
+--
+--      wash_jobs.plate            de wasbeurt        (not null)
+--      pos_sales.plate            de kassabon
+--      pos_subscriptions.plate    de strippenkaart
+--      employer_links.kentekens   wat een chauffeur mag brengen
+--      employer_rules.kenteken    waarvoor een afspraak geldt
+--
+--  Er is geen wagen. Het "wagenpark" dat een werkgever in beeld krijgt wordt
+--  live afgeleid uit de historie -- een Set over b.plate. Een wagen bestaat
+--  dus pas nadat hij een keer gewassen is, en houdt op te bestaan zodra de
+--  historie uit beeld loopt.
+--
+--  Erger is de schrijfwijze. Er zijn er nu twee in omloop: de kassa doet
+--  toUpperCase().trim(), het zoeken haalt de streepjes eruit. "BX-JT-42",
+--  "bxjt42" en "BX JT 42" zijn voor dit systeem drie verschillende wagens.
+--  Wat een camera straks leest gaat daar nooit op matchen.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Een tabel waarin een bedrijf zijn eigen wagens zet, met het kenteken
+--  twee keer: zoals iemand het intikt, en kaal. Die kale vorm wordt door de
+--  database zelf gezet, niet door de app -- anders drift het opnieuw uit
+--  elkaar zodra er een tweede plek bijkomt die wagens aanmaakt.
+--
+--  De wagen hangt aan de werkgever, want dat is het enige bedrijfsbegrip dat
+--  zichzelf al mag beheren (employers.beheerders). Maar hij draagt ook het
+--  company_id mee, zodat het factuuradres hetzelfde wagenpark ziet. In dit
+--  bedrijf zijn dat dezelfde partij; in het schema zijn het twee tabellen
+--  met employers.company_id ertussen.
+--
+--  Lezen mag dus langs twee routes, precies zoals jobs_select dat al doet
+--  voor de wasbeurten. Schrijven mag alleen een beheerder van dat bedrijf,
+--  precies zoals wgr_write dat al doet voor de afspraken. Een chauffeur die
+--  aan het bedrijf gekoppeld is mag kijken, niet wijzigen -- mijn_werkgevers()
+--  telt hem wel mee en is daarom als schrijfrecht ongeschikt.
+--
+--  Opnieuw draaien mag.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Eén schrijfwijze, en die staat hier
+--
+--  Hoofdletters, en alles weg wat geen letter of cijfer is. Streepjes,
+--  spaties en punten verdwijnen. Dit is de vorm waarop vergeleken wordt --
+--  met wat de kassa intikte, en straks met wat een camera leest.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.kenteken_kaal(invoer text)
+returns text language sql immutable as $$
+  select regexp_replace(upper(coalesce(invoer, '')), '[^A-Z0-9]', '', 'g');
+$$;
+
+grant execute on function public.kenteken_kaal(text) to authenticated;
+
+comment on function public.kenteken_kaal(text) is
+  'De vergelijkbare vorm van een kenteken (0114): hoofdletters, alleen '
+  'letters en cijfers. BX-JT-42, bx jt 42 en BXJT42 geven alle drie BXJT42.';
+
+-- ---------------------------------------------------------------------------
+--  2. De wagen
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.wagen (
+  id                text primary key,
+
+  -- Van wie hij is. Allebei mag, en minstens één moet -- want op dit moment
+  -- staat er nog geen enkele klant in het systeem en is nog niet uitgemaakt
+  -- of ze als werkgever of als facturatieklant worden ingevoerd. In dit
+  -- bedrijf is dat dezelfde partij; het schema houdt beide deuren open tot
+  -- de eerste klanten erin staan.
+  werkgever_id      text references public.employers(id) on delete cascade,
+  company_id        text references public.companies(id) on delete set null,
+
+  constraint wagen_heeft_eigenaar
+    check (werkgever_id is not null or company_id is not null),
+
+  -- Zoals ingetikt, en zoals vergeleken. De kale vorm zet de trigger.
+  kenteken          text not null,
+  kenteken_kaal     text not null default '',
+
+  soort             text check (soort is null or soort in
+                      ('trekker','oplegger','bakwagen','bus','tank','anders')),
+  omschrijving      text,
+
+  -- De chauffeur die er vast op rijdt. Bij voorkeur een bestaande koppeling,
+  -- want dan verdwijnt hij vanzelf uit beeld als die koppeling stopt. Een
+  -- naam zonder account mag ook -- niet elke chauffeur heeft een inlog.
+  chauffeur_link_id text references public.employer_links(id) on delete set null,
+  chauffeur_naam    text not null default '',
+
+  actief            boolean not null default true,
+  notitie           text,
+
+  door              text,
+  created_at        bigint not null default public.now_ms(),
+  updated_at        bigint not null default public.now_ms()
+);
+
+comment on table public.wagen is
+  'Het wagenpark van een werkgever (0114). Een bedrijf zet hier zijn eigen '
+  'wagens neer; kenteken_kaal is de vorm waarop een camerakenteken matcht.';
+
+comment on column public.wagen.kenteken_kaal is
+  'Wordt door de trigger gezet, nooit door de app. Niet met de hand vullen.';
+
+create index if not exists wagen_werkgever_idx on public.wagen (werkgever_id);
+create index if not exists wagen_company_idx   on public.wagen (company_id);
+create index if not exists wagen_kenteken_idx  on public.wagen (kenteken_kaal);
+create index if not exists wagen_updated_idx   on public.wagen (updated_at);
+
+-- Eén wagen per bedrijf, op de kale vorm -- anders staat dezelfde wagen er
+-- twee keer in omdat iemand de streepjes anders zette.
+--
+-- Twee indexen, want een wagen hangt aan een werkgever of aan een
+-- facturatieklant. Postgres laat NULL's in een unieke index ongemoeid, dus
+-- één index over beide kolommen zou de tweede soort niet afdekken.
+create unique index if not exists wagen_uniek_werkgever
+  on public.wagen (werkgever_id, kenteken_kaal)
+  where werkgever_id is not null;
+
+create unique index if not exists wagen_uniek_company
+  on public.wagen (company_id, kenteken_kaal)
+  where werkgever_id is null and company_id is not null;
+
+-- ---------------------------------------------------------------------------
+--  3. De kale vorm zet zichzelf
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wagen_kenteken_zetten()
+returns trigger language plpgsql as $$
+begin
+  new.kenteken      := upper(btrim(coalesce(new.kenteken, '')));
+  new.kenteken_kaal := public.kenteken_kaal(new.kenteken);
+
+  if new.kenteken_kaal = '' then
+    raise exception 'Een wagen heeft een kenteken nodig.';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists wagen_kenteken on public.wagen;
+create trigger wagen_kenteken before insert or update on public.wagen
+  for each row execute function public.wagen_kenteken_zetten();
+
+-- ---------------------------------------------------------------------------
+--  4. Wat een bedrijf niet zelf mag verzetten
+--
+--  Een beheerder beheert zijn eigen wagenpark, niet bij wie het hoort. Zonder
+--  deze rem kan hij zijn wagens aan een ander bedrijf hangen, of aan een
+--  factuuradres dat niet van hem is.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wagen_bewaak()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_management() then
+    return new;
+  end if;
+
+  new.werkgever_id := old.werkgever_id;
+  new.company_id   := old.company_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists wagen_bewaken on public.wagen;
+create trigger wagen_bewaken before update on public.wagen
+  for each row execute function public.wagen_bewaak();
+
+-- ---------------------------------------------------------------------------
+--  5. Stempel en melding
+--
+--  Zonder meld_verwijdering blijft een verwijderde wagen op elk apparaat in
+--  de lokale kopie staan -- dezelfde fout die 0038 voor de andere tabellen
+--  rechtzette.
+-- ---------------------------------------------------------------------------
+
+drop trigger if exists stamp_wagen on public.wagen;
+create trigger stamp_wagen before insert or update on public.wagen
+  for each row execute function public.stamp_updated_at();
+
+drop trigger if exists wagen_verwijderd on public.wagen;
+create trigger wagen_verwijderd after delete on public.wagen
+  for each row execute function public.meld_verwijdering();
+
+-- ---------------------------------------------------------------------------
+--  6. Wie mag wat
+--
+--  Lezen: Truckwash1, het factuuradres, en iedereen die bij de werkgever
+--  hoort -- beheerder of gekoppelde chauffeur. Dat is jobs_select, letterlijk.
+--
+--  Schrijven: het management, een beheerder van dát bedrijf, of het
+--  facturatieaccount van dát bedrijf. Bewust NIET mijn_werkgevers(), want daar
+--  zitten ook de gekoppelde chauffeurs in; die zouden dan het hele wagenpark
+--  van hun werkgever kunnen wissen.
+-- ---------------------------------------------------------------------------
+
+/*
+ * Mag ik deze wagen beheren?
+ *
+ * Staat apart omdat insert, update en delete hem alle drie nodig hebben, en
+ * drie keer hetzelfde exists-blok overschrijven is precies hoe zulke regels
+ * uit elkaar gaan lopen.
+ */
+create or replace function public.wagen_beheerder(wg_id text, co_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_management()
+      or (wg_id is not null and exists (
+            select 1 from public.employers e
+             where e.id = wg_id
+               and public.my_id() = any(e.beheerders)))
+      or (co_id is not null and co_id = public.my_company());
+$$;
+
+grant execute on function public.wagen_beheerder(text, text) to authenticated;
+
+/* De regels hierboven gelden alleen voor ingelogde gebruikers, dus anon heeft
+   deze functie nooit nodig. Supabase deelt execute standaard uit aan iedereen;
+   dat halen we er hier weer af. Zie 0034. */
+revoke execute on function public.wagen_beheerder(text, text) from public, anon;
+
+comment on function public.wagen_beheerder(text, text) is
+  'Wie het wagenpark van een bedrijf mag wijzigen (0114): het management, een '
+  'beheerder van de werkgever, of het facturatieaccount van dat bedrijf.';
+
+alter table public.wagen enable row level security;
+
+drop policy if exists wagen_select on public.wagen;
+create policy wagen_select on public.wagen for select to authenticated
+  using (
+    public.is_staff()
+    or (company_id is not null and company_id = public.my_company())
+    or werkgever_id = any(public.mijn_werkgevers())
+  );
+
+drop policy if exists wagen_insert on public.wagen;
+create policy wagen_insert on public.wagen for insert to authenticated
+  with check (
+    not public.rij_bestaat('public.wagen'::regclass, id)
+    and public.wagen_beheerder(werkgever_id, company_id)
+  );
+
+drop policy if exists wagen_update on public.wagen;
+create policy wagen_update on public.wagen for update to authenticated
+  using      (public.wagen_beheerder(werkgever_id, company_id))
+  with check (public.wagen_beheerder(werkgever_id, company_id));
+
+drop policy if exists wagen_delete on public.wagen;
+create policy wagen_delete on public.wagen for delete to authenticated
+  using (public.wagen_beheerder(werkgever_id, company_id));
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(114, 'Een wagen is meer dan een tekstveld');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een BSN uit Groenlo hoort niet in Venlo
+--
+--  Draai dit ná 0114. Opnieuw draaien mag.
+--
+--  Wat er stond
+--  ------------
+--
+--  Sinds 0056 mag een leidinggevende de identiteitskant van het dossier zien
+--  en wijzigen -- terecht, want die maakt nieuwe medewerkers aan en heeft
+--  daar het BSN voor nodig. Maar de regel die dat toestaat kreeg als enige
+--  in dit schema géén vestigingsfilter:
+--
+--      using (user_id = public.my_id()
+--             or public.is_management()
+--             or public.is_supervisor()
+--             or public.heeft_recht('staff.view'));
+--
+--  Vrijwel elke andere regel op personeelsgegevens eindigt op
+--  `in_my_locations(location_id)`. Deze niet. Een leidinggevende in Venlo kan
+--  daardoor het BSN, de geboortedatum en het documentnummer van iemand in
+--  Groenlo opvragen en aanpassen, terwijl hij die persoon niet in het
+--  rooster ziet staan en er niets mee te maken heeft.
+--
+--  Dat is geen theoretisch gat. Het gaat om ongeveer 250 mensen, en het
+--  documentnummer plus de geboortedatum plus het BSN is precies het pakket
+--  waarmee identiteitsfraude wordt gepleegd.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Dezelfde toegang, maar begrensd tot de vestigingen waar je over gaat. Het
+--  management en iedereen met `locations.all` merken er niets van -- die
+--  zien alles, zoals eerst.
+--
+--  WAT HIER BEWUST NIET IS DICHTGEZET
+--  ----------------------------------
+--
+--  Iemand zónder vestiging blijft zichtbaar voor elke leidinggevende. Dat is
+--  wat `in_my_locations()` doet: een lege vestiging geeft `true`.
+--
+--  Bij het schrijven van deze migratie stond dat eerst dicht. Dat brak het
+--  bestaande geval "een leidinggevende ziet het dossier van zijn team" --
+--  terecht, want in dit systeem is een team een vestiging, en zonder
+--  vestiging is er geen team om buiten te vallen. Belangrijker: `profiles`
+--  zelf werkt al zo. Iemand zonder vestiging is daar voor elke leidinggevende
+--  zichtbaar. Het dossier strenger maken dan het profiel eromheen levert
+--  inconsistentie op, en sluit in het ergste geval leidinggevenden af van hun
+--  eigen mensen zodra een vestiging niet is ingevuld.
+--
+--  Blijft staan als open punt: hoeveel profielen hebben er geen vestiging?
+--  Zolang dat er meer dan een handvol zijn, is dit het echte gat en niet de
+--  regel hierboven.
+-- ===========================================================================
+
+/*
+ * Mag ik het dossier van deze persoon inzien, gelet op vestiging?
+ *
+ * Alleen de vestigingsvraag. Of je er überhaupt bij mag staat in de regel
+ * zelf; deze functie snijdt daar de vestiging af.
+ */
+create or replace function public.dossier_in_bereik(persoon text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_management()
+      or exists (
+           select 1 from public.profiles p
+            where p.id = persoon
+              and public.in_my_locations(p.location_id)
+         );
+$$;
+
+grant execute on function public.dossier_in_bereik(text) to authenticated;
+
+/* Staat alleen in regels die voor ingelogde gebruikers gelden. Zie 0034. */
+revoke execute on function public.dossier_in_bereik(text) from public, anon;
+
+comment on function public.dossier_in_bereik(text) is
+  'Of het dossier van deze persoon binnen jouw vestigingen valt (0115). '
+  'Iemand zonder vestiging valt er binnen, net als bij profiles zelf.';
+
+-- ---------------------------------------------------------------------------
+--  De identiteitskant
+-- ---------------------------------------------------------------------------
+
+/*
+ * mag_dossiers_beheren() komt uit 0074 en is precies de drie rollen uit de
+ * oude regel: management, leidinggevende, of wie staff.view heeft. Daar komt
+ * nu de vestiging bij.
+ *
+ * `user_id = my_id()` blijft er in allebei staan. In prive_write is dat geen
+ * detail maar de hele reden dat 0074 bestaat: je eigen woonadres invullen
+ * gaat via die rij, en de trigger eigen_rij_alleen_adres() zorgt dat je er
+ * verder niets in kunt zetten. Wie die clausule weghaalt, breekt dat -- en
+ * dat is precies wat er bij het schrijven van deze migratie eerst gebeurde.
+ */
+
+drop policy if exists prive_select on public.personnel_private;
+create policy prive_select on public.personnel_private for select to authenticated
+  using (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  );
+
+drop policy if exists prive_write on public.personnel_private;
+create policy prive_write on public.personnel_private for all to authenticated
+  using (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  )
+  with check (
+    user_id = public.my_id()
+    or (public.mag_dossiers_beheren() and public.dossier_in_bereik(user_id))
+  );
+
+-- ---------------------------------------------------------------------------
+--  De geldkant blijft zoals hij was
+--
+--  loon_select en loon_write staan al op alleen het management en de persoon
+--  zelf; daar zit geen leidinggevende tussen en dus ook geen gat. Bewust niet
+--  aangeraakt: een regel die klopt hoef je niet te herschrijven.
+-- ---------------------------------------------------------------------------
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(115, 'Een BSN uit Groenlo hoort niet in Venlo');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Een wisverzoek dat echt wist
+--
+--  Draai dit ná 0115. Opnieuw draaien mag.
+--
+--  Wat er stond
+--  ------------
+--
+--  De knop "wissen" in het medewerkerscherm is bedoeld voor het zwaarste
+--  geval: iemand wil dat zijn gegevens weg zijn. De serverfunctie schrijft
+--  een regel in het verwijderlogboek, haalt het inlogaccount weg en
+--  verwijdert de rij in profiles.
+--
+--  Daar houdt het op. En `user_id` in de dossiertabellen is een gewone
+--  tekstkolom zonder foreign key, dus er cascadeert niets:
+--
+--      personnel_private   geboortedatum, nationaliteit, documentnummer, BSN
+--      personnel_loon      rekeningnummer, uurloon, interne notities
+--      documents           de dossierstukken, waaronder de scan van het
+--                          identiteitsbewijs -- voor- én achterkant
+--      change_requests     de wijzigingsverzoeken op dat dossier
+--
+--  Die vier blijven staan. Iemand die om verwijdering vraagt en dat
+--  bevestigd krijgt, houdt zijn paspoort bij ons in het systeem. Er is geen
+--  scherm waarop dat nog te zien is, dus het valt ook niet op.
+--
+--  Wat het wordt
+--  -------------
+--
+--  Een trigger op profiles die de vier meeneemt. Bewust hier en niet in de
+--  serverfunctie: dit moet ook gelden als iemand ooit een rij rechtstreeks
+--  weghaalt, en een regel die je kunt omzeilen door een andere deur te
+--  nemen is geen regel.
+--
+--  De vier tabellen krijgen er ook een verwijdermelding bij. Zonder die
+--  melding blijven de rijen in de lokale kopie op elk toestel staan -- dan
+--  heb je ze centraal gewist en staan ze nog op vijf tablets. Dat is dezelfde
+--  fout die 0038 voor de andere tabellen rechtzette.
+--
+--  WAT DEZE MIGRATIE NIET KAN
+--  --------------------------
+--
+--  De bestanden zelf. Een scan van een identiteitsbewijs staat in de
+--  opslagemmer `dossiers`, en daar komt de database niet bij. Die moeten weg
+--  via de serverfunctie; zie supabase/functions/medewerker/index.ts. Blijft
+--  dat achterwege, dan is de databaserij weg en het plaatje niet.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Het dossier gaat mee
+-- ---------------------------------------------------------------------------
+
+create or replace function public.dossier_mee_verwijderen()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.change_requests   where user_id = old.id;
+  delete from public.documents         where user_id = old.id;
+  delete from public.personnel_loon    where user_id = old.id;
+  delete from public.personnel_private where user_id = old.id;
+  return old;
+end;
+$$;
+
+comment on function public.dossier_mee_verwijderen() is
+  'Haalt het dossier weg zodra het profiel weggaat (0116). De bestanden in de '
+  'emmer dossiers vallen hierbuiten; die doet de serverfunctie.';
+
+drop trigger if exists profiel_neemt_dossier_mee on public.profiles;
+create trigger profiel_neemt_dossier_mee after delete on public.profiles
+  for each row execute function public.dossier_mee_verwijderen();
+
+-- ---------------------------------------------------------------------------
+--  2. En elk toestel hoort het
+--
+--  De vier tabellen hadden geen verwijdermelding. Zonder die melding weet een
+--  tablet niet dat er iets weg is en blijft de rij in de lokale kopie staan.
+-- ---------------------------------------------------------------------------
+
+do $$
+declare t text;
+begin
+  foreach t in array array['personnel_private', 'personnel_loon',
+                           'documents', 'change_requests'] loop
+    execute format('drop trigger if exists %1$s_verwijderd on public.%1$I', t);
+    execute format(
+      'create trigger %1$s_verwijderd after delete on public.%1$I
+       for each row execute function public.meld_verwijdering()', t);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+--  3. Wat er nu nog staat van mensen die al weg zijn
+--
+--  Deze migratie repareert de regel voor de toekomst. Wat er in het verleden
+--  is blijven staan gaat niet vanzelf weg -- dat zijn dossierrijen van
+--  profielen die niet meer bestaan.
+--
+--  Bewust GEEN automatische opruiming hier. Een migratie die ongevraagd
+--  persoonsgegevens verwijdert is precies het soort ding dat je niet wilt
+--  als de aanname eronder niet klopt. Kijk eerst wat er staat:
+--
+--      select * from public.dossier_wezen();
+--
+--  en ruim daarna gericht op, met de uitkomst erbij in het dossier van het
+--  AVG-verzoek waar het bij hoort.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.dossier_wezen()
+returns table (tabel text, hoeveel bigint)
+language sql stable security definer set search_path = public as $$
+  select 'personnel_private', count(*) from public.personnel_private x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'personnel_loon', count(*) from public.personnel_loon x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'documents', count(*) from public.documents x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id)
+  union all
+  select 'change_requests', count(*) from public.change_requests x
+    where not exists (select 1 from public.profiles p where p.id = x.user_id);
+$$;
+
+revoke execute on function public.dossier_wezen() from public, anon, authenticated;
+
+comment on function public.dossier_wezen() is
+  'Hoeveel dossierrijen er nog staan van profielen die niet meer bestaan '
+  '(0116). Alleen voor de server; draai hem voordat je opruimt.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(116, 'Een wisverzoek dat echt wist');
+  end if;
+end $stand$;
+
+-- ===========================================================================
+--  Van een kenteken naar de klant
+--
+--  Draai dit ná 0116. Opnieuw draaien mag.
+--
+--  Johannes, over de kentekencamera's: "waardoor we die later kunnen zien in
+--  het systeem, op naam van die klant."
+--
+--  Dat is één vraag: van een kenteken naar een bedrijf. 0114 maakte de
+--  schrijfwijze eenduidig en zette het wagenpark neer; hier wordt die vraag
+--  beantwoordbaar.
+--
+--  Waarom geen wagen_id op de bon
+--  ------------------------------
+--
+--  Het voor de hand liggende zou zijn: een kolom wagen_id op wash_jobs en
+--  pos_sales, gevuld bij het aanmaken. Dat is hier de verkeerde keuze.
+--
+--  Het kenteken IS de sleutel. Het staat op de plaat, de balie tikt het in,
+--  de camera leest het, en sinds 0114 is er één schrijfwijze. Een tweede
+--  verwijzing ernaast levert vooral de mogelijkheid op dat de twee het
+--  oneens worden -- een bon met wagen_id A en kenteken B is een vraag die
+--  niemand kan beantwoorden.
+--
+--  Dus: koppelen op de kale vorm, met een index eronder zodat het snel gaat.
+--  Wordt een wagen later aan een ander bedrijf overgedragen, dan verschuift
+--  de historie mee. Dat is voor "wiens wagen is dit nu" juist goed; wie de
+--  historie op het bedrijf van tóen wil, leest company_id op de bon zelf,
+--  en dat blijft gewoon staan.
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+--  1. Zoeken op de kale vorm moet snel zijn
+--
+--  Zonder deze indexen leest elke zoekopdracht de hele tabel, want de
+--  vergelijking staat op kenteken_kaal(plate) en niet op plate zelf.
+-- ---------------------------------------------------------------------------
+
+create index if not exists wash_jobs_kenteken_idx
+  on public.wash_jobs (public.kenteken_kaal(plate));
+
+create index if not exists pos_sales_kenteken_idx
+  on public.pos_sales (public.kenteken_kaal(plate));
+
+create index if not exists pos_subscriptions_kenteken_idx
+  on public.pos_subscriptions (public.kenteken_kaal(plate));
+
+-- ---------------------------------------------------------------------------
+--  2. Wiens wagen is dit?
+--
+--  Eén rij per treffer. Meestal nul of één; twee bedrijven met hetzelfde
+--  kenteken hoort niet te kunnen maar wordt hier niet weggemoffeld -- als het
+--  gebeurt wil je het zien.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+--  Waarom de parameter niet kenteken heet
+--
+--  In een SQL-functie wint een KOLOM van een parameter met dezelfde naam. Een
+--  functie wagen_zoeken(kenteken text) leest in zijn eigen where-voorwaarde
+--  dus w.kenteken, en niet wat je meegaf:
+--
+--      where w.kenteken_kaal = public.kenteken_kaal(kenteken)
+--
+--  wordt dan kenteken_kaal = kenteken_kaal(w.kenteken), en dat is voor elke
+--  rij waar. De functie geeft dan het hele wagenpark terug, ongeacht wat je
+--  zocht -- zonder foutmelding. Met een handvol wagens in een proef valt dat
+--  niet op; bij een klant met honderd trekkers wel.
+--
+--  Vandaar zoek_naar. kenteken_kaal() doet het sinds 0114 al zo, met invoer.
+--
+--  En drop ervoor: create or replace mag de naam van een parameter niet
+--  wijzigen ("cannot change name of input parameter"). Zonder die regels
+--  loopt een tweede ronde van bijwerken.sql hier stuk.
+-- ---------------------------------------------------------------------------
+
+drop function if exists public.wagen_zoeken(text);
+drop function if exists public.wagen_historie(text, integer);
+
+create or replace function public.wagen_zoeken(zoek_naar text)
+returns table (
+  wagen_id        text,
+  kenteken_netjes text,
+  werkgever_id    text,
+  werkgever_naam  text,
+  company_id      text,
+  company_naam    text,
+  chauffeur_naam  text,
+  soort           text,
+  actief          boolean
+)
+language sql stable security invoker set search_path = public as $$
+  select w.id,
+         w.kenteken,
+         w.werkgever_id,
+         e.naam,
+         coalesce(w.company_id, e.company_id),
+         c.name,
+         nullif(w.chauffeur_naam, ''),
+         w.soort,
+         w.actief
+    from public.wagen w
+    left join public.employers e on e.id = w.werkgever_id
+    left join public.companies c on c.id = coalesce(w.company_id, e.company_id)
+   where w.kenteken_kaal = public.kenteken_kaal(zoek_naar)
+   order by w.actief desc, w.kenteken;
+$$;
+
+grant execute on function public.wagen_zoeken(text) to authenticated;
+
+comment on function public.wagen_zoeken(text) is
+  'Van een kenteken naar het bedrijf waar die wagen bij hoort (0117). '
+  'Ongevoelig voor schrijfwijze. security invoker: je ziet alleen wagens '
+  'waar je volgens wagen_select bij mag.';
+
+-- ---------------------------------------------------------------------------
+--  3. Wat is er met deze wagen gedaan?
+--
+--  De wasbeurten van één kenteken, ongeacht hoe het destijds is ingetikt.
+--  Dit is wat "later kunnen zien in het systeem" praktisch betekent: iemand
+--  belt over een wagen en je wilt weten wanneer hij hier was.
+--
+--  Let op: dit leest wash_jobs, en daar geldt jobs_select. Een werkgever ziet
+--  dus zijn eigen beurten en niet die van een ander -- de functie hoeft dat
+--  niet zelf af te schermen en doet dat bewust ook niet.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.wagen_historie(zoek_naar text, hoeveel integer default 50)
+returns table (
+  job_id       text,
+  ticket       text,
+  company_id   text,
+  company_naam text,
+  plate        text,
+  service      text,
+  status       text,
+  gepland_op   bigint,
+  gereed_op    bigint,
+  prijs_excl   numeric
+)
+language sql stable security invoker set search_path = public as $$
+  select j.id, j.ticket, j.company_id, j.company_name, j.plate, j.service,
+         j.status, j.scheduled_at, j.completed_at, j.price_excl
+    from public.wash_jobs j
+   where public.kenteken_kaal(j.plate) = public.kenteken_kaal(zoek_naar)
+   order by j.scheduled_at desc
+   limit greatest(1, least(coalesce(hoeveel, 50), 500));
+$$;
+
+grant execute on function public.wagen_historie(text, integer) to authenticated;
+
+comment on function public.wagen_historie(text, integer) is
+  'De wasbeurten van één kenteken, ongeacht schrijfwijze (0117). Leest '
+  'wash_jobs, dus jobs_select bepaalt wat je ervan ziet.';
+
+-- ---------------------------------------------------------------------------
+--  4. Welke kentekens kennen we nog niet?
+--
+--  De andere kant op, en dit is de vraag waar het project voor bestaat:
+--  "controleren of er voor elk kenteken wel een order gemaakt is."
+--
+--  Zolang er geen camera-events zijn, is de beste benadering: kentekens die
+--  in de wasbeurten voorkomen maar in geen enkel wagenpark staan. Dat is het
+--  werk dat er ligt voordat de camera erbij komt -- en straks de lijst waar
+--  een gelezen kenteken tegenaan gehouden wordt.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.kentekens_zonder_wagen(sinds bigint default 0)
+returns table (
+  kenteken_kaal text,
+  voorbeeld     text,
+  hoeveel       bigint,
+  laatst_op     bigint,
+  bedrijven     bigint
+)
+language sql stable security invoker set search_path = public as $$
+  select public.kenteken_kaal(j.plate)     as kenteken_kaal,
+         min(j.plate)                      as voorbeeld,
+         count(*)                          as hoeveel,
+         max(j.scheduled_at)               as laatst_op,
+         count(distinct j.company_id)      as bedrijven
+    from public.wash_jobs j
+   where j.scheduled_at >= coalesce(sinds, 0)
+     and public.kenteken_kaal(j.plate) <> ''
+     and not exists (
+           select 1 from public.wagen w
+            where w.kenteken_kaal = public.kenteken_kaal(j.plate)
+         )
+   group by 1
+   order by max(j.scheduled_at) desc;
+$$;
+
+grant execute on function public.kentekens_zonder_wagen(bigint) to authenticated;
+
+comment on function public.kentekens_zonder_wagen(bigint) is
+  'Kentekens die zijn gewassen maar in geen enkel wagenpark staan (0117). '
+  'De aanvullijst, en straks waar een camerakenteken tegenaan gehouden wordt.';
+
+-- --- ingeschreven door scripts/migratie-stand.cjs ---
+do $stand$ begin
+  if to_regprocedure('public.migratie_gedaan(integer,text)') is not null then
+    perform public.migratie_gedaan(117, 'Van een kenteken naar de klant');
   end if;
 end $stand$;

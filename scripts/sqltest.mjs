@@ -516,7 +516,7 @@ await db.exec(`
   on conflict (id) do nothing;
 
   update public.profiles set location_id = 'loc_utr'
-   where email = 'wasser@truckwash1group.nl';
+   where email in ('wasser@truckwash1group.nl', 'voorman@truckwash1group.nl');
 
   insert into public.channels (id, slug, name, kind, private, member_ids, created_by, created_at) values
     ('ch_algemeen', 'algemeen', 'Algemeen', 'kanaal', false, '{}', '${voormanRow.id}', 0),
@@ -4890,8 +4890,11 @@ check('RLS staat aan op allebei',
        and c.relname in ('exact_personeel', 'exact_medewerker')
        and c.relrowsecurity`)).rows[0].n === 2)
 
+/* Sinds 0115 staat die grens in mag_dossiers_beheren() -- management,
+   leidinggevende of staff.view -- met dossier_in_bereik() eromheen. De
+   naam is_management staat daardoor niet meer los in de regel. */
 check('en dat is dezelfde grens als het dossier zelf',
-  /is_management/.test((await db.query(`
+  /mag_dossiers_beheren/.test((await db.query(`
     select coalesce(qual, '') as qual from pg_policies
      where schemaname = 'public' and tablename = 'personnel_private'
        and cmd = 'SELECT'`)).rows[0].qual))
@@ -9036,13 +9039,36 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
       .map((m) => ({ op: m.index, entiteit: m[1] ?? m[2] ?? m[3] }))
       .filter((x) => perEntiteit[x.entiteit])
 
+    /*
+     * En niet verder terugkijken dan de functie waar het veld in staat.
+     *
+     * Een bestand van vijftienhonderd regels leest boven in zijn tabellen en
+     * schrijft onderin naar een heel andere. In EmployerDashboard.tsx stond
+     * db.wagens op regel 50 en een afspraak met kenteken: x || undefined op
+     * regel 1022 -- vier functies verderop -- en daarmee wees deze controle
+     * naar wagen.kenteken, dat verplicht is. Dat is geen botsing maar de
+     * laatste naam die toevallig nog vooraan stond.
+     *
+     * Een functiegrens is waar een lezer ook stopt. Top-level function staat
+     * in de eerste kolom; een geneste staat ingesprongen en telt dus niet.
+     */
+    const functies = [...tekst.matchAll(/(?:^|[\r\n])(?:export\s+)?(?:async\s+)?function\s/g)]
+      .map((m) => m.index)
+
     for (const m of tekst.matchAll(LEEG)) {
       const veld = m[1] ?? m[2]
       const kolom = anders[veld] ?? naarSnake(veld)
 
+      let grens = 0
+      for (const op of functies) {
+        if (op > m.index) break
+        grens = op
+      }
+
       let dichtstbij = null
       for (const n of noemt) {
         if (n.op > m.index) break
+        if (n.op < grens) continue
         dichtstbij = n.entiteit
       }
       if (!dichtstbij) continue
@@ -9068,7 +9094,20 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
        where table_schema = 'public'
          and table_name = any($1)
          and is_nullable = 'NO'
-         and column_default is null
+         /*
+          * Een standaardwaarde redt je hier NIET, en daar stond deze
+          * controle blind voor: hier stond 'and column_default is null'.
+          *
+          * Dat klopt zolang een veld wordt WEGGELATEN -- dan springt de
+          * standaardwaarde in. Maar toPayload laat niets weg: hij maakt van
+          * undefined een expliciete null (zie supabaseApi.ts), en een
+          * expliciete null gaat dwars langs de standaardwaarde heen.
+          *
+          * Dat kostte een vastgelopen synchronisatie in productie:
+          * allLocations: loc.allLocations || undefined op een boolean die
+          * not null default false is. Uit de foutmelding bleek precies dit,
+          * en deze controle had er niets van gezegd.
+          */
          and is_generated = 'NEVER'
     `, [tabellen])).rows.map((r) => r.sleutel))
 
@@ -9078,6 +9117,47 @@ console.log('\n71. Een veld leegmaken raakt geen verplichte kolom')
 
   check('geen enkel leeggemaakt veld is een verplichte kolom',
     botsing.length === 0, [...new Set(botsing)].join('; '))
+
+  /* ---- 5. en NOOIT_LEEG noemt alleen kolommen die echt niet leeg mogen ---- */
+
+  /*
+   * toRow() laat de velden uit NOOIT_LEEG weg in plaats van er null van te
+   * maken, zodat de standaardwaarde van de server erin springt. Dat is een
+   * vangnet voor records die al in een wachtrij stonden toen het scherm
+   * werd gerepareerd -- zie de uitleg bij die lijst.
+   *
+   * Een naam die daar per ongeluk in staat, wordt dus NOOIT meegestuurd.
+   * Voor een kolom die wél leeg mag betekent dat: leegmaken werkt niet meer,
+   * en er komt geen foutmelding. Precies het soort stilte waar deze hele
+   * controle voor bestaat, dus hij kijkt de lijst na.
+   */
+  const nooitBlok = adapter.slice(
+    adapter.indexOf('const NOOIT_LEEG'),
+    adapter.indexOf('const toSnake'))
+
+  const genoemd = [...nooitBlok.matchAll(/([a-zA-Z][a-zA-Z0-9]*):\s*\[([^\]]*)\]/g)]
+    .flatMap(([, entiteit, velden]) =>
+      [...velden.matchAll(/'([a-zA-Z][a-zA-Z0-9]*)'/g)].map((v) => ({
+        entiteit,
+        kolom: anders[v[1]] ?? naarSnake(v[1]),
+      })))
+
+  check('NOOIT_LEEG is te lezen', genoemd.length > 0, String(genoemd.length))
+
+  const nietVerplicht = []
+  for (const g of genoemd) {
+    const tabel = perEntiteit[g.entiteit]
+    if (!tabel) { nietVerplicht.push(`${g.entiteit} is geen entiteit`); continue }
+    const rij = (await vn.query(`
+      select is_nullable from information_schema.columns
+       where table_schema = 'public' and table_name = $1 and column_name = $2
+    `, [tabel, g.kolom])).rows[0]
+    if (!rij) nietVerplicht.push(`${tabel}.${g.kolom} bestaat niet`)
+    else if (rij.is_nullable !== 'NO') nietVerplicht.push(`${tabel}.${g.kolom} mag wel leeg`)
+  }
+
+  check('alles in NOOIT_LEEG is een kolom die echt niet leeg mag',
+    nietVerplicht.length === 0, nietVerplicht.join('; '))
 
   await vn.close()
 }
@@ -9920,6 +10000,623 @@ console.log('\n75. Een werkadres op het verkeerde domein')
 
   await asServer(wa)
   await wa.close()
+}
+
+console.log('\n76. Een wagen is meer dan een tekstveld')
+
+{
+  /*
+   * Johannes: "controleren of er voor elk kenteken wel een order gemaakt is
+   * of dat er een vergeten is."
+   *
+   * Dat kan alleen als een kenteken van iemand is. Hier staan de twee dingen
+   * die daarbij mis kunnen gaan: de schrijfwijze (BX-JT-42 en BXJT42 moeten
+   * dezelfde wagen zijn) en wie eraan mag komen. Een chauffeur die aan het
+   * bedrijf gekoppeld is hoort te kijken, niet te wijzigen -- mijn_werkgevers()
+   * telt hem wel mee, en daarom staat het schrijfrecht op beheerders.
+   */
+  const wg = await fresh()
+  await wg.exec(sqlFile('supabase/setup.sql'))
+  await asServer(wg)
+
+  const BAAS      = '76000000-0000-0000-0000-000000000001'
+  const BEHEERDER = '76000000-0000-0000-0000-000000000002'
+  const CHAUFFEUR = '76000000-0000-0000-0000-000000000003'
+  const KLANT     = '76000000-0000-0000-0000-000000000004'
+  const VREEMDE   = '76000000-0000-0000-0000-000000000005'
+
+  await wg.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',      'baas76@truckwash1group.nl', '{"name":"Baas"}'::jsonb),
+      ('${BEHEERDER}', 'beheer76@vervoer.nl',       '{"name":"Bea"}'::jsonb),
+      ('${CHAUFFEUR}', 'chauffeur76@vervoer.nl',    '{"name":"Chris"}'::jsonb),
+      ('${KLANT}',     'klant76@vervoer.nl',        '{"name":"Kees"}'::jsonb),
+      ('${VREEMDE}',   'vreemde76@elders.nl',       '{"name":"Vera"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employer'], active = true
+     where auth_id in ('${BEHEERDER}', '${CHAUFFEUR}');
+    update public.profiles set roles = array['customer'], active = true
+     where auth_id in ('${KLANT}', '${VREEMDE}');
+
+    insert into public.companies (id, name) values
+      ('c76_vervoer', 'Vervoer BV'),
+      ('c76_elders',  'Elders BV')
+    on conflict (id) do nothing;
+  `)
+
+  const pid = async (mail) => (await wg.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const beheerderId = await pid('beheer76@vervoer.nl')
+  const chauffeurId = await pid('chauffeur76@vervoer.nl')
+
+  await wg.exec(`
+    /* Het transportbedrijf en het factuuradres zijn hier dezelfde partij;
+       employers.company_id is de koppeling die dat vastlegt. */
+    insert into public.employers (id, naam, company_id, status, beheerders) values
+      ('w76_vervoer', 'Vervoer BV', 'c76_vervoer', 'actief', array['${beheerderId}']),
+      ('w76_ander',   'Ander Vervoer', null,       'actief', array[]::text[])
+    on conflict (id) do nothing;
+
+    insert into public.employer_links
+      (id, werkgever_id, werkgever_naam, user_id, naam, email, status) values
+      ('l76_chris', 'w76_vervoer', 'Vervoer BV', '${chauffeurId}',
+       'Chris', 'chauffeur76@vervoer.nl', 'actief')
+    on conflict (id) do nothing;
+
+    update public.profiles set company_id = 'c76_vervoer' where auth_id = '${KLANT}';
+    update public.profiles set company_id = 'c76_elders'  where auth_id = '${VREEMDE}';
+  `)
+
+  /* PGlite draait als superuser en die negeert RLS -- zonder dit test je
+     niets. Zie de opmerking bij blok 3. */
+  await wg.exec(`
+    alter table public.wagen force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  /** Iets doen als een ingelogde gebruiker, met de beveiligingsregels aan. */
+  async function als(uid, fn) {
+    await asUser(wg, uid)
+    await wg.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await wg.exec('reset role;')
+      await asServer(wg)
+    }
+  }
+
+  /** True als de opdracht werd geweigerd. */
+  async function geweigerd(uid, sql) {
+    try {
+      await als(uid, () => wg.exec(sql))
+      return false
+    } catch {
+      return true
+    }
+  }
+
+  const wagenVeld = async (veld) => (await wg.query(
+    `select ${veld} from public.wagen where id = 'wg76_1'`)).rows[0]?.[veld]
+
+  const aantalVoor = (uid) => als(uid,
+    async () => (await wg.query('select count(*)::int n from public.wagen')).rows[0].n)
+
+  /* --- de schrijfwijze wordt door de database gezet --- */
+
+  await als(BEHEERDER, () => wg.exec(
+    "insert into public.wagen (id, werkgever_id, company_id, kenteken)" +
+    " values ('wg76_1', 'w76_vervoer', 'c76_vervoer', ' bx-jt-42 ')"))
+
+  check('het kenteken wordt opgeschoond zoals ingevoerd',
+    (await wagenVeld('kenteken')) === 'BX-JT-42')
+  check('en krijgt er een kale vorm bij om op te vergelijken',
+    (await wagenVeld('kenteken_kaal')) === 'BXJT42')
+
+  const vormen = (await wg.query(
+    "select public.kenteken_kaal('bx jt 42') a, public.kenteken_kaal('BX.JT.42') b")).rows[0]
+  check('verschillende schrijfwijzen geven dezelfde kale vorm',
+    vormen.a === 'BXJT42' && vormen.b === 'BXJT42', JSON.stringify(vormen))
+
+  /* Zonder dit staat dezelfde wagen er twee keer in omdat iemand de
+     streepjes anders zette. */
+  check('dezelfde wagen kan er niet twee keer in',
+    await geweigerd(BEHEERDER,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_dubbel', 'w76_vervoer', 'BXJT42')"))
+
+  check('een kenteken zonder letters of cijfers wordt geweigerd',
+    await geweigerd(BEHEERDER,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_leeg', 'w76_vervoer', '---')"))
+
+  /* --- wie mag kijken --- */
+
+  check('een gekoppelde chauffeur ziet het wagenpark',
+    (await aantalVoor(CHAUFFEUR)) === 1)
+  check('het factuuradres ziet hetzelfde wagenpark',
+    (await aantalVoor(KLANT)) === 1)
+  check('een ander bedrijf ziet er niets van',
+    (await aantalVoor(VREEMDE)) === 0)
+
+  /* --- wijzigen mag alleen een beheerder van dat bedrijf --- */
+
+  check('een chauffeur kan er geen wagen bij zetten',
+    await geweigerd(CHAUFFEUR,
+      "insert into public.wagen (id, werkgever_id, kenteken)" +
+      " values ('wg76_chris', 'w76_vervoer', '11-AAA-1')"))
+
+  /* Een update die niemand mag raakt geen rijen; dat geeft geen fout, dus
+     kijken we naar wat er staat. */
+  await als(CHAUFFEUR, () => wg.exec(
+    "update public.wagen set omschrijving = 'van mij' where id = 'wg76_1'"))
+  check('en kan een bestaande wagen niet wijzigen',
+    (await wagenVeld('omschrijving')) === null)
+
+  await als(CHAUFFEUR, () => wg.exec("delete from public.wagen where id = 'wg76_1'"))
+  check('en kan hem niet verwijderen',
+    (await wg.query("select count(*)::int n from public.wagen where id = 'wg76_1'"))
+      .rows[0].n === 1)
+
+  /* Er staat nog geen enkele klant in het systeem, dus is nog niet uitgemaakt
+     of ze als werkgever of als facturatieklant worden ingevoerd. Beide routes
+     moeten daarom werken -- ook een wagen die alleen aan een bedrijf hangt. */
+
+  await als(KLANT, () => wg.exec(
+    "insert into public.wagen (id, company_id, kenteken)" +
+    " values ('wg76_kees', 'c76_vervoer', '22-BBB-2')"))
+  check('het facturatieaccount mag zijn eigen wagens beheren',
+    (await wg.query("select count(*)::int n from public.wagen where id = 'wg76_kees'"))
+      .rows[0].n === 1)
+
+  check('maar niet die van een ander bedrijf',
+    await geweigerd(VREEMDE,
+      "insert into public.wagen (id, company_id, kenteken)" +
+      " values ('wg76_vera', 'c76_vervoer', '33-CCC-3')"))
+
+  check('een wagen zonder eigenaar wordt geweigerd',
+    await geweigerd(BAAS,
+      "insert into public.wagen (id, kenteken) values ('wg76_zwevend', '44-DDD-4')"))
+
+  check('dezelfde wagen kan ook bij een bedrijf niet twee keer in',
+    await geweigerd(KLANT,
+      "insert into public.wagen (id, company_id, kenteken)" +
+      " values ('wg76_kees2', 'c76_vervoer', '22BBB2')"))
+
+  await als(BEHEERDER, () => wg.exec(
+    "update public.wagen set omschrijving = 'trekker voor de lange rit'" +
+    " where id = 'wg76_1'"))
+  check('de beheerder van het bedrijf mag wel wijzigen',
+    (await wagenVeld('omschrijving')) === 'trekker voor de lange rit')
+
+  /* --- een bedrijf verzet zijn wagens niet naar een ander bedrijf --- */
+
+  await als(BEHEERDER, () => wg.exec(
+    "update public.wagen set werkgever_id = 'w76_ander' where id = 'wg76_1'"))
+  check('een beheerder kan zijn wagen niet aan een ander bedrijf hangen',
+    (await wagenVeld('werkgever_id')) === 'w76_vervoer')
+
+  await als(BAAS, () => wg.exec(
+    "update public.wagen set werkgever_id = 'w76_ander' where id = 'wg76_1'"))
+  check('het management wel',
+    (await wagenVeld('werkgever_id')) === 'w76_ander')
+
+  await wg.close()
+}
+
+console.log('\n77. Een BSN uit Groenlo hoort niet in Venlo')
+
+{
+  /*
+   * Sinds 0056 mag een leidinggevende de identiteitskant van het dossier
+   * zien en wijzigen. De regel die dat toestond kreeg als enige in dit
+   * schema geen vestigingsfilter, dus kon een leidinggevende in Venlo het
+   * BSN van iemand in Groenlo opvragen en aanpassen.
+   *
+   * Dit hoofdstuk bewaakt beide kanten: dat de eigen vestiging open blijft
+   * (anders kan niemand meer iemand aannemen) en dat de rest dicht zit.
+   */
+  const bs = await fresh()
+  await bs.exec(sqlFile('supabase/setup.sql'))
+  await asServer(bs)
+
+  const BAAS   = '77000000-0000-0000-0000-000000000001'
+  const LEIDER = '77000000-0000-0000-0000-000000000002'
+  const HIER   = '77000000-0000-0000-0000-000000000003'
+  const DAAR   = '77000000-0000-0000-0000-000000000004'
+  const ZWEVER = '77000000-0000-0000-0000-000000000005'
+  const ALLES  = '77000000-0000-0000-0000-000000000006'
+
+  await bs.exec(`
+    insert into public.locations (id, code, name) values
+      ('loc77_venlo', 'VEN77', 'Venlo'), ('loc77_groenlo', 'GRO77', 'Groenlo')
+    on conflict (id) do nothing;
+
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',   'baas77@tw1.nl',   '{"name":"Baas"}'::jsonb),
+      ('${LEIDER}', 'leider77@tw1.nl', '{"name":"Leider Venlo"}'::jsonb),
+      ('${HIER}',   'hier77@tw1.nl',   '{"name":"Wasser Venlo"}'::jsonb),
+      ('${DAAR}',   'daar77@tw1.nl',   '{"name":"Wasser Groenlo"}'::jsonb),
+      ('${ZWEVER}', 'zwever77@tw1.nl', '{"name":"Zonder vestiging"}'::jsonb),
+      ('${ALLES}',  'alles77@tw1.nl',  '{"name":"Ziet alles"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+
+    update public.profiles
+       set roles = array['employee','supervisor'], active = true,
+           location_id = 'loc77_venlo'
+     where auth_id = '${LEIDER}';
+
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc77_venlo'
+     where auth_id = '${HIER}';
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = 'loc77_groenlo'
+     where auth_id = '${DAAR}';
+    update public.profiles set roles = array['employee'], active = true,
+           location_id = null
+     where auth_id = '${ZWEVER}';
+
+    /* Een leidinggevende die wel alles mag zien; die hoort niets te merken. */
+    update public.profiles
+       set roles = array['employee','supervisor'], active = true,
+           location_id = 'loc77_venlo', all_locations = true
+     where auth_id = '${ALLES}';
+  `)
+
+  const pid = async (mail) => (await bs.query(
+    `select id from public.profiles where email = '${mail}'`)).rows[0].id
+
+  const idHier   = await pid('hier77@tw1.nl')
+  const idDaar   = await pid('daar77@tw1.nl')
+  const idZwever = await pid('zwever77@tw1.nl')
+
+  await bs.exec(`
+    insert into public.personnel_private (id, user_id, bsn) values
+      ('pp77_hier',   '${idHier}',   '111222333'),
+      ('pp77_daar',   '${idDaar}',   '444555666'),
+      ('pp77_zwever', '${idZwever}', '777888999')
+    on conflict (id) do nothing;
+
+    alter table public.personnel_private force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  async function als(uid, fn) {
+    await asUser(bs, uid)
+    await bs.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await bs.exec('reset role;')
+      await asServer(bs)
+    }
+  }
+
+  const zichtbaar = (uid) => als(uid,
+    async () => (await bs.query('select count(*)::int n from public.personnel_private')).rows[0].n)
+
+  check('een leidinggevende ziet het dossier van zijn eigen vestiging',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idHier}'`
+    )).rows[0].n) === 1)
+
+  check('maar niet dat van een andere vestiging',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idDaar}'`
+    )).rows[0].n) === 0)
+
+  /*
+   * Iemand zonder vestiging valt er wél binnen, net als bij profiles zelf.
+   * Dat staat hier expliciet omdat het een keuze is en geen toeval: strenger
+   * maken brak "een leidinggevende ziet het dossier van zijn team", want in
+   * dit systeem ís een team een vestiging. Zolang er profielen zonder
+   * vestiging rondlopen is dát het gat, niet deze regel.
+   */
+  check('iemand zonder vestiging valt er nog binnen (bekende grens)',
+    await als(LEIDER, async () => (await bs.query(
+      `select count(*)::int n from public.personnel_private where user_id = '${idZwever}'`
+    )).rows[0].n) === 1)
+
+  check('het management ziet alles gewoon', (await zichtbaar(BAAS)) === 3)
+  check('en wie alle vestigingen mag zien ook', (await zichtbaar(ALLES)) === 3)
+
+  /* --- en wijzigen volgt dezelfde grens --- */
+
+  await als(LEIDER, () => bs.exec(
+    `update public.personnel_private set bsn = '000000000' where user_id = '${idDaar}'`))
+  check('een leidinggevende kan een BSN van elders niet wijzigen',
+    (await bs.query(
+      `select bsn from public.personnel_private where user_id = '${idDaar}'`
+    )).rows[0].bsn === '444555666')
+
+  await als(LEIDER, () => bs.exec(
+    `update public.personnel_private set bsn = '999999999' where user_id = '${idHier}'`))
+  check('maar dat van zijn eigen vestiging wel',
+    (await bs.query(
+      `select bsn from public.personnel_private where user_id = '${idHier}'`
+    )).rows[0].bsn === '999999999')
+
+  await bs.close()
+}
+
+console.log('\n78. Een wisverzoek dat echt wist')
+
+{
+  /*
+   * De knop "wissen" haalde het inlogaccount en de rij in profiles weg, en
+   * verder niets. user_id in de dossiertabellen is een gewone tekstkolom
+   * zonder foreign key, dus er cascadeerde niets: het BSN, het
+   * rekeningnummer en de regels van de paspoortscan bleven staan.
+   *
+   * Iemand die om verwijdering vroeg en dat bevestigd kreeg, hield zijn
+   * paspoort bij ons in het systeem.
+   */
+  const ws = await fresh()
+  await ws.exec(sqlFile('supabase/setup.sql'))
+  await asServer(ws)
+
+  const WEG = '78000000-0000-0000-0000-000000000001'
+
+  await ws.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${WEG}', 'weg78@tw1.nl', '{"name":"Vertrokken"}'::jsonb)
+    on conflict (id) do nothing;
+    update public.profiles set roles = array['employee'], active = true
+     where auth_id = '${WEG}';
+  `)
+
+  const idWeg = (await ws.query(
+    "select id from public.profiles where email = 'weg78@tw1.nl'")).rows[0].id
+
+  await ws.exec(`
+    insert into public.personnel_private (id, user_id, bsn)
+      values ('pp78', '${idWeg}', '123456782');
+    insert into public.personnel_loon (id, user_id, iban)
+      values ('pl78', '${idWeg}', 'NL00BANK0123456789');
+    insert into public.documents (id, user_id, kind, title, storage_path)
+      values ('doc78', '${idWeg}', 'identiteitsbewijs', 'Paspoort', '${idWeg}/doc78.jpg');
+    insert into public.change_requests (id, user_id, status)
+      values ('cr78', '${idWeg}', 'open');
+  `)
+
+  const staatEr = async () => (await ws.query(`
+    select
+      (select count(*) from public.personnel_private where user_id = '${idWeg}')
+    + (select count(*) from public.personnel_loon    where user_id = '${idWeg}')
+    + (select count(*) from public.documents         where user_id = '${idWeg}')
+    + (select count(*) from public.change_requests   where user_id = '${idWeg}') as n
+  `)).rows[0].n
+
+  check('het dossier staat er voor het wissen', Number(await staatEr()) === 4)
+
+  await ws.exec(`delete from public.profiles where id = '${idWeg}'`)
+
+  check('en is weg zodra het profiel weg is', Number(await staatEr()) === 0)
+
+  /*
+   * En elk toestel hoort het te horen, anders staat het dossier centraal
+   * gewist en lokaal nog op vijf tablets.
+   */
+  const gemeld = (await ws.query(`
+    select tabel from public.deletion_log
+     where record_id in ('pp78','pl78','doc78','cr78') order by tabel`)).rows.map((r) => r.tabel)
+  check('de toestellen krijgen alle vier de verwijderingen door',
+    gemeld.length === 4, JSON.stringify(gemeld))
+
+  /* --- en wat er van vroeger is blijven staan, is op te vragen --- */
+
+  await ws.exec(`
+    insert into public.personnel_private (id, user_id, bsn)
+      values ('pp78_wees', 'p_bestaat_niet', '987654321');
+  `)
+  const wezen = (await ws.query('select * from public.dossier_wezen()')).rows
+  check('losse dossierrijen van verdwenen profielen zijn te tellen',
+    wezen.find((r) => r.tabel === 'personnel_private')?.hoeveel === 1n
+    || Number(wezen.find((r) => r.tabel === 'personnel_private')?.hoeveel) === 1,
+    JSON.stringify(wezen.map((r) => [r.tabel, String(r.hoeveel)])))
+
+  await ws.close()
+}
+
+console.log('\n79. Van een kenteken naar de klant')
+
+{
+  /*
+   * Johannes: "waardoor we die later kunnen zien in het systeem, op naam van
+   * die klant."
+   *
+   * 0114 maakte de schrijfwijze eenduidig; hier wordt die vraag
+   * beantwoordbaar. Twee dingen die daarbij mis kunnen gaan, en ze zijn
+   * allebei stil:
+   *
+   *   de koppeling gaat op de KALE vorm, dus een beurt die als "BX JT 42" is
+   *   ingetikt hoort bij dezelfde wagen als "BX-JT-42". Gaat dat mis, dan
+   *   komt er een lege historie uit -- geen fout, geen melding, alleen een
+   *   wagen die nooit gewassen lijkt.
+   *
+   *   en de brug LEEST alleen. Een kenteken dat een camera opvangt blijft een
+   *   suggestie; wash_jobs.plate is waar de facturatie op draait, en daar mag
+   *   niets vanzelf in geschreven worden.
+   */
+  const kb = await fresh()
+  await kb.exec(sqlFile('supabase/setup.sql'))
+  await asServer(kb)
+
+  const BAAS    = '79000000-0000-0000-0000-000000000001'
+  const BEHEER  = '79000000-0000-0000-0000-000000000002'
+  const VREEMDE = '79000000-0000-0000-0000-000000000003'
+
+  await kb.exec(`
+    insert into auth.users (id, email, raw_user_meta_data) values
+      ('${BAAS}',    'baas79@truckwash1group.nl', '{"name":"Baas"}'::jsonb),
+      ('${BEHEER}',  'beheer79@vervoer.nl',       '{"name":"Bea"}'::jsonb),
+      ('${VREEMDE}', 'vreemde79@elders.nl',       '{"name":"Vera"}'::jsonb)
+    on conflict (id) do nothing;
+
+    update public.profiles set roles = array['management'], active = true
+     where auth_id = '${BAAS}';
+    update public.profiles set roles = array['employer'], active = true
+     where auth_id = '${BEHEER}';
+    update public.profiles set roles = array['customer'], active = true
+     where auth_id = '${VREEMDE}';
+
+    insert into public.companies (id, name) values
+      ('c79_vervoer', 'Vervoer BV'),
+      ('c79_elders',  'Elders BV')
+    on conflict (id) do nothing;
+  `)
+
+  const beheerId = (await kb.query(
+    "select id from public.profiles where email = 'beheer79@vervoer.nl'")).rows[0].id
+
+  await kb.exec(`
+    insert into public.employers (id, naam, company_id, status, beheerders) values
+      ('w79_vervoer', 'Vervoer BV', 'c79_vervoer', 'actief', array['${beheerId}'])
+    on conflict (id) do nothing;
+
+    update public.profiles set company_id = 'c79_elders' where auth_id = '${VREEMDE}';
+
+    /* De wagen hangt alleen aan de werkgever. Het factuuradres hoort er via
+       employers.company_id alsnog uit te komen -- in dit bedrijf is dat
+       dezelfde partij. */
+    insert into public.wagen (id, werkgever_id, kenteken, soort, chauffeur_naam)
+      values ('wg79_1', 'w79_vervoer', 'BX-JT-42', 'trekker', 'Chris');
+
+    /* Drie beurten op hetzelfde kenteken, met drie schrijfwijzen. En een
+       vierde op een wagen die in geen enkel park staat. */
+    insert into public.wash_jobs
+      (id, company_id, company_name, plate, service, status, scheduled_at,
+       completed_at, price_excl) values
+      ('j79_a',   'c79_vervoer', 'Vervoer BV', 'BX-JT-42', 'buitenwas', 'gereed',
+       1000, 1100, 85),
+      ('j79_b',   'c79_vervoer', 'Vervoer BV', 'bx jt 42', 'combi',     'gereed',
+       2000, 2100, 120),
+      ('j79_c',   'c79_vervoer', 'Vervoer BV', 'BXJT42',   'buitenwas', 'gepland',
+       3000, null, 85),
+      ('j79_los', 'c79_vervoer', 'Vervoer BV', 'ZZ-99-ZZ', 'buitenwas', 'gereed',
+       2500, 2600, 85);
+  `)
+
+  /* PGlite draait als superuser en die negeert RLS -- zonder dit test je
+     niets. Zie de opmerking bij blok 3. */
+  await kb.exec(`
+    alter table public.wagen force row level security;
+    alter table public.wash_jobs force row level security;
+    grant select, insert, update, delete on all tables in schema public to authenticated;
+  `)
+
+  async function als(uid, fn) {
+    await asUser(kb, uid)
+    await kb.exec('set role authenticated;')
+    try {
+      return await fn()
+    } finally {
+      await kb.exec('reset role;')
+      await asServer(kb)
+    }
+  }
+
+  /* --- van een kenteken naar de klant --- */
+
+  const zoek = (uid, wat) => als(uid, async () => (await kb.query(
+    `select * from public.wagen_zoeken('${wat}')`)).rows)
+
+  const gevonden = await zoek(BAAS, 'BX-JT-42')
+  check('een kenteken wijst naar zijn wagen', gevonden.length === 1)
+  check('met het bedrijf erbij, ook al hangt de wagen aan de werkgever',
+    gevonden[0]?.company_id === 'c79_vervoer' && gevonden[0]?.company_naam === 'Vervoer BV',
+    JSON.stringify(gevonden[0]))
+  check('en met de chauffeur die erop rijdt', gevonden[0]?.chauffeur_naam === 'Chris')
+
+  /* Dit is waar het om begonnen was: wat een camera leest heeft geen
+     streepjes, en wat de balie intikt soms wel. */
+  for (const vorm of ['bx jt 42', 'BXJT42', 'bx-jt-42']) {
+    check(`"${vorm}" vindt dezelfde wagen`,
+      (await zoek(BAAS, vorm))[0]?.wagen_id === 'wg79_1')
+  }
+
+  check('een onbekend kenteken levert niets op',
+    (await zoek(BAAS, 'ZZ-99-ZZ')).length === 0)
+
+  /*
+   * security invoker, niet definer: de functie leest public.wagen met de
+   * rechten van wie hem aanroept, dus wagen_select bepaalt wat je ziet. Zou
+   * hij definer zijn, dan kon elk klantaccount het wagenpark van elke
+   * concurrent uitlezen door kentekens te proberen.
+   */
+  check('de eigen beheerder ziet zijn wagen', (await zoek(BEHEER, 'BXJT42')).length === 1)
+  check('een ander bedrijf ziet hem niet', (await zoek(VREEMDE, 'BXJT42')).length === 0)
+
+  /* --- en wat er met die wagen is gedaan --- */
+
+  const historie = await als(BAAS, async () => (await kb.query(
+    "select * from public.wagen_historie('bx-jt-42')")).rows)
+  check('de historie pakt alle drie de schrijfwijzen', historie.length === 3,
+    JSON.stringify(historie.map((r) => r.plate)))
+  check('nieuwste eerst', historie[0]?.job_id === 'j79_c')
+  check('en de losse beurt hoort er niet bij',
+    !historie.some((r) => r.job_id === 'j79_los'))
+
+  check('een ander bedrijf ziet de historie niet',
+    (await als(VREEMDE, async () => (await kb.query(
+      "select count(*)::int n from public.wagen_historie('BXJT42')")).rows[0].n)) === 0)
+
+  /* --- welke kentekens we nog niet kennen --- */
+
+  const onbekend = await als(BAAS, async () => (await kb.query(
+    'select * from public.kentekens_zonder_wagen()')).rows)
+  check('een gewassen kenteken zonder wagen staat op de aanvullijst',
+    onbekend.length === 1 && onbekend[0].kenteken_kaal === 'ZZ99ZZ',
+    JSON.stringify(onbekend.map((r) => r.kenteken_kaal)))
+  check('en het kenteken dat wel in een park staat niet',
+    !onbekend.some((r) => r.kenteken_kaal === 'BXJT42'))
+
+  /* --- de brug leest, en schrijft nooit --- */
+
+  /*
+   * Een kenteken dat een camera opvangt is een suggestie, nooit een
+   * factuurregel -- dat is de grens die het hele cameraproject draagt, en
+   * wash_jobs.plate is waar de facturatie op draait.
+   *
+   * Een functie die als stable is aangemerkt KAN niet schrijven: Postgres
+   * weigert dat bij het uitvoeren. Dit is dus niet "er is nu niets
+   * geschreven" maar "schrijven kan hier niet".
+   */
+  const schrijvend = (await kb.query(`
+    select p.proname from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('wagen_zoeken', 'wagen_historie', 'kentekens_zonder_wagen')
+       and p.provolatile = 'v'`)).rows.map((r) => r.proname)
+  check('geen van de brugfuncties kan schrijven', schrijvend.length === 0,
+    JSON.stringify(schrijvend))
+
+  /* En er hangt niets aan de wasbeurt dat er ongevraagd een wagen bij zoekt. */
+  const triggers = (await kb.query(`
+    select t.tgname from pg_trigger t
+     where t.tgrelid = 'public.wash_jobs'::regclass
+       and not t.tgisinternal
+       and t.tgname ilike '%wagen%'`)).rows.map((r) => r.tgname)
+  check('en er staat geen trigger op de wasbeurt die een wagen invult',
+    triggers.length === 0, JSON.stringify(triggers))
+
+  /* --- de indexen, want zonder die leest elke vraag de hele tabel --- */
+
+  const idx = (await kb.query(`
+    select indexname from pg_indexes
+     where schemaname = 'public'
+       and indexname in ('wash_jobs_kenteken_idx', 'pos_sales_kenteken_idx',
+                         'pos_subscriptions_kenteken_idx')`)).rows.map((r) => r.indexname)
+  check('de drie kentekenindexen staan er', idx.length === 3, JSON.stringify(idx))
+
+  await kb.close()
 }
 
 console.log(`\n${passed} geslaagd, ${failed} mislukt\n`)
